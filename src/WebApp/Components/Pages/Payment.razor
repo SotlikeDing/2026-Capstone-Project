@@ -1,0 +1,557 @@
+@* Shared payment page at /payment, used for two flows selected by the ?type=subscription
+   query param: (1) a booking deposit (default, query param bookingId) and (2) a role
+   listing subscription with a selectable duration (type=subscription&role=..&months=..).
+   The WebAPI prices and signs the PayFast form (api/payments/checkout) - nothing on this
+   page or in its URL decides the amount. A payment is credited only when PayFast's
+   notification reaches the WebAPI, so returning here with status=success just re-reads
+   the server's state. In Development the WebAPI also offers a simulator (api/payments/
+   simulate), because PayFast can't notify a developer's localhost. *@
+@page "/betaling"
+@page "/payment"
+@inject MikpuntApiService Api
+@inject NavigationManager Nav
+@inject AuthService Auth
+
+<PageTitle>Betaalportaal | MikPunt &bull; PayFast</PageTitle>
+
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-7">
+        <div class="mp-card p-4">
+            <div class="text-center mb-4">
+                <span class="badge bg-warning text-dark px-3 py-1 mb-2 font-monospace">PayFast Sandbox Betaalpoort</span>
+                <h2 class="brand-font text-gold mb-1">
+                    @(IsSubscriptionPayment ? "Profiel Advertensieportaal" : "Veilige Betaalportaal")
+                </h2>
+                <p class="text-muted small">
+                    @(IsSubscriptionPayment 
+                        ? $"Bestuur en aktiveer u maandelikse profiel advertensie vir u {GetRoleTitle(EffectiveRoleCode)} rol." 
+                        : "Amptelike PayFast-toetsingseenheid vir MikPunt jagbesprekings.")
+                </p>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_blockedMsg))
+            {
+                <div class="alert alert-warning p-4 text-center">
+                    <p class="mb-3">@_blockedMsg</p>
+                    @if (!Auth.IsAuthenticated)
+                    {
+                        <a href="@LoginUrl" class="mp-btn mp-btn-primary py-2 px-4">Teken In &rarr;</a>
+                    }
+                    else if (!IsSubscriptionPayment)
+                    {
+                        <a href="/jagter/besprekings" class="mp-btn mp-btn-primary py-2 px-4">Gaan na My Besprekings &rarr;</a>
+                    }
+                </div>
+            }
+            else if (_alreadyPaid)
+            {
+                <div class="alert alert-warning p-4 text-center">
+                    <div style="font-size: 46px; margin-bottom: 8px;">🔒</div>
+                    <h3 class="brand-font text-gold mb-2">Bespreking Reeds Betaal</h3>
+                    <p class="mb-3 text-muted">Hierdie bespreking is reeds as <strong>Betaal (Bevestig)</strong> gemerk. 'n Tweede betaling is nie nodig nie.</p>
+                    <a href="/jagter/besprekings" class="mp-btn mp-btn-primary py-2 px-4">Gaan na My Besprekings &rarr;</a>
+                </div>
+            }
+            else if (_completed)
+            {
+                <div class="alert alert-success p-4 text-center">
+                    <div style="font-size: 46px; margin-bottom: 8px;">✓</div>
+                    <h3 class="brand-font text-gold mb-2">
+                        @(IsSubscriptionPayment ? "Profiel Advertensie Suksesvol Geaktiveer! ⭐" : "Betaling Suksesvol Verwerk!")
+                    </h3>
+                    @if (IsSubscriptionPayment)
+                    {
+                        <p class="mb-2 text-white fs-5">
+                            U <strong>@GetRoleTitle(EffectiveRoleCode)</strong> profiel is amptelik gereklameer op <code>/browse</code>.
+                        </p>
+                        <div class="p-3 my-3 rounded" style="background: rgba(16, 185, 129, 0.15); border: 1.5px solid #10b981;">
+                            <div class="small text-muted text-uppercase fw-bold mb-1">Nuwe Geldigheids-Tydperk</div>
+                            <div class="fs-4 text-success fw-bold">
+                                Geldig tot @_updatedExpiryDate?.ToString("dd MMMM yyyy HH:mm")
+                            </div>
+                            <div class="small text-white mt-1">
+                                (Totaal van @_selectedMonths @(_selectedMonths == 1 ? "maand" : "maande") gelewer)
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="mb-1 text-muted">U ekspedisie-deposito is amptelik aangeteken en gemerk as <strong>Betaal (Bevestig)</strong>.</p>
+                    }
+                    <p class="mb-3">Verwysingsnommer: <strong class="text-gold font-monospace">@_refNum</strong></p>
+
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        @if (IsSubscriptionPayment)
+                        {
+                            <a href="@GetDashboardUrl()" class="mp-btn mp-btn-primary py-2 px-4 fs-6">
+                                Gaan na My Paneelbord &rarr;
+                            </a>
+                        }
+                        else
+                        {
+                            <a href="/jagter/besprekings" class="mp-btn mp-btn-primary py-2 px-4 fs-6">
+                                Gaan na My Besprekings 🏹
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
+            else if (_awaitingConfirmation)
+            {
+                <div class="alert alert-info p-4 text-center">
+                    <div style="font-size: 40px; margin-bottom: 8px;">⏳</div>
+                    <h3 class="brand-font text-gold mb-2">Betaling word bevestig</h3>
+                    <p class="mb-2 text-muted">
+                        PayFast het u na MikPunt teruggestuur. Ons merk die betaling eers as betaal wanneer PayFast dit
+                        direk aan ons bevestig - dit neem gewoonlik net 'n paar sekondes.
+                    </p>
+                    @if (IsSubscriptionPayment && _currentSubscription != null && _currentSubscription.HasPaidActivePeriod)
+                    {
+                        <p class="mb-2">Huidige advertensie geldig tot <strong>@_currentSubscription.ExpiryDate.ToString("dd MMMM yyyy")</strong>.</p>
+                    }
+                    <div class="d-flex justify-content-center gap-2 mt-3 flex-wrap">
+                        <button class="mp-btn mp-btn-secondary py-2 px-4" @onclick="RecheckAsync" disabled="@_processing">Kyk weer</button>
+                        <a href="@(IsSubscriptionPayment ? GetDashboardUrl() : "/jagter/besprekings")" class="mp-btn mp-btn-primary py-2 px-4">
+                            @(IsSubscriptionPayment ? "Gaan na My Paneelbord" : "Gaan na My Besprekings") &rarr;
+                        </a>
+                    </div>
+                </div>
+            }
+            else if (IsSubscriptionPayment)
+            {
+                <!-- DURATION SELECTION SECTION FOR SUBSCRIPTION -->
+                <div class="mb-4">
+                    <label class="mp-form-label fs-6 fw-bold text-gold mb-2 d-block">
+                        1. Kies u Advertensie Tydperk:
+                    </label>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 border rounded text-center cursor-pointer h-100 d-flex flex-column justify-content-between @(_selectedMonths == 1 ? "border-gold mp-card shadow-sm" : "border-secondary mp-card")"
+                                 style="@(_selectedMonths == 1 ? "border: 2px solid #f59e0b !important; background: rgba(245, 158, 11, 0.15);" : "cursor: pointer;")"
+                                 @onclick="() => SelectMonths(1)">
+                                <div>
+                                    <strong class="d-block fw-bold fs-6">1 Maand</strong>
+                                    <div class="small text-muted">30 Dae</div>
+                                </div>
+                                <div class="mt-2 pt-2 border-top border-secondary">
+                                    <span class="fs-6 fw-bold text-gold">R @GetPriceForMonths(1).ToString("N0")</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 border rounded text-center cursor-pointer h-100 d-flex flex-column justify-content-between position-relative @(_selectedMonths == 3 ? "border-gold mp-card shadow-sm" : "border-secondary mp-card")"
+                                 style="@(_selectedMonths == 3 ? "border: 2px solid #f59e0b !important; background: rgba(245, 158, 11, 0.15);" : "cursor: pointer;")"
+                                 @onclick="() => SelectMonths(3)">
+                                <span class="badge bg-info position-absolute top-0 start-50 translate-middle-x px-2 py-0" style="font-size: 10px;">5% Afslag</span>
+                                <div class="mt-1">
+                                    <strong class="d-block fw-bold fs-6">3 Maande</strong>
+                                    <div class="small text-muted">90 Dae</div>
+                                </div>
+                                <div class="mt-2 pt-2 border-top border-secondary">
+                                    <span class="fs-6 fw-bold text-gold">R @GetPriceForMonths(3).ToString("N0")</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 border rounded text-center cursor-pointer h-100 d-flex flex-column justify-content-between position-relative @(_selectedMonths == 6 ? "border-gold mp-card shadow-sm" : "border-secondary mp-card")"
+                                 style="@(_selectedMonths == 6 ? "border: 2px solid #f59e0b !important; background: rgba(245, 158, 11, 0.15);" : "cursor: pointer;")"
+                                 @onclick="() => SelectMonths(6)">
+                                <span class="badge bg-warning text-dark position-absolute top-0 start-50 translate-middle-x px-2 py-0" style="font-size: 10px;">10% Afslag</span>
+                                <div class="mt-1">
+                                    <strong class="d-block fw-bold fs-6">6 Maande</strong>
+                                    <div class="small text-muted">180 Dae</div>
+                                </div>
+                                <div class="mt-2 pt-2 border-top border-secondary">
+                                    <span class="fs-6 fw-bold text-gold">R @GetPriceForMonths(6).ToString("N0")</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 border rounded text-center cursor-pointer h-100 d-flex flex-column justify-content-between position-relative @(_selectedMonths == 12 ? "border-gold mp-card shadow-sm" : "border-secondary mp-card")"
+                                 style="@(_selectedMonths == 12 ? "border: 2px solid #f59e0b !important; background: rgba(245, 158, 11, 0.15);" : "cursor: pointer;")"
+                                 @onclick="() => SelectMonths(12)">
+                                <span class="badge bg-success position-absolute top-0 start-50 translate-middle-x px-2 py-0" style="font-size: 10px;">2 Maande Gratis</span>
+                                <div class="mt-1">
+                                    <strong class="d-block fw-bold fs-6">12 Maande</strong>
+                                    <div class="small text-muted">365 Dae</div>
+                                </div>
+                                <div class="mt-2 pt-2 border-top border-secondary">
+                                    <span class="fs-6 fw-bold text-gold">R @GetPriceForMonths(12).ToString("N0")</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Summary Box -->
+                    <div class="p-3 border border-secondary rounded mb-4 mp-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Pakket / Rol:</span>
+                            <strong class="text-gold">@GetRoleTitle(EffectiveRoleCode) Profiel Advertensie</strong>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Gekose Tydperk:</span>
+                            <span class="text-info font-monospace fw-bold">@_selectedMonths @(_selectedMonths == 1 ? "Maand (30 dae)" : "Maande")</span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary">
+                            <span class="text-muted">Totale Bedrag Verskuldig:</span>
+                            <strong class="fs-4 text-success">R @DisplayAmount.ToString("N2") ZAR</strong>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_checkoutError != null)
+                {
+                    <div class="alert alert-danger small">@_checkoutError</div>
+                }
+                @if (_checkout == null)
+                {
+                    @if (_checkoutError == null)
+                    {
+                        <div class="text-center text-muted p-3"><span class="spinner-border spinner-border-sm me-2"></span>Berei betaling voor...</div>
+                    }
+                }
+                else
+                {
+                    <!-- PayFast form: every field (amount included) and the signature come from the WebAPI -->
+                    <div class="p-3 mb-4 rounded" style="background: rgba(212, 175, 55, 0.08); border: 1px solid rgba(212, 175, 55, 0.3);">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="fs-5">🔒</span>
+                            <div>
+                                <strong class="text-gold">PayFast Betaalpoort</strong>
+                                <div class="small text-muted">Veilige betaling met kaart of EFT</div>
+                            </div>
+                        </div>
+                        <p class="small text-muted mb-3">
+                            Klik die knoppie hieronder om na PayFast te gaan en die betaling te voltooi. U betaling word aangeteken sodra PayFast dit aan ons bevestig.
+                        </p>
+                        <form action="@_checkout.ProcessUrl" method="post">
+                            @foreach (var field in _checkout.Fields)
+                            {
+                                <input type="hidden" name="@field.Name" value="@field.Value" />
+                            }
+                            <button type="submit" class="mp-btn mp-btn-primary w-100 py-3 fs-5 mb-2" disabled="@_processing">
+                                Betaal R @_checkout.Amount.ToString("N2") met PayFast 💳
+                            </button>
+                        </form>
+                    </div>
+
+                    @if (_checkout.SimulatorAvailable)
+                    {
+                        <!-- Development only: the WebAPI credits the payment itself, at its own price -->
+                        <div class="pt-3 border-top border-secondary text-center">
+                            <p class="small text-muted mb-2">Plaaslike ontwikkelaarstoets (slegs in Development):</p>
+                            <button class="mp-btn mp-btn-secondary mp-btn-sm w-100" @onclick="SimulateLocalPayment" disabled="@_processing">
+                                @if (_processing)
+                                {
+                                    <span>Verwerk tans... ⏳</span>
+                                }
+                                else
+                                {
+                                    <span>Simuleer Suksesvolle Betaling ⚡</span>
+                                }
+                            </button>
+                        </div>
+                    }
+                }
+            }
+            else
+            {
+                <!-- STANDARD BOOKING PAYMENT -->
+                <div class="p-3 border border-secondary rounded mb-4 mp-card">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Item / Ekspedisie:</span>
+                        <strong class="text-gold">@(_checkout?.ItemName ?? "Jag Bespreking Deposito")</strong>
+                    </div>
+                    @if (BookingId.HasValue)
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Bespreking ID:</span>
+                            <span class="text-info font-monospace">#@BookingId.Value.ToString("D6")</span>
+                        </div>
+                    }
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary">
+                        <span class="text-muted">Bedrag Verskuldig:</span>
+                        <strong class="fs-4 text-success">R @DisplayAmount.ToString("N2") ZAR</strong>
+                    </div>
+                </div>
+
+                @if (_checkoutError != null)
+                {
+                    <div class="alert alert-danger small">@_checkoutError</div>
+                }
+                @if (_checkout == null)
+                {
+                    @if (_checkoutError == null)
+                    {
+                        <div class="text-center text-muted p-3"><span class="spinner-border spinner-border-sm me-2"></span>Berei betaling voor...</div>
+                    }
+                }
+                else
+                {
+                    <!-- PayFast form: every field (amount included) and the signature come from the WebAPI -->
+                    <div class="p-3 mb-4 rounded" style="background: rgba(212, 175, 55, 0.08); border: 1px solid rgba(212, 175, 55, 0.3);">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="fs-5">🔒</span>
+                            <div>
+                                <strong class="text-gold">PayFast Betaalpoort</strong>
+                                <div class="small text-muted">Veilige betaling met kaart of EFT</div>
+                            </div>
+                        </div>
+                        <p class="small text-muted mb-3">
+                            Klik die knoppie hieronder om na PayFast te gaan en die betaling te voltooi. U betaling word aangeteken sodra PayFast dit aan ons bevestig.
+                        </p>
+                        <form action="@_checkout.ProcessUrl" method="post">
+                            @foreach (var field in _checkout.Fields)
+                            {
+                                <input type="hidden" name="@field.Name" value="@field.Value" />
+                            }
+                            <button type="submit" class="mp-btn mp-btn-primary w-100 py-3 fs-5 mb-2" disabled="@_processing">
+                                Betaal R @_checkout.Amount.ToString("N2") met PayFast 💳
+                            </button>
+                        </form>
+                    </div>
+
+                    @if (_checkout.SimulatorAvailable)
+                    {
+                        <!-- Development only: the WebAPI credits the payment itself, at its own price -->
+                        <div class="pt-3 border-top border-secondary text-center">
+                            <p class="small text-muted mb-2">Plaaslike ontwikkelaarstoets (slegs in Development):</p>
+                            <button class="mp-btn mp-btn-secondary mp-btn-sm w-100" @onclick="SimulateLocalPayment" disabled="@_processing">
+                                @if (_processing)
+                                {
+                                    <span>Verwerk tans... ⏳</span>
+                                }
+                                else
+                                {
+                                    <span>Simuleer Suksesvolle Betaling ⚡</span>
+                                }
+                            </button>
+                        </div>
+                    }
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "bookingId")] public int? BookingId { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "type")] public string? Type { get; set; }
+    [SupplyParameterFromQuery(Name = "role")] public string? RoleCode { get; set; }
+    [SupplyParameterFromQuery(Name = "months")] public int? MonthsParam { get; set; }
+
+    private static readonly int[] SubscriptionMonths = { 1, 3, 6, 12 };
+
+    private bool IsSubscriptionPayment => string.Equals(Type, "subscription", StringComparison.OrdinalIgnoreCase);
+    private string EffectiveRoleCode => !string.IsNullOrWhiteSpace(RoleCode) ? RoleCode : "PH";
+    private bool IsReturnFromPayFast => string.Equals(Status, "success", StringComparison.OrdinalIgnoreCase);
+
+    private int _selectedMonths = 1;
+    private bool _completed;
+    private bool _processing;
+    private bool _alreadyPaid;
+    private bool _awaitingConfirmation;
+    private string _refNum = string.Empty;
+    private DateTime? _updatedExpiryDate;
+    private RoleSubscriptionModel? _currentSubscription;
+
+    private PaymentCheckoutModel? _checkout;
+    private string? _checkoutError;
+
+    /// <summary>Sign-in link that brings the user back to this exact payment page.</summary>
+    private string LoginUrl => $"/teken-in?returnUrl={Uri.EscapeDataString("/" + Nav.ToBaseRelativePath(Nav.Uri))}";
+
+    /// <summary>Why this page can't take a payment (not signed in, no/unknown booking, not approved yet); null when it can.</summary>
+    private string? _blockedMsg;
+
+    private PublicSettingsModel _publicSettings = new();
+
+    /// <summary>The server's price once the checkout is loaded; the published tier price until then (display only).</summary>
+    private decimal DisplayAmount => _checkout?.Amount ?? (IsSubscriptionPayment ? GetPriceForMonths(_selectedMonths) : 0m);
+
+    /// <summary>
+    /// Requires sign-in, then either re-reads the server's state after a PayFast return
+    /// (status=success - nothing is written from here) or loads the server-priced checkout.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        _publicSettings = await Api.GetPublicSettingsAsync();
+
+        if (MonthsParam.HasValue && SubscriptionMonths.Contains(MonthsParam.Value))
+            _selectedMonths = MonthsParam.Value;
+
+        if (!Auth.IsAuthenticated || Auth.CurrentUser == null)
+        {
+            _blockedMsg = "Teken asseblief in om te betaal.";
+            return;
+        }
+        if (!IsSubscriptionPayment && !BookingId.HasValue)
+        {
+            _blockedMsg = "Geen bespreking is gekies nie. Kies die bespreking wat u wil betaal by My Besprekings.";
+            return;
+        }
+
+        if (IsReturnFromPayFast)
+        {
+            await RecheckAsync();
+            return;
+        }
+
+        await LoadCheckoutAsync();
+    }
+
+    /// <summary>Asks the WebAPI for the signed PayFast form (and its price) for what this page is paying.</summary>
+    private async Task LoadCheckoutAsync()
+    {
+        _checkout = null;
+        _checkoutError = null;
+        var (checkout, error, alreadyPaid) = IsSubscriptionPayment
+            ? await Api.CreatePaymentCheckoutAsync("subscription", 0, EffectiveRoleCode, _selectedMonths, GetReturnUrl(), GetCancelUrl())
+            : await Api.CreatePaymentCheckoutAsync("booking", BookingId!.Value, null, 0, GetReturnUrl(), GetCancelUrl());
+
+        if (alreadyPaid)
+        {
+            _alreadyPaid = true;
+            return;
+        }
+        if (checkout == null)
+        {
+            // A booking that can't be paid (not yours, not approved, no price) blocks the page with the server's reason.
+            if (IsSubscriptionPayment) _checkoutError = error;
+            else _blockedMsg = error;
+            return;
+        }
+        _checkout = checkout;
+    }
+
+    /// <summary>After PayFast: shows "paid" only once the server says so, otherwise "waiting for PayFast's confirmation".</summary>
+    private async Task RecheckAsync()
+    {
+        _processing = true;
+        try
+        {
+            if (IsSubscriptionPayment)
+            {
+                _currentSubscription = await Api.GetRoleSubscriptionAsync(Auth.CurrentUser!.UserId, EffectiveRoleCode);
+                _awaitingConfirmation = true;
+                return;
+            }
+
+            var booking = (await Api.GetHunterBookingsAsync(Auth.CurrentUser!.UserId)).FirstOrDefault(b => b.Id == BookingId);
+            if (booking == null)
+            {
+                _blockedMsg = "Hierdie bespreking is nie gevind onder u besprekings nie.";
+                return;
+            }
+            if (booking.Status is "Paid" or "Completed")
+            {
+                _refNum = booking.PaymentReference ?? string.Empty;
+                _completed = true;
+                _awaitingConfirmation = false;
+            }
+            else
+            {
+                _awaitingConfirmation = true;
+            }
+        }
+        finally
+        {
+            _processing = false;
+        }
+    }
+
+    /// <summary>Selects a subscription duration (1/3/6/12 months) and fetches that term's server-priced checkout.</summary>
+    private async Task SelectMonths(int months)
+    {
+        if (!SubscriptionMonths.Contains(months) || (months == _selectedMonths && _checkout != null)) return;
+        _selectedMonths = months;
+        await LoadCheckoutAsync();
+    }
+
+    /// <summary>Published monthly price for the role (display only - the WebAPI prices the actual payment).</summary>
+    private decimal GetBaseRate(string roleCode) => _publicSettings.SubscriptionPriceFor(roleCode);
+
+    /// <summary>Tier prices for the duration pills, the same tiers the WebAPI charges (5% at 3mo, 10% at 6mo, 12 for the price of 10).</summary>
+    private decimal GetPriceForMonths(int months)
+    {
+        var baseFee = GetBaseRate(EffectiveRoleCode);
+        return months switch
+        {
+            1 => baseFee * 1m,
+            3 => Math.Round(baseFee * 3m * 0.95m, 2),
+            6 => Math.Round(baseFee * 6m * 0.90m, 2),
+            12 => baseFee * 10m,
+            _ => baseFee * months
+        };
+    }
+
+    /// <summary>Afrikaans display title for a role code, shown throughout the subscription flow's UI.</summary>
+    private string GetRoleTitle(string roleCode) => roleCode switch
+    {
+        "PH" => "Professionele Jagter (PH)",
+        "VG" => "Veldgids / Videograaf (VG)",
+        "Boer" => "Wildsplaas Boer",
+        "PJ" => "Uitruster (PJ)",
+        _ => roleCode
+    };
+
+    /// <summary>Post-subscription-payment "go to dashboard" destination, per role.</summary>
+    private string GetDashboardUrl() => EffectiveRoleCode switch
+    {
+        "PH" => "/ph/paneelbord",
+        "Boer" => "/boer/paneelbord",
+        "PJ" => "/pj/paneelbord",
+        "VG" => "/vg/paneelbord",
+        _ => "/dashboard"
+    };
+
+    /// <summary>PayFast return_url: back to this page with status=success, which only re-reads the server's state.</summary>
+    private string GetReturnUrl()
+    {
+        var baseUri = Nav.BaseUri.TrimEnd('/');
+        return IsSubscriptionPayment
+            ? $"{baseUri}/betaling?type=subscription&role={Uri.EscapeDataString(EffectiveRoleCode)}&months={_selectedMonths}&status=success"
+            : $"{baseUri}/betaling?status=success&bookingId={BookingId}";
+    }
+
+    /// <summary>PayFast cancel_url: where the browser returns to if the user backs out of PayFast.</summary>
+    private string GetCancelUrl()
+    {
+        var baseUri = Nav.BaseUri.TrimEnd('/');
+        return IsSubscriptionPayment ? $"{baseUri}{GetDashboardUrl()}" : $"{baseUri}/jagter/besprekings";
+    }
+
+    /// <summary>Development only (the button shows only when the WebAPI offers it): the WebAPI credits the payment at its own price.</summary>
+    private async Task SimulateLocalPayment()
+    {
+        _processing = true;
+        _checkoutError = null;
+        StateHasChanged();
+
+        var (success, alreadyPaid, reference, error) = IsSubscriptionPayment
+            ? await Api.SimulatePaymentAsync("subscription", 0, EffectiveRoleCode, _selectedMonths)
+            : await Api.SimulatePaymentAsync("booking", BookingId!.Value, null, 0);
+
+        if (alreadyPaid)
+        {
+            _alreadyPaid = true;
+        }
+        else if (success)
+        {
+            _refNum = reference ?? string.Empty;
+            if (IsSubscriptionPayment)
+                _updatedExpiryDate = (await Api.GetRoleSubscriptionAsync(Auth.CurrentUser!.UserId, EffectiveRoleCode)).ExpiryDate;
+            _completed = true;
+        }
+        else
+        {
+            _checkoutError = error;
+        }
+        _processing = false;
+    }
+}

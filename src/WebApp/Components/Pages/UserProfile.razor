@@ -1,0 +1,2146 @@
+@* /profile - authenticated-user self-service page (any logged-in user, any role or no
+   role yet). Three jobs in one page: (1) edit personal contact/ID details used for
+   SAPS 520 / permit paperwork, (2) activate additional roles (Jagter/PJ/PH/VG/Boer/AP)
+   via a role-specific accreditation form plus document upload (PJ/PH/VG/Boer require
+   documents, gated by PendingDocumentUploads/UserDocumentsController - already
+   documented server-side), and (3) remove a role or delete the whole account. Also
+   surfaces each paid-role's monthly advertising-subscription status inline. *@
+@page "/profiel"
+@page "/profile"
+@using System.ComponentModel.DataAnnotations
+@using System.Globalization
+@using System.Text.RegularExpressions
+@inject AuthService Auth
+@inject MikpuntApiService Api
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>My Profiel &amp; Rolbestuur | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-3">Teken asseblief eers in om jou profiel en rolle te bestuur.</h3>
+        <a href="/teken-in" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else
+{
+    var u = Auth.CurrentUser!;
+
+    <!-- Guide Alert Banner -->
+    <div class="mp-card p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: rgba(217, 119, 6, 0.08); border-left: 4px solid var(--accent-gold);">
+        <div>
+            <strong class="text-gold">Nuuskierig oor wat elke rol kan doen?</strong>
+            <span class="text-muted ms-1 small">Leer hoe Boere, Uitrusters, PH's, Videograwe, Adverteerders en Jagters saamwerk.</span>
+        </div>
+        <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm">
+            Lees die Rol- &amp; Ekosisteem Gids &rarr;
+        </a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_roleSuccessMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
+            <strong>Sukses!</strong> @_roleSuccessMsg
+            <button type="button" class="btn-close" @onclick="() => _roleSuccessMsg = string.Empty"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_roleErrorMsg))
+    {
+        <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
+            <strong>Fout:</strong> @_roleErrorMsg
+            <button type="button" class="btn-close" @onclick="() => _roleErrorMsg = string.Empty"></button>
+        </div>
+    }
+
+    <div class="row g-4">
+        <!-- Left Column: User Overview & Active Roles -->
+        <div class="col-md-5">
+            <!-- Profile Overview Card -->
+            <div class="mp-card text-center p-4 mb-4">
+                <div class="position-relative mx-auto mb-3" style="width: 100px; height: 100px;">
+                    @if (!string.IsNullOrEmpty(_model.ProfilePictureUrl ?? u.ProfilePictureUrl))
+                    {
+                        <img src="@(_model.ProfilePictureUrl ?? u.ProfilePictureUrl)" alt="Profiel Foto" 
+                             class="rounded-circle shadow" 
+                             style="width: 100px; height: 100px; object-fit: cover; border: 3px solid var(--accent-gold);" />
+                    }
+                    else
+                    {
+                        <div class="mp-brand-logo rounded-circle mx-auto d-flex align-items-center justify-content-center" 
+                             style="width: 100px; height: 100px; font-size: 38px; border: 3px solid var(--accent-gold);">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </div>
+                    }
+                </div>
+
+                <div class="d-flex justify-content-center gap-2 mb-3">
+                    <label class="mp-btn mp-btn-secondary mp-btn-sm mb-0 cursor-pointer" style="cursor: pointer;">
+                        <InputFile OnChange="HandleProfilePicSelected" accept="image/png,image/jpeg,image/webp" style="display: none;" />
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                        Verander Foto
+                    </label>
+                    @if (!string.IsNullOrEmpty(_model.ProfilePictureUrl ?? u.ProfilePictureUrl))
+                    {
+                        <button type="button" class="mp-btn mp-btn-danger mp-btn-sm" @onclick="RemoveProfilePic">
+                            Verwyder
+                        </button>
+                    }
+                </div>
+
+                <h2 class="brand-font text-gold mb-1" style="font-size: 22px;">@(string.IsNullOrWhiteSpace(u.FullName) || u.FullName == "Lid" ? "My Profiel" : u.FullName)</h2>
+                <p class="text-muted mb-2 small">@u.Email</p>
+                <div class="mb-3">
+                    <span class="mp-badge mp-badge-success d-inline-flex align-items-center gap-1 px-3 py-1">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        Geverifieerde MikPunt Lid
+                    </span>
+                </div>
+
+                <button class="mp-btn mp-btn-primary w-100" @onclick="OpenAddRoleModal">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Aktiveer Nuwe Rol
+                </button>
+            </div>
+
+            <!-- Active Registered Roles Card -->
+            <div class="mp-card p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3 border-bottom border-secondary pb-2">
+                    <h4 class="brand-font text-gold mb-0" style="font-size: 18px;">Jou Aktiewe Rolle</h4>
+                    <span class="mp-badge mp-badge-warning px-3 py-1" style="font-size: 13px; font-weight: 800;">
+                        @u.Roles.Count @(u.Roles.Count == 1 ? "Rol" : "Rolle")
+                    </span>
+                </div>
+                
+                @if (u.Roles.Count == 0)
+                {
+                    <div class="p-3 text-center rounded text-muted small" style="background: rgba(255,255,255,0.03); border: 1px dashed var(--border-color);">
+                        U het tans nog geen rolle geaktiveer nie. Klik "+ Aktiveer Nuwe Rol" hierbo om te begin.
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex flex-column gap-3">
+                        @foreach (var r in u.Roles)
+                        {
+                            <div class="p-3 border border-secondary rounded" style="background: rgba(255,255,255,0.02);">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        <strong class="text-gold" style="font-size: 15px;">@GetRoleDisplayName(r.RoleCode)</strong>
+                                        <div class="small text-muted">Kode: @r.RoleCode</div>
+                                    </div>
+                                    <span class="mp-badge mp-badge-success d-inline-flex align-items-center gap-1 px-2 py-1">
+                                        <span style="font-size: 8px;">●</span> @GetRoleStatusLabel(r.Status)
+                                    </span>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(r.CredentialsDetails))
+                                {
+                                    <div class="small text-muted mb-2 p-2 rounded" style="background: rgba(0,0,0,0.2); font-size: 11px; white-space: pre-wrap; line-height: 1.5;">
+                                        @r.CredentialsDetails
+                                    </div>
+                                }
+
+                                <div class="mt-2 d-flex gap-2">
+                                    <a href="@GetRoleDashboardUrl(r.RoleCode)" class="mp-btn mp-btn-secondary mp-btn-sm flex-grow-1 text-center">
+                                        @GetRoleDisplayName(r.RoleCode) Portaal &rarr;
+                                    </a>
+                                    <button type="button" class="mp-btn mp-btn-danger mp-btn-sm d-flex align-items-center justify-content-center px-2" title="Verwyder rol van profiel" @onclick="() => PromptDeleteRole(r.RoleCode, GetRoleDisplayName(r.RoleCode))">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                    </button>
+                                </div>
+
+                                @if (r.RoleCode is "PH" or "Boer" or "PJ" or "VG")
+                                {
+                                    var sub = _userSubscriptions.TryGetValue(r.RoleCode, out var s) ? s : null;
+                                    <div class="mt-2 p-2 rounded border" style="background: rgba(0,0,0,0.25); border-color: @(sub != null && sub.IsActive && sub.HasPaidActivePeriod ? "#10b981" : (sub != null && sub.HasPaidActivePeriod ? "#f59e0b" : "var(--border-color)"));">
+                                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                            <div>
+                                                <strong class="text-gold small d-block">⭐ Maandelikse Advertensie:</strong>
+                                                @if (sub != null && sub.IsActive && sub.HasPaidActivePeriod)
+                                                {
+                                                    <span class="text-success small fw-bold">Aktief (Geldig tot @sub.ExpiryDate.ToString("dd MMM yyyy") — @sub.DaysRemaining dae oor)</span>
+                                                }
+                                                else if (sub != null && sub.HasPaidActivePeriod)
+                                                {
+                                                    <span class="text-warning small fw-bold">Tydelik Gedeaktiveer (@sub.DaysRemaining dae oor op betaalde tydperk)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted small">Inaktief (Geen Betaalde Intekening)</span>
+                                                }
+                                            </div>
+
+                                            <div class="d-flex gap-1 flex-wrap align-items-center">
+                                                @if (sub != null && sub.HasPaidActivePeriod)
+                                                {
+                                                    <a href="/betaling?type=subscription&role=@r.RoleCode" class="mp-btn mp-btn-primary mp-btn-sm py-1 px-2 text-nowrap" style="font-size: 11px;">
+                                                        ➕ Verleng
+                                                    </a>
+                                                    <button type="button" class="mp-btn @(sub.IsActive ? "mp-btn-secondary" : "mp-btn-success") mp-btn-sm py-1 px-2 text-nowrap" style="font-size: 11px;" @onclick="() => ToggleRoleSubscriptionOnProfile(r.RoleCode)">
+                                                        @(sub.IsActive ? "⏸️ Deaktiveer" : "▶️ Heraktiveer")
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <a href="/betaling?type=subscription&role=@r.RoleCode" class="mp-btn mp-btn-primary mp-btn-sm py-1 px-2 text-nowrap" style="font-size: 11px;">
+                                                        💳 Aktiveer
+                                                    </a>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Right Column: Personal Profile Details Form -->
+        <div class="col-md-7">
+            <div class="mp-card p-4">
+                <h3 class="brand-font text-gold mb-3" style="font-size: 20px;">Persoonlike Besonderhede</h3>
+                <p class="text-muted small mb-4">Dateer u kontakinligting en identiteitsbesonderhede op vir amptelike SAPS 520 en permitverifikasie.</p>
+
+                @if (_savedProfile)
+                {
+                    <div class="alert alert-success mb-3">Jou profielbesonderhede is suksesvol opgedateer en in die databasis gestoor!</div>
+                }
+
+                @if (!string.IsNullOrEmpty(_profileSaveError))
+                {
+                    <div class="alert alert-danger mb-3">@_profileSaveError</div>
+                }
+
+                <EditForm Model="_model" OnValidSubmit="HandleSaveProfile">
+                    <DataAnnotationsValidator />
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Voornaam <span class="text-danger">*</span></label>
+                            <InputText @bind-Value="_model.FirstName" class="mp-form-control" placeholder="bv. Johan" maxlength="50" autocomplete="given-name" />
+                            <ValidationMessage For="() => _model.FirstName" class="text-danger small mt-1" />
+                        </div>
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Van <span class="text-danger">*</span></label>
+                            <InputText @bind-Value="_model.LastName" class="mp-form-control" placeholder="bv. Van der Merwe" maxlength="50" autocomplete="family-name" />
+                            <ValidationMessage For="() => _model.LastName" class="text-danger small mt-1" />
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">E-posadres</label>
+                            <InputText @bind-Value="_model.Email" class="mp-form-control" readonly />
+                            <small class="text-muted" style="font-size: 11px;">E-posadres is gekoppel aan u login</small>
+                        </div>
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Telefoonnommer <span class="text-danger">*</span></label>
+                            <InputText @bind-Value="_model.Phone" type="tel" class="mp-form-control" placeholder="082 555 0192" maxlength="15" autocomplete="tel" />
+                            <ValidationMessage For="() => _model.Phone" class="text-danger small mt-1" />
+                        </div>
+                    </div>
+
+                    @if (UserHasIdRole || !string.IsNullOrWhiteSpace(_model.IdPassportNum))
+                    {
+                        <div class="mp-form-group mb-4">
+                            <label class="mp-form-label">ID- of Paspoortnommer (Vir Vuurwapen- &amp; Permitklaring) @if (UserHasIdRole) { <span class="text-danger">*</span> }</label>
+                            <InputText @bind-Value="_model.IdPassportNum" class="mp-form-control" placeholder="bv. 8804125019083 of Paspoortnommer (Alle lande &amp; formate)" maxlength="20" />
+                            <ValidationMessage For="() => _model.IdPassportNum" class="text-danger small mt-1" />
+                        </div>
+                    }
+
+                    <div class="d-flex justify-content-end">
+                        <button type="submit" class="mp-btn mp-btn-primary" disabled="@_isSavingProfile">
+                            @if (_isSavingProfile)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Besig om te stoor...</span>
+                            }
+                            else
+                            {
+                                <span>Stoor Profielbesonderhede</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+
+                <!-- DANGER ZONE: DELETE ACCOUNT -->
+                <div class="p-3 mt-4 rounded" style="border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.04);">
+                    <div class="d-flex align-items-center gap-2 mb-2 text-danger">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <h4 class="brand-font mb-0 text-danger" style="font-size: 16px;">Gevaarsone: Skrap Rekening</h4>
+                    </div>
+                    <p class="small text-muted mb-3" style="font-size: 13px; line-height: 1.5;">
+                        As u u rekening skrap, sal u profiel, alle aktiewe rolle, dokumente, lyste en verwante geskiedenis permanent uit MikPunt verwyder word. Hierdie aksie is onomkeerbaar.
+                    </p>
+                    <div class="d-flex justify-content-end">
+                        <button type="button" class="mp-btn mp-btn-danger mp-btn-sm" @onclick="PromptDeleteUser">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            Skrap My Rekening Permanent
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- CONFIRM DELETE USER ACCOUNT MODAL POPUP -->
+@if (_showDeleteAccountModal)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2700; padding: 20px;" @onclick="CancelDeleteAccount">
+        <div class="mp-card border-danger" style="width: 540px; max-width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.9);" @onclick:stopPropagation="true">
+            <!-- Modal Header -->
+            <div class="d-flex justify-content-between align-items-start border-bottom border-secondary pb-3 mb-3">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <h3 class="brand-font mb-0 text-danger" style="font-size: 20px;">Skrap Gebruikersrekening Permanent?</h3>
+                </div>
+                <button type="button" class="btn-close btn-close-white" aria-label="Maak toe" @onclick="CancelDeleteAccount" disabled="@_isDeletingAccount"></button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="mb-4">
+                <p class="mb-2">Is u heeltemal seker dat u die rekening van <strong class="text-gold">@Auth.CurrentUser?.FullName</strong> wil skrap?</p>
+                <div class="alert alert-danger small mb-0" style="background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;">
+                    <strong>Let Wel:</strong> Alle aktiewe rolle, geassosieerde data, plaasinskrywings, permitte, pakkette en aanmeldbesonderhede sal onherroeplik uit MikPunt verwyder word. U sal onmiddellik uitgeteken word.
+                </div>
+            </div>
+
+            <!-- Modal Actions -->
+            <div class="d-flex justify-content-end gap-2 pt-3 border-top border-secondary">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="CancelDeleteAccount" disabled="@_isDeletingAccount">
+                    Kanselleer
+                </button>
+                <button type="button" class="mp-btn mp-btn-danger" @onclick="ConfirmDeleteAccount" disabled="@_isDeletingAccount">
+                    @if (_isDeletingAccount)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Besig om te skrap...</span>
+                    }
+                    else
+                    {
+                        <span>Ja, Skrap My Rekening Permanent</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- CONFIRM DELETE ROLE MODAL POPUP -->
+@if (_showDeleteConfirmModal && _roleToDelete != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2600; padding: 20px;" @onclick="CancelDeleteRole">
+        <div class="mp-card border-danger" style="width: 520px; max-width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.9);" @onclick:stopPropagation="true">
+            <!-- Modal Header -->
+            <div class="d-flex justify-content-between align-items-start border-bottom border-secondary pb-3 mb-3">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <h3 class="brand-font mb-0 text-danger" style="font-size: 20px;">Bevestig Rol-verwydering</h3>
+                </div>
+                <button type="button" class="btn-close btn-close-white" aria-label="Maak toe" @onclick="CancelDeleteRole" disabled="@_isDeletingRole"></button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="mb-4">
+                <p class="mb-2">Is u seker u wil die rol <strong class="text-gold">@_roleToDeleteName</strong> van u profiel verwyder?</p>
+                <div class="alert alert-warning small mb-0" style="background: rgba(234, 179, 8, 0.1); border-color: rgba(234, 179, 8, 0.3); color: #fef08a;">
+                    <strong>Waarskuwing:</strong> Alle verwante data, pakkette, advertensies, lyste, besprekings en instellings wat aan hierdie rol gekoppel is, sal permanent verwyder word.
+                </div>
+            </div>
+
+            <!-- Modal Actions -->
+            <div class="d-flex justify-content-end gap-2 pt-3 border-top border-secondary">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="CancelDeleteRole" disabled="@_isDeletingRole">
+                    Kanselleer
+                </button>
+                <button type="button" class="mp-btn mp-btn-danger" @onclick="ConfirmDeleteRole" disabled="@_isDeletingRole">
+                    @if (_isDeletingRole)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Besig om te verwyder...</span>
+                    }
+                    else
+                    {
+                        <span>Ja, Verwyder Rol</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- INTERACTIVE ROLE ACTIVATION MODAL -->
+@if (_showAddRoleModal)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2500; padding: 20px;" @onclick="CloseAddRoleModal">
+        <div class="mp-card" style="width: 780px; max-width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.8);" @onclick:stopPropagation="true">
+            <!-- Modal Header -->
+            <div class="d-flex justify-content-between align-items-start border-bottom border-secondary pb-3 mb-3">
+                <div>
+                    <span class="mp-badge mp-badge-warning mb-1">Nuwe Rol Aktivering</span>
+                    <h2 class="brand-font text-gold mb-0" style="font-size: 22px;">Voeg 'n Rol by jou Profiel</h2>
+                    <div class="small text-muted mt-1">Kies 'n rol wat u wil aktiveer en voer die vereiste akkreditasie-besonderhede in.</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" aria-label="Maak toe" @onclick="CloseAddRoleModal"></button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_modalErrorMsg))
+            {
+                <div class="alert alert-danger py-2 px-3 small mb-3">
+                    <strong>Aandag:</strong> @_modalErrorMsg
+                </div>
+            }
+
+            @if (AvailableUnassignedRoles.Count == 0)
+            {
+                <div class="text-center p-4">
+                    <div class="fs-1 text-gold mb-2">&#9733;</div>
+                    <h3 class="brand-font text-gold mb-2">Alle Rolle Reeds Aktief!</h3>
+                    <p class="text-muted mb-4">U het reeds al die beskikbare rolle op u profiel geaktiveer.</p>
+                    <button class="mp-btn mp-btn-secondary" @onclick="CloseAddRoleModal">Maak Toe</button>
+                </div>
+            }
+            else
+            {
+                <EditForm Model="_roleForm" OnValidSubmit="HandleActivateRole">
+                    <DataAnnotationsValidator />
+
+                    <!-- Step 1: Select Role -->
+                    <div class="mp-form-group mb-4">
+                        <label class="mp-form-label">Kies 'n Rol om te Aktiveer <span class="text-danger">*</span></label>
+                        <select class="mp-form-control" value="@_roleForm.SelectedRoleCode" @onchange="HandleRoleCodeChanged">
+                            @foreach (var r in AvailableUnassignedRoles)
+                            {
+                                <option value="@r.Key">@r.Value.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Role Feature Highlights -->
+                    @if (AvailableUnassignedRoles.TryGetValue(_roleForm.SelectedRoleCode, out var roleInfo))
+                    {
+                        <div class="p-3 rounded mb-4" style="background: rgba(217, 119, 6, 0.08); border: 1px solid var(--border-color);">
+                            <strong class="text-gold">@roleInfo.Name</strong>
+                            <p class="text-muted small mb-1 mt-1">@roleInfo.Description</p>
+                            <div class="small text-muted"><strong>Portale wat ontsluit word:</strong> @roleInfo.Features</div>
+                        </div>
+                    }
+
+                    <!-- Step 2: Role-Specific Details with Exhaustive Validation -->
+
+                    <!-- 1. JAGTER (HUNTER) -->
+                    @if (_roleForm.SelectedRoleCode == "Jagter")
+                    {
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">Jagter Besonderhede</h5>
+                            
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">Bynaam vir Ranglys <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.HunterNickname" 
+                                               class="@($"mp-form-control {(HasError("HunterNickname") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. BosveldJagter77" />
+                                    @if (HasError("HunterNickname"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("HunterNickname")</div>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted" style="font-size: 11px;">Hierdie naam word op die openbare skietbaan- en trofeeleerbord vertoon.</small>
+                                    }
+                                </div>
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">Paspoortnommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.HunterIdPassport" 
+                                               class="@($"mp-form-control {(HasError("HunterIdPassport") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. A12345678" />
+                                    @if (HasError("HunterIdPassport"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("HunterIdPassport")</div>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted" style="font-size: 11px;">Geldige paspoortnommerformaat (5 tot 17 karakters).</small>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">Land van Woon / Herkoms <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.HunterCountry" 
+                                               class="@($"mp-form-control {(HasError("HunterCountry") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. Suid-Afrika, Duitsland, VSA" />
+                                    @if (HasError("HunterCountry"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("HunterCountry")</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- 2. PAKKET UITRUSTER (PJ) -->
+                    @if (_roleForm.SelectedRoleCode == "PJ")
+                    {
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">Uitruster Maatskappy &amp; Belasting Inligting</h5>
+                            
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-8 mp-form-group mb-0">
+                                    <label class="mp-form-label">Uitruster Besigheidsnaam <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PjBusinessName" 
+                                               class="@($"mp-form-control {(HasError("PjBusinessName") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. Limpopo Safari Outfitters (Edms) Bpk" />
+                                    @if (HasError("PjBusinessName"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PjBusinessName")</div>
+                                    }
+                                </div>
+                                <div class="col-md-4 mp-form-group mb-0">
+                                    <label class="mp-form-label">Jare Ondervinding <span class="text-danger">*</span></label>
+                                    <InputNumber @bind-Value="_roleForm.PjYearsExp" 
+                                                 class="@($"mp-form-control {(HasError("PjYearsExp") ? "is-invalid border-danger" : "")}")" 
+                                                 min="0" max="70" />
+                                    @if (HasError("PjYearsExp"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PjYearsExp")</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">CIPC Registrasienommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PjCipcRegNum" 
+                                               class="@($"mp-form-control {(HasError("PjCipcRegNum") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. 2021/489102/07" />
+                                    @if (HasError("PjCipcRegNum"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PjCipcRegNum")</div>
+                                    }
+                                </div>
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">Belasting Pin / BTW-nommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PjTaxPinVat" 
+                                               class="@($"mp-form-control {(HasError("PjTaxPinVat") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. 4920192841 / PIN-99214" />
+                                    @if (HasError("PjTaxPinVat"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PjTaxPinVat")</div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="mp-form-group mb-0">
+                                <label class="mp-form-label">Fisiese Besigheidsadres <span class="text-danger">*</span></label>
+                                <InputText @bind-Value="_roleForm.PjPhysicalAddress" 
+                                           class="@($"mp-form-control {(HasError("PjPhysicalAddress") ? "is-invalid border-danger" : "")}")" 
+                                           placeholder="bv. Koraalboomlaan 14, Thabazimbi, Limpopo, 0380" />
+                                @if (HasError("PjPhysicalAddress"))
+                                {
+                                    <div class="text-danger small mt-1">@GetError("PjPhysicalAddress")</div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Provincial Outfitter Licenses Section -->
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h5 class="brand-font text-gold mb-0" style="font-size: 16px;">Provinsiale Uitrusterlisensies <span class="text-danger">*</span></h5>
+                                    <div class="small text-muted">Voer lisensies in vir elke provinsie waarin u jagte mag aanbied.</div>
+                                </div>
+                                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="AddPjProvince">
+                                    + Voeg Provinsie By
+                                </button>
+                            </div>
+
+                            @if (HasError("PjProvincialLicenses"))
+                            {
+                                <div class="alert alert-danger py-1 px-3 small mb-3">
+                                    <strong>Aandag:</strong> @GetError("PjProvincialLicenses")
+                                </div>
+                            }
+
+                            @for (int i = 0; i < _roleForm.PjProvincialLicenses.Count; i++)
+                            {
+                                var idx = i;
+                                var item = _roleForm.PjProvincialLicenses[idx];
+                                <div class="p-3 mb-2 rounded border border-secondary" style="background: rgba(0,0,0,0.25);">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <strong class="text-gold small">Provinsie #@(idx + 1)</strong>
+                                        @if (_roleForm.PjProvincialLicenses.Count > 1)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-link text-danger p-0" @onclick="() => RemovePjProvince(idx)">Verwyder</button>
+                                        }
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-4">
+                                            <label class="small text-muted mb-1">Provinsie <span class="text-danger">*</span></label>
+                                            <select class="mp-form-control form-select-sm" @bind="item.Province">
+                                                <option value="Limpopo">Limpopo</option>
+                                                <option value="Mpumalanga">Mpumalanga</option>
+                                                <option value="Noordwes">Noordwes</option>
+                                                <option value="Oos-Kaap">Oos-Kaap</option>
+                                                <option value="Noord-Kaap">Noord-Kaap</option>
+                                                <option value="Vrystaat">Vrystaat</option>
+                                                <option value="KwaZulu-Natal">KwaZulu-Natal</option>
+                                                <option value="Wes-Kaap">Wes-Kaap</option>
+                                                <option value="Gauteng">Gauteng</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="small text-muted mb-1">Lisensienommer <span class="text-danger">*</span></label>
+                                            <InputText @bind-Value="item.LicenseNumber" 
+                                                       class="@($"mp-form-control form-control-sm {(HasError($"PjLicenseNumber_{idx}") ? "is-invalid border-danger" : "")}")" 
+                                                       placeholder="bv. PJ-LIM-2026-081" />
+                                            @if (HasError($"PjLicenseNumber_{idx}"))
+                                            {
+                                                <div class="text-danger small mt-1" style="font-size: 11px;">@GetError($"PjLicenseNumber_{idx}")</div>
+                                            }
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="small text-muted mb-1">Vervaldatum <span class="text-danger">*</span></label>
+                                            <InputDate @bind-Value="item.ExpiryDate" 
+                                                       class="@($"mp-form-control form-control-sm {(HasError($"PjExpiryDate_{idx}") ? "is-invalid border-danger" : "")}")" />
+                                            @if (HasError($"PjExpiryDate_{idx}"))
+                                            {
+                                                <div class="text-danger small mt-1" style="font-size: 11px;">@GetError($"PjExpiryDate_{idx}")</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <!-- 3. PROFESSIONELE JAGTER (PH) -->
+                    @if (_roleForm.SelectedRoleCode == "PH")
+                    {
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h5 class="brand-font text-gold mb-0" style="font-size: 16px;">Provinsiale PH Lisensies <span class="text-danger">*</span></h5>
+                                    <div class="small text-muted">Voeg elke provinsie by waarvoor u 'n geldige PH-lisensie besit.</div>
+                                </div>
+                                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="AddPhProvince">
+                                    + Voeg Provinsie By
+                                </button>
+                            </div>
+
+                            @if (HasError("PhProvincialLicenses"))
+                            {
+                                <div class="alert alert-danger py-1 px-3 small mb-3">
+                                    <strong>Aandag:</strong> @GetError("PhProvincialLicenses")
+                                </div>
+                            }
+
+                            @for (int i = 0; i < _roleForm.PhProvincialLicenses.Count; i++)
+                            {
+                                var idx = i;
+                                var item = _roleForm.PhProvincialLicenses[idx];
+                                <div class="p-3 mb-2 rounded border border-secondary" style="background: rgba(0,0,0,0.25);">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <strong class="text-gold small">PH Lisensie #@(idx + 1)</strong>
+                                        @if (_roleForm.PhProvincialLicenses.Count > 1)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-link text-danger p-0" @onclick="() => RemovePhProvince(idx)">Verwyder</button>
+                                        }
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-4">
+                                            <label class="small text-muted mb-1">Uitgereikte Provinsie <span class="text-danger">*</span></label>
+                                            <select class="mp-form-control form-select-sm" @bind="item.Province">
+                                                <option value="Limpopo">Limpopo</option>
+                                                <option value="Mpumalanga">Mpumalanga</option>
+                                                <option value="Noordwes">Noordwes</option>
+                                                <option value="Oos-Kaap">Oos-Kaap</option>
+                                                <option value="Noord-Kaap">Noord-Kaap</option>
+                                                <option value="Vrystaat">Vrystaat</option>
+                                                <option value="KwaZulu-Natal">KwaZulu-Natal</option>
+                                                <option value="Wes-Kaap">Wes-Kaap</option>
+                                                <option value="Gauteng">Gauteng</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="small text-muted mb-1">Lisensie / Reg Nommer <span class="text-danger">*</span></label>
+                                            <InputText @bind-Value="item.LicenseNumber" 
+                                                       class="@($"mp-form-control form-control-sm {(HasError($"PhLicenseNumber_{idx}") ? "is-invalid border-danger" : "")}")" 
+                                                       placeholder="bv. PH-LIM-2026-981" />
+                                            @if (HasError($"PhLicenseNumber_{idx}"))
+                                            {
+                                                <div class="text-danger small mt-1" style="font-size: 11px;">@GetError($"PhLicenseNumber_{idx}")</div>
+                                            }
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="small text-muted mb-1">Vervaldatum <span class="text-danger">*</span></label>
+                                            <InputDate @bind-Value="item.ExpiryDate" 
+                                                       class="@($"mp-form-control form-control-sm {(HasError($"PhExpiryDate_{idx}") ? "is-invalid border-danger" : "")}")" />
+                                            @if (HasError($"PhExpiryDate_{idx}"))
+                                            {
+                                                <div class="text-danger small mt-1" style="font-size: 11px;">@GetError($"PhExpiryDate_{idx}")</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Dangerous Game Endorsement Section -->
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="dgCheck" @bind="_roleForm.PhHasDangerousGame" />
+                                <label class="form-check-label fw-bold text-gold ms-2" for="dgCheck">
+                                    Gevaarlike Wild Sertifisering (Dangerous Game Endorsement)
+                                </label>
+                            </div>
+                            @if (_roleForm.PhHasDangerousGame)
+                            {
+                                <div class="row g-2 mt-2 pt-2 border-top border-secondary">
+                                    <div class="col-md-6">
+                                        <label class="small text-muted mb-1">Endossementsertifikaatnommer / Spesialisasie <span class="text-danger">*</span></label>
+                                        <InputText @bind-Value="_roleForm.PhDangerousGameDetails" 
+                                                   class="@($"mp-form-control form-control-sm {(HasError("PhDangerousGameDetails") ? "is-invalid border-danger" : "")}")" 
+                                                   placeholder="bv. DG-CERT-2026-BUFFEL-LEEUS" />
+                                        @if (HasError("PhDangerousGameDetails"))
+                                        {
+                                            <div class="text-danger small mt-1">@GetError("PhDangerousGameDetails")</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- PH Register & Association Section -->
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">PH Register &amp; Vereniging-lidmaatskap</h5>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-4">
+                                    <label class="small text-muted mb-1">Vereniging / Klub <span class="text-danger">*</span></label>
+                                    <select class="mp-form-control form-select-sm" @bind="_roleForm.PhAssociationClub">
+                                        <option value="PHASA">PHASA (Professional Hunters' Assoc of SA)</option>
+                                        <option value="CHASA">CHASA (Confederation of Hunting Assoc SA)</option>
+                                        <option value="SA Jagters (SAHGCA)">SA Jagters (SAHGCA)</option>
+                                        <option value="CPHA">Custodians of Professional Hunting</option>
+                                        <option value="Ander">Ander (Spesifiseer hieronder)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="small text-muted mb-1">Lidmaatskapnommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PhAssociationMemberNum" 
+                                               class="@($"mp-form-control form-control-sm {(HasError("PhAssociationMemberNum") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. PHASA-M-99120" />
+                                    @if (HasError("PhAssociationMemberNum"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhAssociationMemberNum")</div>
+                                    }
+                                </div>
+                            </div>
+                            @if (_roleForm.PhAssociationClub == "Ander")
+                            {
+                                <div class="mt-2">
+                                    <label class="small text-muted mb-1">Spesifiseer Pasgemaakte Vereniging / Klubnaam <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PhCustomAssociation" 
+                                               class="@($"mp-form-control form-control-sm {(HasError("PhCustomAssociation") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. Bosveld Beroepsjagtersunie" />
+                                    @if (HasError("PhCustomAssociation"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhCustomAssociation")</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- First Aid & Field Safety Section -->
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">Noodhulp &amp; Veldveiligheid Sertifisering</h5>
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <label class="small text-muted mb-1">Sertifisering / Vlak <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PhFirstAidCert" 
+                                               class="@($"mp-form-control form-control-sm {(HasError("PhFirstAidCert") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. Vlak 3 Veld- &amp; Wildernisnoodhulp" />
+                                    @if (HasError("PhFirstAidCert"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhFirstAidCert")</div>
+                                    }
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="small text-muted mb-1">Vervaldatum <span class="text-danger">*</span></label>
+                                    <InputDate @bind-Value="_roleForm.PhFirstAidExpiry" 
+                                               class="@($"mp-form-control form-control-sm {(HasError("PhFirstAidExpiry") ? "is-invalid border-danger" : "")}")" />
+                                    @if (HasError("PhFirstAidExpiry"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhFirstAidExpiry")</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Firearm Competency & Licenses -->
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">Vuurwapenbevoegdheid &amp; Lisensies</h5>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-6">
+                                    <label class="small text-muted mb-1">SAPS Bevoegdheidsertifikaatnommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.PhFirearmCompetencyNum" 
+                                               class="@($"mp-form-control form-control-sm {(HasError("PhFirearmCompetencyNum") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. SAPS-COMP-2026-99214" />
+                                    @if (HasError("PhFirearmCompetencyNum"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhFirearmCompetencyNum")</div>
+                                    }
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small text-muted mb-1">Jare Ondervinding as PH <span class="text-danger">*</span></label>
+                                    <InputNumber @bind-Value="_roleForm.PhYearsExp" 
+                                                 class="@($"mp-form-control form-control-sm {(HasError("PhYearsExp") ? "is-invalid border-danger" : "")}")" 
+                                                 min="0" max="70" />
+                                    @if (HasError("PhYearsExp"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhYearsExp")</div>
+                                    }
+                                </div>
+                            </div>
+                            <div>
+                                <label class="small text-muted mb-1">Gelyste Vuurwapens, Kalibers &amp; Lisensies <span class="text-danger">*</span></label>
+                                <InputTextArea @bind-Value="_roleForm.PhFirearmLicensesList" 
+                                               class="@($"mp-form-control form-control-sm {(HasError("PhFirearmLicensesList") ? "is-invalid border-danger" : "")}")" 
+                                               rows="2" placeholder="bv. 1x .375 H&amp;H Mag (Lis: 994182), 1x .30-06 Springfield (Lis: 881240)" />
+                                @if (HasError("PhFirearmLicensesList"))
+                                {
+                                    <div class="text-danger small mt-1">@GetError("PhFirearmLicensesList")</div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- PH Gidstariewe Section (Standaard & Gevaarlike Wild) -->
+                        <div class="mp-card p-3 mb-3" style="border: 1.5px solid var(--accent-gold);">
+                            <h5 class="brand-font text-gold mb-1" style="font-size: 16px;">PH Gidstariewe per Dag (ZAR)</h5>
+                            <div class="small text-muted mb-3">Stel u amptelike dagtariewe in wat vir Uitrusters en Jagters op die markplein vertoon word.</div>
+
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="small text-muted fw-bold mb-1">🌿 Standaard Dagtarief (Gewone Wild)</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text mp-input-group-text text-gold">R</span>
+                                        <InputNumber @bind-Value="_roleForm.PhStandardDailyRate" class="@($"mp-form-control form-control-sm {(HasError("PhStandardDailyRate") ? "is-invalid border-danger" : "")}")" placeholder="2800" min="1" max="100000" />
+                                        <span class="input-group-text mp-input-group-text text-muted">/ dag</span>
+                                    </div>
+                                    @if (HasError("PhStandardDailyRate"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhStandardDailyRate")</div>
+                                    }
+                                    <div class="small text-muted mt-1" style="font-size: 11px;">Algemene wildgidsing (Kudu, Impala, Blesbok ens.)</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small text-muted fw-bold mb-1">🦁 Gevaarlike Wild Dagtarief</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text mp-input-group-text text-gold">R</span>
+                                        <InputNumber @bind-Value="_roleForm.PhDangerousGameDailyRate" class="@($"mp-form-control form-control-sm {(HasError("PhDangerousGameDailyRate") ? "is-invalid border-danger" : "")}")" placeholder="4500" min="1" max="100000" />
+                                        <span class="input-group-text mp-input-group-text text-muted">/ dag</span>
+                                    </div>
+                                    @if (HasError("PhDangerousGameDailyRate"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("PhDangerousGameDailyRate")</div>
+                                    }
+                                    <div class="small text-muted mt-1" style="font-size: 11px;">Gevaarlike wildgidsing (Buffel, Olifant, Leeu, Renoster, Luiperd)</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- 4. VIDEOGRAAF (VG) -->
+                    @if (_roleForm.SelectedRoleCode == "VG")
+                    {
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">Hommeltuig (Drone) Lisensies &amp; Sertifisering</h5>
+                            
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">SACAA Registrasienommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.VgSacaaRegNum" 
+                                               class="@($"mp-form-control {(HasError("VgSacaaRegNum") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. SACAA-UAS-2026-8812" />
+                                    @if (HasError("VgSacaaRegNum"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("VgSacaaRegNum")</div>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted" style="font-size: 11px;">Suid-Afrikaanse Burgerlugvaartowerheid registrasie.</small>
+                                    }
+                                </div>
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">RPL (Remote Pilot Licence) Nommer <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.VgRplLicenseNum" 
+                                               class="@($"mp-form-control {(HasError("VgRplLicenseNum") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. RPL-99214-B" />
+                                    @if (HasError("VgRplLicenseNum"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("VgRplLicenseNum")</div>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted" style="font-size: 11px;">Geldige afstandbeheerde vlieënierslisensie.</small>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6 mp-form-group mb-0">
+                                    <label class="mp-form-label">ROC (Remote Operator Certificate) Nommer</label>
+                                    <InputText @bind-Value="_roleForm.VgRocCertNum" 
+                                               class="@($"mp-form-control {(HasError("VgRocCertNum") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. ROC-CAA-2026-102 (indien van toepassing)" />
+                                    @if (HasError("VgRocCertNum"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("VgRocCertNum")</div>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted" style="font-size: 11px;">Kommersiële operateursertifikaat indien beskikbaar.</small>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+                            <h5 class="brand-font text-gold mb-3" style="font-size: 16px;">Ateljee &amp; Toerusting</h5>
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-8 mp-form-group mb-0">
+                                    <label class="mp-form-label">Ateljee- of Kanaalnaam <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_roleForm.VgCompanyName" 
+                                               class="@($"mp-form-control {(HasError("VgCompanyName") ? "is-invalid border-danger" : "")}")" 
+                                               placeholder="bv. Bushveld Cinema Studios" />
+                                    @if (HasError("VgCompanyName"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("VgCompanyName")</div>
+                                    }
+                                </div>
+                                <div class="col-md-4 mp-form-group mb-0">
+                                    <label class="mp-form-label">Jare Ondervinding <span class="text-danger">*</span></label>
+                                    <InputNumber @bind-Value="_roleForm.VgYearsExp" 
+                                                 class="@($"mp-form-control {(HasError("VgYearsExp") ? "is-invalid border-danger" : "")}")" 
+                                                 min="0" max="70" />
+                                    @if (HasError("VgYearsExp"))
+                                    {
+                                        <div class="text-danger small mt-1">@GetError("VgYearsExp")</div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="mp-form-group mb-0">
+                                <label class="mp-form-label">Kamera- &amp; Klanktoerusting <span class="text-danger">*</span></label>
+                                <InputText @bind-Value="_roleForm.VgEquipment" 
+                                           class="@($"mp-form-control {(HasError("VgEquipment") ? "is-invalid border-danger" : "")}")" 
+                                           placeholder="bv. Sony FX3 4K, DJI Mavic 3 Cine, Rode Wireless Pro" />
+                                @if (HasError("VgEquipment"))
+                                {
+                                    <div class="text-danger small mt-1">@GetError("VgEquipment")</div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <!-- 5. BOER & AP: Geen addisionele besonderhede benodig nie -->
+                    @if (_roleForm.SelectedRoleCode == "AP")
+                    {
+                        <div class="alert alert-success d-flex align-items-center mb-3 p-3" style="background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); color: #86efac;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="me-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            <div>Geen addisionele besonderhede word benodig om hierdie rol te aktiveer nie. U kan direk op die knoppie hieronder klik.</div>
+                        </div>
+                    }
+
+                    @if (DocumentBackedRoleCodes.Contains(_roleForm.SelectedRoleCode))
+                    {
+                        <PendingDocumentUploads @ref="_pendingDocUploads" RoleCode="@_roleForm.SelectedRoleCode" ShowMissingError="@_showDocUploadError" />
+                    }
+
+                    <!-- Modal Action Buttons -->
+                    <div class="d-flex justify-content-end gap-2 pt-3 border-top border-secondary">
+                        <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseAddRoleModal" disabled="@_isActivatingRole">Kanselleer</button>
+                        <button type="submit" class="mp-btn mp-btn-primary" disabled="@_isActivatingRole">
+                            @if (_isActivatingRole)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Besig om akkreditasie te stoor...</span>
+                            }
+                            else
+                            {
+                                <span>Aktiveer @GetRoleDisplayName(_roleForm.SelectedRoleCode) Rol</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private ProfileViewModel _model = new();
+    private string? _profileSaveError;
+    private bool _savedProfile = false;
+    private bool _isSavingProfile = false;
+    private bool _isActivatingRole = false;
+    private string _roleSuccessMsg = string.Empty;
+    private string _roleErrorMsg = string.Empty;
+    private string _modalErrorMsg = string.Empty;
+
+    // Add Role Modal state
+    private bool _showAddRoleModal = false;
+    private RoleActivationFormModel _roleForm = new();
+    private PendingDocumentUploads? _pendingDocUploads;
+    private bool _showDocUploadError = false;
+    /// <summary>Roles whose activation requires uploading credential documents (checked in HandleActivateRole) before the role can be saved - Jagter and AP need no documents.</summary>
+    private static readonly string[] DocumentBackedRoleCodes = { "PJ", "PH", "VG", "Boer" };
+
+    // Delete Role Confirmation state
+    private bool _showDeleteConfirmModal = false;
+    private string? _roleToDelete = null;
+    private string? _roleToDeleteName = null;
+    private bool _isDeletingRole = false;
+
+    // Delete Account Confirmation state
+    private bool _showDeleteAccountModal = false;
+    private bool _isDeletingAccount = false;
+
+    /// <summary>Static catalogue of every activatable role and its display copy - not loaded from the API, so a new role needs a matching entry added here.</summary>
+    private Dictionary<string, RoleDefinition> _allRoles = new()
+    {
+        { "Jagter", new RoleDefinition { Name = "Jagter", Description = "Toegang tot jagpakkette, permitte, SAPS 520 en skietbaanrekords.", Features = "Pakketversoeke, Permitbeursie, E-520 Generator" } },
+        { "Boer", new RoleDefinition { Name = "Grondeienaar (Boer)", Description = "Lys jou plaas, bestuur spesies, wildtellings en inkomende besprekings.", Features = "Boerportaal, Plaasbestuur, Wildtellings, Besprekings" } },
+        { "PJ", new RoleDefinition { Name = "Uitruster (PJ)", Description = "Skep en bemark pasgemaakte ekspedisies en jagpakkette.", Features = "PJ-paneelbord, Skep Pakkette, Kliëntebestuur" } },
+        { "PH", new RoleDefinition { Name = "Professionele Jagter (PH)", Description = "Word gekoppel aan jagtogte, bestuur veldgidse en jagters.", Features = "PH-paneelbord, Veldgids, Jagterbestuur, Jagverslae" } },
+        { "VG", new RoleDefinition { Name = "Videograaf (VG)", Description = "Bied 4K ekspedisie- en hommeltuig-verfilming vir kliënte aan.", Features = "VG-paneelbord, Videopakkette, Spanuitnodigings, VG Besprekings" } },
+        { "AP", new RoleDefinition { Name = "Adverteerder (AP)", Description = "Bemark kommersiële jagtoerusting, taksidermie en voertuigdienste.", Features = "AP-paneelbord, Skep Advertensie, Bestuur Veldtogte" } }
+    };
+
+    private bool _isFetchingProfile = false;
+
+    private Dictionary<string, RoleSubscriptionModel> _userSubscriptions = new();
+
+    private PublicSettingsModel _publicSettings = new();
+
+    /// <summary>
+    /// Subscribes to auth-state changes, does a first optimistic sync from whatever
+    /// user data AuthService already has in memory, then (if already authenticated at
+    /// this point) fetches the authoritative profile and subscription data from the
+    /// API. OnAfterRenderAsync does a second, more reliable pass after Auth finishes
+    /// its own JS-interop initialization, since Auth.IsAuthenticated may not yet
+    /// reflect a session restored from browser storage this early in the lifecycle.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        SyncModelFromCurrentUser();
+        _publicSettings = await Api.GetPublicSettingsAsync();
+        if (Auth.IsAuthenticated)
+        {
+            await FetchProfileFromApiAsync();
+            await LoadRoleSubscriptionsAsync();
+        }
+    }
+
+    /// <summary>Fetches the paid-advertising-subscription status for each of the current user's subscription-eligible roles (PH/Boer/PJ/VG), used to render the "Aktief/Gedeaktiveer/Inaktief" badge per role.</summary>
+    private async Task LoadRoleSubscriptionsAsync()
+    {
+        if (Auth.CurrentUser == null) return;
+        var myUserId = Auth.CurrentUser.UserId;
+        foreach (var r in Auth.CurrentUser.Roles)
+        {
+            if (r.RoleCode is "PH" or "Boer" or "PJ" or "VG")
+            {
+                _userSubscriptions[r.RoleCode] = await Api.GetRoleSubscriptionAsync(myUserId, r.RoleCode);
+            }
+        }
+    }
+
+    /// <summary>Pauses/resumes an already-paid-for subscription in place, or redirects to /payment when there's no paid period to toggle (nothing to activate without paying first).</summary>
+    private async Task ToggleRoleSubscriptionOnProfile(string roleCode)
+    {
+        if (Auth.CurrentUser == null) return;
+        if (!_userSubscriptions.TryGetValue(roleCode, out var sub)) return;
+
+        if (sub.IsActive && sub.HasPaidActivePeriod)
+        {
+            sub.IsActive = false;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(sub);
+            if (!saved) sub.IsActive = !sub.IsActive;
+            _roleSuccessMsg = saved ? $"U {GetRoleDisplayName(roleCode)} advertensie is tydelik gedeaktiveer. Betaalde tydperk bly geldig tot {sub.ExpiryDate:dd MMM yyyy}." : (saveError ?? "Kon nie die advertensie opdateer nie.");
+        }
+        else if (sub.HasPaidActivePeriod)
+        {
+            sub.IsActive = true;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(sub);
+            if (!saved) sub.IsActive = !sub.IsActive;
+            _roleSuccessMsg = saved ? $"U {GetRoleDisplayName(roleCode)} advertensie is her-geaktiveer! (Geldig tot {sub.ExpiryDate:dd MMM yyyy})." : (saveError ?? "Kon nie die advertensie opdateer nie.");
+        }
+        else
+        {
+            Nav.NavigateTo($"/betaling?type=subscription&role={roleCode}");
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>On first render, waits for AuthService's own JS-interop session restore to finish, then re-syncs from whatever it found - this is the reliable point at which Auth.IsAuthenticated reflects a session restored from browser storage (unlike OnInitializedAsync, which can run before that restore completes).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Auth.InitializeAsync(JS, Api);
+            SyncModelFromCurrentUser();
+            if (Auth.IsAuthenticated)
+            {
+                await FetchProfileFromApiAsync();
+                await LoadRoleSubscriptionsAsync();
+                StateHasChanged();
+            }
+        }
+    }
+
+    /// <summary>AuthService.OnAuthStateChanged handler - re-syncs the edit form whenever login/logout/role changes happen elsewhere in the app (e.g. HeaderNav). Marshals onto the render thread via InvokeAsync since the event can fire from a non-UI context.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(() =>
+        {
+            SyncModelFromCurrentUser();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Copies the in-memory AuthService.CurrentUser snapshot into the edit form model - a fast, offline-safe first pass before FetchProfileFromApiAsync overwrites it with the authoritative DB row.</summary>
+    private void SyncModelFromCurrentUser()
+    {
+        if (Auth.CurrentUser != null)
+        {
+            _model.FirstName = Auth.CurrentUser.FirstName;
+            _model.LastName = Auth.CurrentUser.LastName;
+            _model.Email = Auth.CurrentUser.Email;
+            _model.Phone = Auth.CurrentUser.Phone;
+            _model.IdPassportNum = Auth.CurrentUser.IdPassportNum;
+            _model.SavedIdPassportNum = _model.IdPassportNum;
+            _model.RequireIdPassport = UserHasIdRole;
+            _model.ProfilePictureUrl = Auth.CurrentUser.ProfilePictureUrl;
+        }
+    }
+
+    /// <summary>Loads the authoritative profile row from ProfileController and re-syncs both AuthService's cached user and this page's edit form from it. Guarded by _isFetchingProfile since it can be triggered from both lifecycle hooks in quick succession.</summary>
+    private async Task FetchProfileFromApiAsync()
+    {
+        if (_isFetchingProfile || Auth.CurrentUser == null) return;
+        _isFetchingProfile = true;
+
+        try
+        {
+            var (success, dbProfile, _) = await Api.GetProfileAsync(Auth.CurrentUser.UserId);
+            if (success && dbProfile != null)
+            {
+                Auth.SyncUserFromProfile(dbProfile, notifyStateChanged: false);
+                _model.FirstName = dbProfile.Name;
+                _model.LastName = dbProfile.Surname;
+                _model.Email = dbProfile.Email;
+                _model.Phone = dbProfile.Phone ?? "";
+                _model.IdPassportNum = dbProfile.IdPassportNum ?? "";
+                _model.SavedIdPassportNum = _model.IdPassportNum;
+                _model.RequireIdPassport = UserHasIdRole;
+                _model.ProfilePictureUrl = dbProfile.ProfilePictureUrl;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[USER PROFILE LOAD ERROR] {ex.Message}");
+        }
+        finally
+        {
+            _isFetchingProfile = false;
+        }
+    }
+
+    /// <summary>Roles from _allRoles the user hasn't already activated - populates the "Aktiveer Nuwe Rol" modal's role picker.</summary>
+    private Dictionary<string, RoleDefinition> AvailableUnassignedRoles
+    {
+        get
+        {
+            var result = new Dictionary<string, RoleDefinition>();
+            foreach (var kvp in _allRoles)
+            {
+                if (!Auth.HasRole(kvp.Key))
+                {
+                    result.Add(kvp.Key, kvp.Value);
+                }
+            }
+            return result;
+        }
+    }
+
+    /// <summary>Maps a role code to its Afrikaans display name, normalizing the legacy English aliases "HUNTER"/"FARMER" (still returned by some older DB rows/API responses) to "Jagter"/"Boer" first.</summary>
+    private string GetRoleDisplayName(string roleCode)
+    {
+        if (string.IsNullOrWhiteSpace(roleCode)) return string.Empty;
+        var normalized = roleCode.Trim();
+        if (normalized.Equals("HUNTER", StringComparison.OrdinalIgnoreCase)) normalized = "Jagter";
+        if (normalized.Equals("FARMER", StringComparison.OrdinalIgnoreCase)) normalized = "Boer";
+
+        if (_allRoles.TryGetValue(normalized, out var def))
+        {
+            return def.Name;
+        }
+        return roleCode ?? string.Empty;
+    }
+
+    /// <summary>Afrikaans label for a role's verification status (Approved/Pending/Rejected/Suspended/Banned) - falls back to the raw status string for any value not in the map.</summary>
+    private static string GetRoleStatusLabel(string? status) => status switch
+    {
+        "Approved" or "Active" => "Aktief",
+        "Pending" => "Afwagtend",
+        "Rejected" => "Afgekeur",
+        "Suspended" => "Geskors",
+        "Banned" => "Verban",
+        _ => status ?? ""
+    };
+
+    /// <summary>Route to the role's own portal/dashboard, shown as the "Portaal &rarr;" link on each active-role card. Unknown role codes fall back to this same /profile page.</summary>
+    private string GetRoleDashboardUrl(string roleCode)
+    {
+        return roleCode.ToUpperInvariant() switch
+        {
+            "JAGTER" => "/jagter/paneelbord",
+            "HUNTER" => "/jagter/paneelbord",
+            "BOER" => "/boer/paneelbord",
+            "FARMER" => "/boer/paneelbord",
+            "PJ" => "/pj/paneelbord",
+            "PH" => "/ph/paneelbord",
+            "VG" => "/vg/paneelbord",
+            "AP" => "/ap/paneelbord",
+            "ADMIN" => "/administrasie",
+            _ => "/profiel"
+        };
+    }
+
+    /// <summary>Whether the ID/passport number field should be shown even before the user picks a role - true for roles where SAPS/firearm paperwork already needs it.</summary>
+    private bool UserHasIdRole => Auth.HasRole("Jagter") || Auth.HasRole("Hunter") || Auth.HasRole("PH") || Auth.HasRole("PJ");
+
+    /// <summary>Per-field validation messages keyed by field name (case-insensitive; dynamic keys like "PjLicenseNumber_{i}" address one row of a repeated license list), populated by ValidateRoleActivationForm and read by HasError/GetError in the modal markup.</summary>
+    private Dictionary<string, string> _fieldErrors = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool HasError(string key) => _fieldErrors.ContainsKey(key);
+    private string GetError(string key) => _fieldErrors.TryGetValue(key, out var msg) ? msg : string.Empty;
+
+    /// <summary>Adds a blank provincial-license row to the PJ activation form; clears any stale "at least one license" error since the list is no longer empty.</summary>
+    private void AddPjProvince()
+    {
+        _roleForm.PjProvincialLicenses.Add(new ProvincialLicenseEntry { Province = "Noordwes" });
+        _fieldErrors.Remove("PjProvincialLicenses");
+    }
+
+    /// <summary>Removes a PJ provincial-license row by index. Clears ALL field errors (not just this row's) because removing a row shifts every subsequent row's index-keyed error key out of sync.</summary>
+    private void RemovePjProvince(int index)
+    {
+        if (index >= 0 && index < _roleForm.PjProvincialLicenses.Count)
+        {
+            _roleForm.PjProvincialLicenses.RemoveAt(index);
+            _fieldErrors.Clear();
+        }
+    }
+
+    /// <summary>Adds a blank provincial-license row to the PH activation form (mirrors AddPjProvince).</summary>
+    private void AddPhProvince()
+    {
+        _roleForm.PhProvincialLicenses.Add(new ProvincialLicenseEntry { Province = "Mpumalanga" });
+        _fieldErrors.Remove("PhProvincialLicenses");
+    }
+
+    /// <summary>Removes a PH provincial-license row by index (mirrors RemovePjProvince, same index-shift reasoning for clearing all errors).</summary>
+    private void RemovePhProvince(int index)
+    {
+        if (index >= 0 && index < _roleForm.PhProvincialLicenses.Count)
+        {
+            _roleForm.PhProvincialLicenses.RemoveAt(index);
+            _fieldErrors.Clear();
+        }
+    }
+
+    /// <summary>Switches which role's accreditation sub-form is shown in the Add-Role modal and resets validation state for the newly selected role.</summary>
+    private void HandleRoleCodeChanged(ChangeEventArgs e)
+    {
+        _roleForm.SelectedRoleCode = e.Value?.ToString() ?? "Jagter";
+        _fieldErrors.Clear();
+        _modalErrorMsg = string.Empty;
+    }
+
+    /// <summary>Opens the Add-Role modal pre-selected to the first still-available role, pre-filling ID/passport and a default Boer business name from data already on the profile.</summary>
+    private void OpenAddRoleModal()
+    {
+        _roleErrorMsg = string.Empty;
+        _modalErrorMsg = string.Empty;
+        _fieldErrors.Clear();
+        var firstAvailable = AvailableUnassignedRoles.Keys.FirstOrDefault() ?? "Jagter";
+        _roleForm = new RoleActivationFormModel 
+        { 
+            SelectedRoleCode = firstAvailable,
+            HunterIdPassport = _model.IdPassportNum,
+            BoerBusinessName = !string.IsNullOrWhiteSpace(_model.FirstName) ? $"{_model.FirstName} {_model.LastName} Plaas" : ""
+        };
+        _showAddRoleModal = true;
+    }
+
+    private void CloseAddRoleModal()
+    {
+        _showAddRoleModal = false;
+        _modalErrorMsg = string.Empty;
+        _fieldErrors.Clear();
+    }
+
+    /// <summary>Opens the delete-role confirmation modal for a specific active role, remembering its code and display name for the confirmation prompt.</summary>
+    private void PromptDeleteRole(string roleCode, string roleName)
+    {
+        _roleToDelete = roleCode;
+        _roleToDeleteName = roleName;
+        _showDeleteConfirmModal = true;
+    }
+
+    private void CancelDeleteRole()
+    {
+        _showDeleteConfirmModal = false;
+        _roleToDelete = null;
+        _roleToDeleteName = null;
+    }
+
+    /// <summary>Calls ProfileController to permanently delete a role and its dependent data (packages, ads, listings, etc. per the confirmation copy), then re-syncs the profile from the DB so the UI reflects the removal.</summary>
+    private async Task ConfirmDeleteRole()
+    {
+        if (Auth.CurrentUser == null || string.IsNullOrEmpty(_roleToDelete)) return;
+
+        _isDeletingRole = true;
+        _roleErrorMsg = string.Empty;
+        _roleSuccessMsg = string.Empty;
+
+        var roleCode = _roleToDelete;
+        var roleName = _roleToDeleteName ?? roleCode;
+
+        try
+        {
+            var (success, msg) = await Api.DeleteRoleAsync(Auth.CurrentUser.UserId, roleCode);
+            if (success)
+            {
+                Auth.RemoveRoleFromCurrentUser(roleCode);
+                
+                // Re-sync with API
+                var (profSuccess, dbProfile, _) = await Api.GetProfileAsync(Auth.CurrentUser.UserId);
+                if (profSuccess && dbProfile != null)
+                {
+                    Auth.SyncUserFromProfile(dbProfile, notifyStateChanged: true);
+                    SyncModelFromCurrentUser();
+                }
+
+                _roleSuccessMsg = $"Die rol '{roleName}' en alle verwante afhanklikhede is suksesvol verwyder.";
+                _showDeleteConfirmModal = false;
+                _roleToDelete = null;
+                _roleToDeleteName = null;
+            }
+            else
+            {
+                _roleErrorMsg = msg;
+                _showDeleteConfirmModal = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _roleErrorMsg = $"Kon nie rol verwyder nie: {ex.Message}";
+            _showDeleteConfirmModal = false;
+        }
+        finally
+        {
+            _isDeletingRole = false;
+        }
+    }
+
+    private void PromptDeleteUser()
+    {
+        _showDeleteAccountModal = true;
+    }
+
+    private void CancelDeleteAccount()
+    {
+        _showDeleteAccountModal = false;
+    }
+
+    /// <summary>
+    /// Permanently deletes the whole user account (server-side cascade covers roles,
+    /// documents, listings, permits, credentials - see ProfileController.DeleteUser /
+    /// Profile_db.DeleteUser, already documented; that method has a flagged dead
+    /// `udUserId` column reference bug, unrelated to this call site). On success, logs
+    /// the user out client-side and redirects home - there's no server-side session
+    /// invalidation of any other device the user might still be logged in on.
+    /// </summary>
+    private async Task ConfirmDeleteAccount()
+    {
+        if (Auth.CurrentUser == null) return;
+
+        _isDeletingAccount = true;
+        _roleSuccessMsg = string.Empty;
+        _roleErrorMsg = string.Empty;
+
+        var userId = Auth.CurrentUser.UserId;
+
+        try
+        {
+            var (success, msg) = await Api.DeleteUserAsync(userId);
+            if (success)
+            {
+                _showDeleteAccountModal = false;
+                await Auth.LogoutAsync(JS);
+                Nav.NavigateTo("/?deleted=true");
+            }
+            else
+            {
+                _roleErrorMsg = msg;
+                _showDeleteAccountModal = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _roleErrorMsg = $"Fout met skrapping van rekening: {ex.Message}";
+            _showDeleteAccountModal = false;
+        }
+        finally
+        {
+            _isDeletingAccount = false;
+        }
+    }
+
+    /// <summary>
+    /// Client-side validation for the role-activation modal, mirroring (loosely) what
+    /// the server would reject anyway - this exists purely for fast, field-level
+    /// feedback, not as the source of truth for what's actually required (the API call
+    /// in HandleActivateRole can still fail server-side after this passes). Populates
+    /// _fieldErrors per-field and _modalErrorMsg as the overall summary.
+    /// </summary>
+    private bool ValidateRoleActivationForm()
+    {
+        _fieldErrors.Clear();
+        _modalErrorMsg = string.Empty;
+        var roleCode = _roleForm.SelectedRoleCode;
+
+        if (string.IsNullOrWhiteSpace(roleCode))
+        {
+            _modalErrorMsg = "Kies asseblief 'n geldige rol om te aktiveer.";
+            return false;
+        }
+
+        if (roleCode == "Jagter")
+        {
+            if (string.IsNullOrWhiteSpace(_roleForm.HunterNickname))
+                _fieldErrors["HunterNickname"] = "Bynaam vir ranglys is verpligtend.";
+            else if (_roleForm.HunterNickname.Trim().Length < 2)
+                _fieldErrors["HunterNickname"] = "Bynaam moet ten minste 2 karakters lank wees.";
+            else if (_roleForm.HunterNickname.Trim().Length > 50)
+                _fieldErrors["HunterNickname"] = "Bynaam mag hoogstens 50 karakters bevat.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.HunterIdPassport))
+            {
+                _fieldErrors["HunterIdPassport"] = "Paspoortnommer is verpligtend.";
+            }
+            else if (!System.Text.RegularExpressions.Regex.IsMatch(_roleForm.HunterIdPassport.Trim().ToUpperInvariant(), "^[A-Z0-9<]{5,17}$"))
+            {
+                _fieldErrors["HunterIdPassport"] = "Ongeldige paspoortnommer. Moet tussen 5 en 17 letters, syfers of '<' karakters bevat.";
+            }
+
+            if (string.IsNullOrWhiteSpace(_roleForm.HunterCountry))
+                _fieldErrors["HunterCountry"] = "Land van woon is verpligtend.";
+            else if (_roleForm.HunterCountry.Trim().Length < 2)
+                _fieldErrors["HunterCountry"] = "Land van woon moet ten minste 2 karakters lank wees.";
+            else if (_roleForm.HunterCountry.Trim().Length > 60)
+                _fieldErrors["HunterCountry"] = "Land mag hoogstens 60 karakters bevat.";
+        }
+        else if (roleCode == "PJ")
+        {
+            if (string.IsNullOrWhiteSpace(_roleForm.PjBusinessName))
+                _fieldErrors["PjBusinessName"] = "Uitruster besigheidsnaam is verpligtend.";
+            else if (_roleForm.PjBusinessName.Trim().Length < 2)
+                _fieldErrors["PjBusinessName"] = "Besigheidsnaam moet ten minste 2 karakters lank wees.";
+            else if (_roleForm.PjBusinessName.Trim().Length > 100)
+                _fieldErrors["PjBusinessName"] = "Besigheidsnaam mag hoogstens 100 karakters bevat.";
+
+            if (_roleForm.PjYearsExp < 0 || _roleForm.PjYearsExp > 70)
+                _fieldErrors["PjYearsExp"] = "Jare ondervinding moet tussen 0 en 70 wees.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PjCipcRegNum))
+                _fieldErrors["PjCipcRegNum"] = "CIPC registrasienommer is verpligtend.";
+            else if (_roleForm.PjCipcRegNum.Trim().Length < 3 || _roleForm.PjCipcRegNum.Trim().Length > 50)
+                _fieldErrors["PjCipcRegNum"] = "CIPC registrasienommer moet tussen 3 en 50 karakters wees.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PjTaxPinVat))
+                _fieldErrors["PjTaxPinVat"] = "Belasting Pin of BTW-nommer is verpligtend.";
+            else if (_roleForm.PjTaxPinVat.Trim().Length < 3 || _roleForm.PjTaxPinVat.Trim().Length > 50)
+                _fieldErrors["PjTaxPinVat"] = "Belasting Pin of BTW-nommer moet tussen 3 en 50 karakters wees.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PjPhysicalAddress))
+                _fieldErrors["PjPhysicalAddress"] = "Fisiese besigheidsadres is verpligtend.";
+            else if (_roleForm.PjPhysicalAddress.Trim().Length < 5)
+                _fieldErrors["PjPhysicalAddress"] = "Fisiese adres moet ten minste 5 karakters lank wees.";
+            else if (_roleForm.PjPhysicalAddress.Trim().Length > 250)
+                _fieldErrors["PjPhysicalAddress"] = "Fisiese adres mag hoogstens 250 karakters bevat.";
+
+            if (_roleForm.PjProvincialLicenses == null || _roleForm.PjProvincialLicenses.Count == 0)
+            {
+                _fieldErrors["PjProvincialLicenses"] = "Voeg ten minste een provinsiale uitrusterlisensie by.";
+            }
+            else
+            {
+                var seenProvinces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < _roleForm.PjProvincialLicenses.Count; i++)
+                {
+                    var lic = _roleForm.PjProvincialLicenses[i];
+                    if (string.IsNullOrWhiteSpace(lic.LicenseNumber))
+                        _fieldErrors[$"PjLicenseNumber_{i}"] = "Lisensienommer is verpligtend.";
+                    else if (lic.LicenseNumber.Trim().Length < 3 || lic.LicenseNumber.Trim().Length > 50)
+                        _fieldErrors[$"PjLicenseNumber_{i}"] = "Lisensienommer moet tussen 3 en 50 karakters wees.";
+
+                    if (!lic.ExpiryDate.HasValue)
+                        _fieldErrors[$"PjExpiryDate_{i}"] = "Vervaldatum is verpligtend.";
+                    else if (lic.ExpiryDate.Value.Date < DateTime.Today)
+                        _fieldErrors[$"PjExpiryDate_{i}"] = "Lisensie kan nie reeds verval wees nie.";
+
+                    if (!string.IsNullOrWhiteSpace(lic.Province))
+                    {
+                        if (!seenProvinces.Add(lic.Province.Trim()))
+                            _fieldErrors["PjProvincialLicenses"] = $"Provinsie '{lic.Province}' is meer as een keer gelys.";
+                    }
+                }
+            }
+        }
+        else if (roleCode == "PH")
+        {
+            if (_roleForm.PhProvincialLicenses == null || _roleForm.PhProvincialLicenses.Count == 0)
+            {
+                _fieldErrors["PhProvincialLicenses"] = "Voeg ten minste een provinsiale PH-lisensie by.";
+            }
+            else
+            {
+                var seenProvinces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < _roleForm.PhProvincialLicenses.Count; i++)
+                {
+                    var lic = _roleForm.PhProvincialLicenses[i];
+                    if (string.IsNullOrWhiteSpace(lic.LicenseNumber))
+                        _fieldErrors[$"PhLicenseNumber_{i}"] = "PH lisensienommer is verpligtend.";
+                    else if (lic.LicenseNumber.Trim().Length < 3 || lic.LicenseNumber.Trim().Length > 50)
+                        _fieldErrors[$"PhLicenseNumber_{i}"] = "Lisensienommer moet tussen 3 en 50 karakters wees.";
+
+                    if (!lic.ExpiryDate.HasValue)
+                        _fieldErrors[$"PhExpiryDate_{i}"] = "Vervaldatum is verpligtend.";
+                    else if (lic.ExpiryDate.Value.Date < DateTime.Today)
+                        _fieldErrors[$"PhExpiryDate_{i}"] = "PH lisensie kan nie reeds verval wees nie.";
+
+                    if (!string.IsNullOrWhiteSpace(lic.Province))
+                    {
+                        if (!seenProvinces.Add(lic.Province.Trim()))
+                            _fieldErrors["PhProvincialLicenses"] = $"Provinsie '{lic.Province}' is meer as een keer gelys.";
+                    }
+                }
+            }
+
+            if (_roleForm.PhHasDangerousGame)
+            {
+                if (string.IsNullOrWhiteSpace(_roleForm.PhDangerousGameDetails))
+                    _fieldErrors["PhDangerousGameDetails"] = "Dangerous Game sertifikaatnommer / spesialisasie is verpligtend.";
+                else if (_roleForm.PhDangerousGameDetails.Trim().Length < 2 || _roleForm.PhDangerousGameDetails.Trim().Length > 100)
+                    _fieldErrors["PhDangerousGameDetails"] = "Dangerous Game besonderhede moet tussen 2 en 100 karakters wees.";
+            }
+
+            if (_roleForm.PhAssociationClub == "Ander")
+            {
+                if (string.IsNullOrWhiteSpace(_roleForm.PhCustomAssociation))
+                    _fieldErrors["PhCustomAssociation"] = "Spesifiseer asseblief die vereniging- of klubnaam.";
+                else if (_roleForm.PhCustomAssociation.Trim().Length < 2 || _roleForm.PhCustomAssociation.Trim().Length > 100)
+                    _fieldErrors["PhCustomAssociation"] = "Verenigingnaam moet tussen 2 en 100 karakters wees.";
+            }
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PhAssociationMemberNum))
+                _fieldErrors["PhAssociationMemberNum"] = "Lidmaatskapnommer is verpligtend.";
+            else if (_roleForm.PhAssociationMemberNum.Trim().Length < 2 || _roleForm.PhAssociationMemberNum.Trim().Length > 50)
+                _fieldErrors["PhAssociationMemberNum"] = "Lidmaatskapnommer moet tussen 2 en 50 karakters wees.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PhFirstAidCert))
+                _fieldErrors["PhFirstAidCert"] = "Noodhulp sertifisering is verpligtend.";
+            else if (_roleForm.PhFirstAidCert.Trim().Length < 2 || _roleForm.PhFirstAidCert.Trim().Length > 100)
+                _fieldErrors["PhFirstAidCert"] = "Noodhulp sertifisering moet tussen 2 en 100 karakters wees.";
+
+            if (!_roleForm.PhFirstAidExpiry.HasValue)
+                _fieldErrors["PhFirstAidExpiry"] = "Noodhulp vervaldatum is verpligtend.";
+            else if (_roleForm.PhFirstAidExpiry.Value.Date < DateTime.Today)
+                _fieldErrors["PhFirstAidExpiry"] = "Noodhulp sertifikaat kan nie reeds verval wees nie.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PhFirearmCompetencyNum))
+                _fieldErrors["PhFirearmCompetencyNum"] = "SAPS bevoegdheidsertifikaatnommer is verpligtend.";
+            else if (_roleForm.PhFirearmCompetencyNum.Trim().Length < 3 || _roleForm.PhFirearmCompetencyNum.Trim().Length > 50)
+                _fieldErrors["PhFirearmCompetencyNum"] = "SAPS bevoegdheidsnommer moet tussen 3 en 50 karakters wees.";
+
+            if (_roleForm.PhYearsExp < 0 || _roleForm.PhYearsExp > 70)
+                _fieldErrors["PhYearsExp"] = "Jare ondervinding moet tussen 0 en 70 wees.";
+
+            if (_roleForm.PhStandardDailyRate <= 0 || _roleForm.PhStandardDailyRate > 100000)
+                _fieldErrors["PhStandardDailyRate"] = "Standaard dagtarief moet tussen R1 en R100 000 wees.";
+            if (_roleForm.PhDangerousGameDailyRate <= 0 || _roleForm.PhDangerousGameDailyRate > 100000)
+                _fieldErrors["PhDangerousGameDailyRate"] = "Gevaarlike-wild dagtarief moet tussen R1 en R100 000 wees.";
+            else if (_roleForm.PhDangerousGameDailyRate < _roleForm.PhStandardDailyRate)
+                _fieldErrors["PhDangerousGameDailyRate"] = "Gevaarlike-wild dagtarief kan nie laer as die standaard dagtarief wees nie.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.PhFirearmLicensesList))
+                _fieldErrors["PhFirearmLicensesList"] = "Lys van vuurwapens en kalibers is verpligtend.";
+            else if (_roleForm.PhFirearmLicensesList.Trim().Length < 3 || _roleForm.PhFirearmLicensesList.Trim().Length > 500)
+                _fieldErrors["PhFirearmLicensesList"] = "Vuurwapenlys moet tussen 3 en 500 karakters wees.";
+        }
+        else if (roleCode == "VG")
+        {
+            if (string.IsNullOrWhiteSpace(_roleForm.VgSacaaRegNum))
+                _fieldErrors["VgSacaaRegNum"] = "SACAA registrasienommer is verpligtend.";
+            else if (_roleForm.VgSacaaRegNum.Trim().Length < 3 || _roleForm.VgSacaaRegNum.Trim().Length > 50)
+                _fieldErrors["VgSacaaRegNum"] = "SACAA registrasienommer moet tussen 3 en 50 karakters wees.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.VgRplLicenseNum))
+                _fieldErrors["VgRplLicenseNum"] = "RPL vlieënierslisensienommer is verpligtend.";
+            else if (_roleForm.VgRplLicenseNum.Trim().Length < 3 || _roleForm.VgRplLicenseNum.Trim().Length > 50)
+                _fieldErrors["VgRplLicenseNum"] = "RPL nommer moet tussen 3 en 50 karakters wees.";
+
+            if (!string.IsNullOrWhiteSpace(_roleForm.VgRocCertNum) && _roleForm.VgRocCertNum.Trim().Length > 50)
+                _fieldErrors["VgRocCertNum"] = "ROC nommer mag hoogstens 50 karakters bevat.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.VgCompanyName))
+                _fieldErrors["VgCompanyName"] = "Ateljee- of kanaalnaam is verpligtend.";
+            else if (_roleForm.VgCompanyName.Trim().Length < 2 || _roleForm.VgCompanyName.Trim().Length > 100)
+                _fieldErrors["VgCompanyName"] = "Ateljeenaam moet tussen 2 en 100 karakters wees.";
+
+            if (_roleForm.VgYearsExp < 0 || _roleForm.VgYearsExp > 70)
+                _fieldErrors["VgYearsExp"] = "Jare ondervinding moet tussen 0 en 70 wees.";
+
+            if (string.IsNullOrWhiteSpace(_roleForm.VgEquipment))
+                _fieldErrors["VgEquipment"] = "Beskrywing van toerusting is verpligtend.";
+            else if (_roleForm.VgEquipment.Trim().Length < 3 || _roleForm.VgEquipment.Trim().Length > 300)
+                _fieldErrors["VgEquipment"] = "Toerustingbeskrywing moet tussen 3 en 300 karakters wees.";
+        }
+        else if (roleCode == "Boer" || roleCode == "AP")
+        {
+            // Geen addisionele akkreditasie-inligting word benodig nie
+        }
+
+        if (_fieldErrors.Count > 0)
+        {
+            _modalErrorMsg = "Vul asseblief al die vereiste rol-inligting korrek in om voort te gaan.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Activates a role end-to-end: validates the form, blocks activation until
+    /// required documents are attached (for PJ/PH/VG/Boer), calls the role-specific
+    /// Register*RoleAsync endpoint, updates AuthService's in-memory user, re-fetches
+    /// the authoritative profile (to get the real userRoleId the new role was just
+    /// assigned), and only then uploads the documents collected earlier in the modal -
+    /// they can't be uploaded before this because UploadDocumentAsync needs a real
+    /// userRoleId to attach to, which doesn't exist until the role record itself is
+    /// created server-side.
+    /// </summary>
+    private async Task HandleActivateRole()
+    {
+        if (Auth.CurrentUser == null || string.IsNullOrEmpty(_roleForm.SelectedRoleCode)) return;
+
+        if (!ValidateRoleActivationForm())
+        {
+            return;
+        }
+
+        // The profile must always have its minimum required documents - block
+        // activation client-side rather than letting a role exist with none of its
+        // required credentials attached.
+        if (DocumentBackedRoleCodes.Contains(_roleForm.SelectedRoleCode) && _pendingDocUploads?.AllRequiredAttached != true)
+        {
+            _showDocUploadError = true;
+            _modalErrorMsg = "Laai asseblief al die verpligte dokumente op voordat u hierdie rol aktiveer.";
+            return;
+        }
+        _showDocUploadError = false;
+
+        _isActivatingRole = true;
+        _roleErrorMsg = string.Empty;
+        _modalErrorMsg = string.Empty;
+
+        var roleCode = _roleForm.SelectedRoleCode;
+        var roleName = GetRoleDisplayName(roleCode);
+        string credentials = string.Empty;
+        int userId = Auth.CurrentUser.UserId;
+
+        try
+        {
+            // 1. Save specific role record in the DB and userRoles table
+            if (roleCode == "Jagter")
+            {
+                credentials = $"Bynaam: {_roleForm.HunterNickname.Trim()} | ID/Paspoort: {_roleForm.HunterIdPassport.Trim()} | Land: {_roleForm.HunterCountry.Trim()}";
+                var (resOk, resMsg) = await Api.RegisterHunterRoleAsync(userId, new RegisterHunterApiRequestModel
+                {
+                    Username = _roleForm.HunterNickname.Trim(),
+                    IdPassportNumber = _roleForm.HunterIdPassport.Trim(),
+                    Country = _roleForm.HunterCountry.Trim(),
+                    Bio = credentials
+                });
+
+                if (!resOk)
+                {
+                    _modalErrorMsg = resMsg;
+                    return;
+                }
+            }
+            else if (roleCode == "PJ")
+            {
+                var provSummaries = string.Join("; ", _roleForm.PjProvincialLicenses.Select(p => $"{p.Province}: {p.LicenseNumber.Trim()} (Verval: {p.ExpiryDate:yyyy-MM-dd})"));
+                credentials = $"Uitruster: {_roleForm.PjBusinessName.Trim()} | CIPC: {_roleForm.PjCipcRegNum.Trim()} | BTW/Belasting: {_roleForm.PjTaxPinVat.Trim()}\nAdres: {_roleForm.PjPhysicalAddress.Trim()}\nLisensies: {provSummaries}";
+                
+                var (resOk, resMsg) = await Api.RegisterPjRoleAsync(userId, new RegisterPjApiRequestModel
+                {
+                    BusinessName = _roleForm.PjBusinessName.Trim(),
+                    BusinessRegistrationNumber = _roleForm.PjCipcRegNum.Trim(),
+                    TaxPinVat = _roleForm.PjTaxPinVat.Trim(),
+                    PhysicalAddress = _roleForm.PjPhysicalAddress.Trim(),
+                    ProvincialLicenses = provSummaries,
+                    YearsOfExperience = _roleForm.PjYearsExp,
+                    Bio = credentials
+                });
+
+                if (!resOk)
+                {
+                    _modalErrorMsg = resMsg;
+                    return;
+                }
+            }
+            else if (roleCode == "PH")
+            {
+                var provSummaries = string.Join("; ", _roleForm.PhProvincialLicenses.Select(p => $"{p.Province}: {p.LicenseNumber.Trim()} (Verval: {p.ExpiryDate:yyyy-MM-dd})"));
+                var assocName = _roleForm.PhAssociationClub == "Ander" ? _roleForm.PhCustomAssociation.Trim() : _roleForm.PhAssociationClub;
+                var dgSummary = _roleForm.PhHasDangerousGame ? $"Ja ({_roleForm.PhDangerousGameDetails.Trim()})" : "Nee";
+                var faExpiry = _roleForm.PhFirstAidExpiry?.ToString("yyyy-MM-dd") ?? "n.v.t.";
+
+                credentials = $"PH Lisensies: {provSummaries}\nGevaarlike Wild: {dgSummary}\nVereniging: {assocName} (#{_roleForm.PhAssociationMemberNum.Trim()})\nNoodhulp: {_roleForm.PhFirstAidCert.Trim()} (Verval: {faExpiry})\nBevoegdheid: {_roleForm.PhFirearmCompetencyNum.Trim()} | Wapens: {_roleForm.PhFirearmLicensesList.Trim()}";
+
+                var (resOk, resMsg) = await Api.RegisterPhRoleAsync(userId, new RegisterPhApiRequestModel
+                {
+                    ProvincialLicenses = provSummaries,
+                    HasDangerousGameEndorsement = _roleForm.PhHasDangerousGame,
+                    DangerousGameDetails = _roleForm.PhDangerousGameDetails.Trim(),
+                    AssociationName = assocName,
+                    AssociationMembershipNumber = _roleForm.PhAssociationMemberNum.Trim(),
+                    FirstAidCertification = _roleForm.PhFirstAidCert.Trim(),
+                    FirstAidExpiryDate = _roleForm.PhFirstAidExpiry,
+                    FirearmCompetencyLicenses = $"Bevoegdheid: {_roleForm.PhFirearmCompetencyNum.Trim()} | Wapens: {_roleForm.PhFirearmLicensesList.Trim()}",
+                    YearsOfExperience = _roleForm.PhYearsExp,
+                    Bio = credentials
+                });
+
+                if (!resOk)
+                {
+                    _modalErrorMsg = resMsg;
+                    return;
+                }
+                await Api.SavePhDailyRatesAsync(userId, _roleForm.PhStandardDailyRate, _roleForm.PhDangerousGameDailyRate, _roleForm.PhHasDangerousGame);
+            }
+            else if (roleCode == "VG")
+            {
+                var rocText = string.IsNullOrWhiteSpace(_roleForm.VgRocCertNum) ? "n.v.t." : _roleForm.VgRocCertNum.Trim();
+                credentials = $"Ateljee: {_roleForm.VgCompanyName.Trim()} | SACAA: {_roleForm.VgSacaaRegNum.Trim()} | RPL: {_roleForm.VgRplLicenseNum.Trim()} | ROC: {rocText}\nToerusting: {_roleForm.VgEquipment.Trim()}";
+                
+                var (resOk, resMsg) = await Api.RegisterVgRoleAsync(userId, new RegisterVgApiRequestModel
+                {
+                    CompanyName = _roleForm.VgCompanyName.Trim(),
+                    // Note: this form collects no separate CIPC-style company registration
+                    // number for VG (unlike PJ, which has its own PjCipcRegNum field) - the
+                    // SACAA drone registration number is reused here instead.
+                    CompanyRegistrationNumber = _roleForm.VgSacaaRegNum.Trim(),
+                    SacaaRegistrationNumber = _roleForm.VgSacaaRegNum.Trim(),
+                    RplLicenseNumber = _roleForm.VgRplLicenseNum.Trim(),
+                    RocCertificateNumber = rocText,
+                    DroneLicence = $"SACAA: {_roleForm.VgSacaaRegNum.Trim()}, RPL: {_roleForm.VgRplLicenseNum.Trim()}, ROC: {rocText}",
+                    HasDrone = true,
+                    YearsOfExperience = _roleForm.VgYearsExp
+                });
+
+                if (!resOk)
+                {
+                    _modalErrorMsg = resMsg;
+                    return;
+                }
+            }
+            else if (roleCode == "Boer")
+            {
+                var bName = !string.IsNullOrWhiteSpace(Auth.CurrentUser.FullName) && Auth.CurrentUser.FullName != "Lid" 
+                    ? Auth.CurrentUser.FullName 
+                    : $"{Auth.CurrentUser.FirstName} {Auth.CurrentUser.LastName}".Trim();
+                credentials = $"Grondeienaar (Boer): {bName}";
+                var (resOk, resMsg) = await Api.RegisterFarmerRoleAsync(userId, new RegisterBoerApiRequestModel
+                {
+                    BusinessName = bName,
+                    BusinessRegistrationNumber = string.Empty,
+                    Region = string.Empty,
+                    Bio = credentials
+                });
+
+                if (!resOk)
+                {
+                    _modalErrorMsg = resMsg;
+                    return;
+                }
+            }
+            else if (roleCode == "AP")
+            {
+                credentials = "Adverteerder (AP)";
+                var (resOk, resMsg) = await Api.RegisterApRoleAsync(userId);
+
+                if (!resOk)
+                {
+                    _modalErrorMsg = resMsg;
+                    return;
+                }
+            }
+
+            // 2. Update current user state in memory
+            Auth.AddRoleToCurrentUser(roleCode, roleName, credentials);
+
+            // 4. Re-sync from database
+            var (success, dbProfile, _) = await Api.GetProfileAsync(userId);
+            if (success && dbProfile != null)
+            {
+                Auth.SyncUserFromProfile(dbProfile, notifyStateChanged: false);
+                SyncModelFromCurrentUser();
+
+                // 5. Upload the documents collected above, now that a real
+                // userRoleId exists for them to attach to.
+                if (_pendingDocUploads != null && _pendingDocUploads.PendingFiles.Count > 0)
+                {
+                    // The form's code ("Jagter", "Boer") differs from the database's ("HUNTER", "FARMER").
+                    var newUserRoleId = dbProfile.Roles.FirstOrDefault(r => AuthService.SameRole(r.RoleCode, roleCode))?.Id ?? 0;
+                    if (newUserRoleId > 0)
+                    {
+                        foreach (var (documentTypeId, file) in _pendingDocUploads.PendingFiles)
+                        {
+                            var (docOk, docMsg) = await Api.UploadDocumentAsync(newUserRoleId, documentTypeId, file.FileName, file.DataUrl);
+                            if (!docOk)
+                            {
+                                Console.WriteLine($"[ROLE DOCUMENT UPLOAD ERROR] {docMsg}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            _roleSuccessMsg = $"Die rol '{roleName}' is suksesvol met alle lisensie- en akkreditasie-besonderhede geaktiveer!";
+            _showAddRoleModal = false;
+            _fieldErrors.Clear();
+            _modalErrorMsg = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _modalErrorMsg = $"Kon nie die rol in die databasis stoor nie: {ex.Message}";
+        }
+        finally
+        {
+            _isActivatingRole = false;
+        }
+    }
+
+    /// <summary>Resizes the selected image client-side to a 300x300 PNG, base64-encodes it as a data URL, and saves it immediately (not deferred to the "Stoor Profielbesonderhede" form submit) - the picture is a separate, instant-save action from the rest of the profile form.</summary>
+    private async Task HandleProfilePicSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        if (file.Size > 3 * 1024 * 1024)
+        {
+            _roleErrorMsg = "Die foto is te groot. Kies asseblief 'n prent kleiner as 3 MB.";
+            return;
+        }
+        if (file.ContentType is not ("image/png" or "image/jpeg" or "image/webp"))
+        {
+            _roleErrorMsg = "Kies asseblief 'n PNG-, JPEG- of WebP-prent.";
+            return;
+        }
+
+        try
+        {
+            var resized = await file.RequestImageFileAsync("image/png", 300, 300);
+            using var stream = resized.OpenReadStream(3 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            var dataUrl = $"data:image/png;base64,{base64}";
+            
+            // Only the picture is sent (null fields are left unchanged), so unsaved or invalid
+            // edits in the details form can't make the photo upload fail - or sneak through with it.
+            if (Auth.CurrentUser != null)
+            {
+                var (ok, msg) = await Api.UpdateProfileAsync(Auth.CurrentUser.UserId, new UpdateProfileApiRequestModel { ProfilePictureUrl = dataUrl });
+                if (!ok)
+                {
+                    _roleErrorMsg = $"Kon nie die foto stoor nie: {msg}";
+                    _roleSuccessMsg = string.Empty;
+                    return;
+                }
+            }
+
+            _model.ProfilePictureUrl = dataUrl;
+            Auth.UpdateProfilePicture(dataUrl);
+
+            _roleSuccessMsg = "Jou profielfoto is suksesvol opgelaai en gestoor!";
+            _roleErrorMsg = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _roleErrorMsg = $"Kon nie die foto oplaai nie: {ex.Message}";
+        }
+    }
+
+    /// <summary>Clears the profile picture, saving immediately like HandleProfilePicSelected does.</summary>
+    private async Task RemoveProfilePic()
+    {
+        if (Auth.CurrentUser != null)
+        {
+            var (ok, msg) = await Api.UpdateProfileAsync(Auth.CurrentUser.UserId, new UpdateProfileApiRequestModel { ProfilePictureUrl = "" });
+            if (!ok)
+            {
+                _roleErrorMsg = $"Kon nie die foto verwyder nie: {msg}";
+                _roleSuccessMsg = string.Empty;
+                return;
+            }
+        }
+
+        _model.ProfilePictureUrl = null;
+        Auth.UpdateProfilePicture(null);
+        _roleSuccessMsg = "Jou profielfoto is suksesvol verwyder.";
+        _roleErrorMsg = string.Empty;
+    }
+
+    /// <summary>Saves the personal-details form (name/phone/ID/photo) via ProfileController, then updates AuthService's cached user and persists the session so the change survives a refresh.</summary>
+    private async Task HandleSaveProfile()
+    {
+        if (Auth.CurrentUser == null) return;
+
+        _isSavingProfile = true;
+        _savedProfile = false;
+        _profileSaveError = null;
+        _model.Normalize();
+
+        try
+        {
+            // The picture is saved on its own (HandleProfilePicSelected/RemoveProfilePic), so it isn't resent here.
+            var (success, msg) = await Api.UpdateProfileAsync(Auth.CurrentUser.UserId, new UpdateProfileApiRequestModel
+            {
+                Name = _model.FirstName,
+                Surname = _model.LastName,
+                Phone = _model.Phone,
+                IdPassportNum = _model.IdPassportNum,
+            });
+            if (!success)
+            {
+                _profileSaveError = $"Kon nie u profiel stoor nie: {msg}";
+                return;
+            }
+
+            Auth.CurrentUser.FirstName = _model.FirstName;
+            Auth.CurrentUser.LastName = _model.LastName;
+            Auth.CurrentUser.Phone = _model.Phone;
+            Auth.CurrentUser.IdPassportNum = _model.IdPassportNum;
+            _model.SavedIdPassportNum = _model.IdPassportNum;
+            _ = Auth.SaveSessionToStorageAsync();
+
+            _savedProfile = true;
+        }
+        catch (Exception ex)
+        {
+            _profileSaveError = $"Kon nie profiel in die databasis opdateer nie: {ex.Message}";
+        }
+        finally
+        {
+            _isSavingProfile = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>Edit-form-bound copy of the personal-details fields (kept separate from AuthService.CurrentUser so edits don't leak into the global auth state until explicitly saved).</summary>
+    /// <summary>Edit-form-bound copy of the personal-details fields (kept separate from AuthService.CurrentUser so edits don't leak into the global auth state until explicitly saved). Validated by the form's DataAnnotationsValidator; WebAPI's UpdateProfileValidator re-checks the basics.</summary>
+    public class ProfileViewModel : IValidatableObject
+    {
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string IdPassportNum { get; set; } = string.Empty;
+        public string? ProfilePictureUrl { get; set; }
+
+        /// <summary>The ID/passport number as last loaded/saved. Its strict format check only runs once the user changes it, so older placeholder values (e.g. the demo cast's) don't block saving the other fields.</summary>
+        public string SavedIdPassportNum { get; set; } = string.Empty;
+        /// <summary>Hunter/PJ/PH roles need an ID or passport number for firearm and permit paperwork.</summary>
+        public bool RequireIdPassport { get; set; }
+
+        private static string CollapseSpaces(string? value) => Regex.Replace(value?.Trim() ?? "", @"\s+", " ");
+        private static string CompactId(string? value) => (value ?? "").Replace(" ", "").Trim().ToUpperInvariant();
+
+        /// <summary>Trims and tidies the values just before saving.</summary>
+        public void Normalize()
+        {
+            FirstName = CollapseSpaces(FirstName);
+            LastName = CollapseSpaces(LastName);
+            Phone = CollapseSpaces(Phone);
+            IdPassportNum = CompactId(IdPassportNum);
+        }
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            foreach (var (value, member, label) in new[] { (FirstName, nameof(FirstName), "Voornaam"), (LastName, nameof(LastName), "Van") })
+            {
+                var v = CollapseSpaces(value);
+                if (v.Length == 0)
+                    yield return new ValidationResult($"{label} is verpligtend.", new[] { member });
+                else if (v.Length < 2 || v.Length > 50)
+                    yield return new ValidationResult($"{label} moet tussen 2 en 50 karakters wees.", new[] { member });
+                else if (!Regex.IsMatch(v, @"^\p{L}[\p{L}\p{M} .'-]*$"))
+                    yield return new ValidationResult($"{label} mag net letters, spasies, koppeltekens (-) en apostrofs (') bevat.", new[] { member });
+            }
+
+            var phone = CollapseSpaces(Phone);
+            int digits = phone.Count(char.IsAsciiDigit);
+            if (phone.Length == 0)
+                yield return new ValidationResult("Telefoonnommer is verpligtend.", new[] { nameof(Phone) });
+            else if (!Regex.IsMatch(phone, @"^\+?[0-9 ()-]+$"))
+                yield return new ValidationResult("Telefoonnommer mag net syfers, spasies, koppeltekens en 'n + aan die begin bevat.", new[] { nameof(Phone) });
+            else if (digits < 9 || digits > 15 || phone.Length > 15)
+                yield return new ValidationResult("Telefoonnommer moet 9 tot 15 syfers hê (hoogstens 15 karakters), bv. 082 555 0192.", new[] { nameof(Phone) });
+
+            var id = CompactId(IdPassportNum);
+            if (id.Length == 0)
+            {
+                if (RequireIdPassport)
+                    yield return new ValidationResult("ID- of paspoortnommer is verpligtend vir u rol (vuurwapen- en permitklaring).", new[] { nameof(IdPassportNum) });
+            }
+            else if (id != CompactId(SavedIdPassportNum))
+            {
+                if (id.Length == 13 && id.All(char.IsAsciiDigit))
+                {
+                    if (!IsValidSaId(id))
+                        yield return new ValidationResult("Ongeldige Suid-Afrikaanse ID-nommer (geboortedatum of kontrolesyfer klop nie).", new[] { nameof(IdPassportNum) });
+                }
+                else if (!Regex.IsMatch(id, "^[A-Z0-9<]{5,17}$"))
+                {
+                    yield return new ValidationResult("Voer 'n 13-syfer SA ID-nommer of 'n paspoortnommer van 5-17 letters/syfers in.", new[] { nameof(IdPassportNum) });
+                }
+            }
+        }
+
+        /// <summary>SA ID number: YYMMDD birth date followed by a Luhn check digit.</summary>
+        public static bool IsValidSaId(string id)
+        {
+            if (id.Length != 13 || !id.All(char.IsAsciiDigit)) return false;
+            if (!DateTime.TryParseExact(id[..6], "yyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)) return false;
+            int sum = 0;
+            for (int i = 0; i < 13; i++)
+            {
+                int d = id[12 - i] - '0';
+                if (i % 2 == 1) { d *= 2; if (d > 9) d -= 9; }
+                sum += d;
+            }
+            return sum % 10 == 0;
+        }
+    }
+
+    /// <summary>Backing model for the Add-Role modal - a flat superset of every role's fields (only the ones for the currently selected role are shown/validated/sent).</summary>
+    public class RoleActivationFormModel
+    {
+        public string SelectedRoleCode { get; set; } = "Jagter";
+
+        // Jagter inputs
+        public string HunterNickname { get; set; } = string.Empty;
+        public string HunterIdPassport { get; set; } = string.Empty;
+        public string HunterCountry { get; set; } = "Suid-Afrika";
+
+        // PJ inputs
+        public string PjBusinessName { get; set; } = string.Empty;
+        public string PjCipcRegNum { get; set; } = string.Empty;
+        public string PjTaxPinVat { get; set; } = string.Empty;
+        public string PjPhysicalAddress { get; set; } = string.Empty;
+        public int PjYearsExp { get; set; } = 5;
+        public List<ProvincialLicenseEntry> PjProvincialLicenses { get; set; } = new()
+        {
+            new ProvincialLicenseEntry { Province = "Limpopo" }
+        };
+
+        // PH inputs
+        public int PhYearsExp { get; set; } = 5;
+        public List<ProvincialLicenseEntry> PhProvincialLicenses { get; set; } = new()
+        {
+            new ProvincialLicenseEntry { Province = "Limpopo" }
+        };
+        public bool PhHasDangerousGame { get; set; } = false;
+        public decimal PhStandardDailyRate { get; set; } = 2800m;
+        public decimal PhDangerousGameDailyRate { get; set; } = 4500m;
+        public string PhDangerousGameDetails { get; set; } = string.Empty;
+        public string PhAssociationClub { get; set; } = "PHASA";
+        public string PhCustomAssociation { get; set; } = string.Empty;
+        public string PhAssociationMemberNum { get; set; } = string.Empty;
+        public string PhFirstAidCert { get; set; } = "Vlak 3 Veld- & Wildernisnoodhulp";
+        public DateTime? PhFirstAidExpiry { get; set; } = DateTime.Today.AddYears(2);
+        public string PhFirearmCompetencyNum { get; set; } = string.Empty;
+        public string PhFirearmLicensesList { get; set; } = string.Empty;
+
+        // VG inputs
+        public string VgCompanyName { get; set; } = string.Empty;
+        public string VgSacaaRegNum { get; set; } = string.Empty;
+        public string VgRplLicenseNum { get; set; } = string.Empty;
+        public string VgRocCertNum { get; set; } = string.Empty;
+        public string VgEquipment { get; set; } = "4K Cinema Kameras, DJI Hommeltuie, Draadlose Veldmikrofoons";
+        public int VgYearsExp { get; set; } = 3;
+
+        // Boer inputs
+        public string BoerBusinessName { get; set; } = string.Empty;
+        public string BoerRegNum { get; set; } = string.Empty;
+        public string BoerRegion { get; set; } = string.Empty;
+
+        // AP inputs
+        public string ApCompanyName { get; set; } = string.Empty;
+        public string ApCategory { get; set; } = "Taksidermie & Jagtoerusting";
+        public string ApWebsite { get; set; } = string.Empty;
+    }
+
+    /// <summary>One row of a repeated PJ/PH provincial-license list (both roles reuse this same shape).</summary>
+    public class ProvincialLicenseEntry
+    {
+        public string Province { get; set; } = "Limpopo";
+        public string LicenseNumber { get; set; } = string.Empty;
+        public DateTime? ExpiryDate { get; set; } = DateTime.Today.AddYears(1);
+    }
+
+    /// <summary>Static display copy for one entry in _allRoles - name/description/feature-list shown in the role picker.</summary>
+    public class RoleDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string Features { get; set; } = string.Empty;
+    }
+
+    /// <summary>Currently unused in this file's markup (kept for a subscription-fee display that isn't wired up on this page - PhDashboard/BoerDashboard/etc. show pricing separately via _publicSettings elsewhere).</summary>
+    private decimal GetRoleMonthlyFee(string roleCode) => _publicSettings.SubscriptionPriceFor(roleCode);
+}

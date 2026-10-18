@@ -1,0 +1,9 @@
+# Price-model training (CPU only, seconds). Python 3.12 recommended.
+# onnx/protobuf are pinned: skl2onnx's tree-ensemble export fails with onnx>=1.18 / protobuf>=6
+# ("Field onnx.AttributeProto.ints: Expected an int, got a boolean").
+numpy>=1.26
+scikit-learn>=1.5
+onnx==1.17.0
+protobuf>=4.25,<6
+onnxruntime>=1.18
+skl2onnx>=1.17

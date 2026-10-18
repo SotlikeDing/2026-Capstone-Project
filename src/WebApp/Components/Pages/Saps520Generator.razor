@@ -1,0 +1,730 @@
+@* /jagter/e520 and /e520 - Jagter form to build an official SAPS 520 firearm import declaration
+   matching all fillable fields from the official SAPS 520 AcroForm permit template. *@
+@page "/jagter/e520"
+@page "/e520"
+@inject MikpuntApiService Api
+@inject Saps520PdfService PdfService
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>SAPS 520 Vuurwapen Invoer Permit Generator | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die SAPS 520 Vuurwapen Invoer Permit Generator is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/jagter/e520" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Jagter") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Jagter Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Jagter</strong> nie. U kan hierdie rol op u profiel aktiveer om SAPS 520 vuurwapeninvoervorms te skep en af te laai.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Jagter Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">SAPS 520 Vuurwapen Invoer Permit Generator</h1>
+            <p class="text-muted mb-0">Amptelike Suid-Afrikaanse Polisiediens (SAPS) tydelike vuurwapeninvoervorm vir oorsese en binnelandse jagters.</p>
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="/pdfs/saps-template.pdf" download="SAPS_520_Amptelike_Invulbare_Vorm.pdf" class="mp-btn mp-btn-secondary">
+                <i class="bi bi-file-earmark-arrow-down me-1"></i> Laai Amptelike Invulbare Sjabloon Af
+            </a>
+            <a href="/jagter/permitte" class="mp-btn mp-btn-secondary">
+                <i class="bi bi-file-earmark-text me-1"></i> Bekyk Stoor Vorms &amp; Permitte
+            </a>
+        </div>
+    </div>
+
+    @if (_saveError != null)
+    {
+        <div class="alert alert-danger mb-4 d-flex justify-content-between align-items-center">
+            <div><i class="bi bi-exclamation-triangle-fill me-2"></i><strong>Nie ingedien nie:</strong> @_saveError</div>
+            <button type="button" class="btn-close" @onclick="() => _saveError = null"></button>
+        </div>
+    }
+    @if (_savedMsg)
+    {
+        <div class="alert alert-success p-4 mb-4" style="background: rgba(40, 167, 69, 0.15); border: 2px solid #28a745; border-radius: 8px;">
+            <div class="d-flex align-items-start gap-3">
+                <i class="bi bi-check-circle-fill text-success fs-3 mt-1"></i>
+                <div class="flex-grow-1">
+                    <h4 class="brand-font text-success mb-2">SAPS 520 Vorm Suksesvol Ingedien by SAPS</h4>
+                    <p class="mb-2 text-white">
+                        U SAPS 520 tydelike vuurwapeninvoervorm is suksesvol gestoor en amptelik ingedien by die <strong>Suid-Afrikaanse Polisiediens (SAPS Sentrale Vuurwapenregister - CFR)</strong> sowel as u gekoppelde uitruster.
+                    </p>
+                    <p class="small text-muted mb-3">
+                        Aansoek-verwysingsnommer: <strong>SAPS-520-@(_form.Id > 0 ? _form.Id.ToString("D4") : "INGEDIEN")</strong> | Datum: <strong>@DateTime.Now.ToString("yyyy-MM-dd HH:mm")</strong> | Status: <strong>Ingedien</strong>
+                    </p>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="mp-btn mp-btn-primary" @onclick="ExportPdf">
+                            <i class="bi bi-file-earmark-pdf me-1"></i> Laai Ingevulde SAPS 520 PDF Af
+                        </button>
+                        <a href="/jagter/permitte" class="mp-btn mp-btn-secondary">
+                            <i class="bi bi-card-checklist me-1"></i> Bekyk My Permitte &rarr;
+                        </a>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="() => _savedMsg = false"></button>
+            </div>
+        </div>
+    }
+
+    <EditForm Model="_form" OnSubmit="HandleFormSubmit">
+        <!-- Section 1: Personal Details / Persoonlike Besonderhede -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 1: APPLIKANT PERSOONLIKE BESONDERHEDE</h3>
+            <div class="row g-3">
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Identifikasie Tipe *</label>
+                    <InputSelect @bind-Value="_idChoice" @bind-Value:after="OnIdChoiceChanged" class="mp-form-control">
+                        <option value="Passport">Buitelandse Paspoort (Passport)</option>
+                        <option value="SA_ID">Suid-Afrikaanse ID (SA ID)</option>
+                    </InputSelect>
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    @if (_idChoice == "SA_ID")
+                    {
+                        <label class="mp-form-label">SA ID Nommer *</label>
+                        <InputText @bind-Value="_form.IdNum" class="mp-form-control" placeholder="bv. 9001015023087" />
+                    }
+                    else
+                    {
+                        <label class="mp-form-label">Paspoortnommer *</label>
+                        <InputText @bind-Value="_form.PassportNum" class="mp-form-control" placeholder="bv. A08912345" />
+                    }
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Van (Surname) *</label>
+                    <InputText @bind-Value="_form.Surname" class="mp-form-control" placeholder="bv. Van Wyk" />
+                </div>
+
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Volle Name (Full Names) *</label>
+                    <InputText @bind-Value="_form.FullNames" class="mp-form-control" placeholder="bv. Johan Hendrik" />
+                </div>
+                <div class="col-md-2 mp-form-group">
+                    <label class="mp-form-label">Voorletters</label>
+                    <InputText @bind-Value="_form.Initials" class="mp-form-control" placeholder="bv. J.H." />
+                </div>
+                <div class="col-md-2 mp-form-group">
+                    <label class="mp-form-label">Geboortedatum</label>
+                    <InputDate @bind-Value="_form.Dob" class="mp-form-control" />
+                </div>
+                <div class="col-md-2 mp-form-group">
+                    <label class="mp-form-label">Ouderdom</label>
+                    <InputNumber @bind-Value="_form.Age" class="mp-form-control" placeholder="bv. 38" />
+                </div>
+
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Geslag</label>
+                    <InputSelect @bind-Value="_form.Gender" class="mp-form-control">
+                        <option value="Male">Manlik (Male)</option>
+                        <option value="Female">Vroulik (Female)</option>
+                    </InputSelect>
+                </div>
+                <div class="col-md-8 mp-form-group">
+                    <label class="mp-form-label">Beroep / Beroepstitel (Profession)</label>
+                    <InputText @bind-Value="_form.Profession" class="mp-form-control" placeholder="bv. Ingenieur / Finansiële Bestuurder" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 2: Employment / Werkgewer & Beroep -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 2: BEROEP &amp; WERKGEWER BESONDERHEDE</h3>
+            <div class="row g-3">
+                <div class="col-md-4 mp-form-group d-flex align-items-center mt-4">
+                    <div class="form-check">
+                        <InputCheckbox @bind-Value="_form.IsSelfEmployed" id="chkSelfEmployed" class="form-check-input" />
+                        <label class="form-check-label text-white ms-2" for="chkSelfEmployed">
+                            Selfstandig / Eie Werkgewer (Self-Employed)
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-8 mp-form-group">
+                    <label class="mp-form-label">Indien selfstandig, spesifiseer aard van besigheid</label>
+                    <InputText @bind-Value="_form.SelfEmployedSpecify" class="mp-form-control" placeholder="bv. Privaat Konsultant" />
+                </div>
+
+                <div class="col-md-5 mp-form-group">
+                    <label class="mp-form-label">Werkgewer se Naam</label>
+                    <InputText @bind-Value="_form.EmployerName" class="mp-form-control" placeholder="bv. Anglo American / Privaat" />
+                </div>
+                <div class="col-md-5 mp-form-group">
+                    <label class="mp-form-label">Besigheidsadres (Werkgewer)</label>
+                    <InputText @bind-Value="_form.BusinessAddress" class="mp-form-control" placeholder="bv. 45 Main Street, Johannesburg" />
+                </div>
+                <div class="col-md-2 mp-form-group">
+                    <label class="mp-form-label">Besigheid Poskode</label>
+                    <InputText @bind-Value="_form.BusinessPostalCode" class="mp-form-control" placeholder="2001" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 3: Addresses & Contact Details -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 3: ADRESSE &amp; KONTAK INLIGTING</h3>
+            <div class="row g-3">
+                <div class="col-md-8 mp-form-group">
+                    <label class="mp-form-label">Woonadres (Straatadres in Land van Oorsprong)</label>
+                    <InputText @bind-Value="_form.ResidentialAddress" class="mp-form-control" placeholder="bv. 124 Oak Avenue, Dallas, TX" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Woonadres Poskode</label>
+                    <InputText @bind-Value="_form.ResidentialPostalCode" class="mp-form-control" placeholder="bv. 75201" />
+                </div>
+
+                <div class="col-md-8 mp-form-group">
+                    <label class="mp-form-label">Posadres (Indien verskil van woonadres)</label>
+                    <InputText @bind-Value="_form.PostalAddress" class="mp-form-control" placeholder="Posbus 4410, Dallas, TX" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Poskode</label>
+                    <InputText @bind-Value="_form.PostalCode" class="mp-form-control" placeholder="bv. 75201" />
+                </div>
+
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Land van Verblyf (Country of Residence)</label>
+                    <InputText @bind-Value="_form.Country" class="mp-form-control" placeholder="bv. United States / Duitsland" />
+                </div>
+                <div class="col-md-8 mp-form-group">
+                    <label class="mp-form-label">Blyplek Adres in Suid-Afrika (Lodge / Wildplaas)</label>
+                    <InputText @bind-Value="_form.SaContactAddress" class="mp-form-control" placeholder="bv. Kameeldoring Wildplaas, Posbus 12, Thabazimbi, Limpopo" />
+                </div>
+
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Selfoonnommer (Cell Phone)</label>
+                    <InputText @bind-Value="_form.CellPhone" class="mp-form-control" placeholder="+27 82 123 4567" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">E-posadres (Email)</label>
+                    <InputText @bind-Value="_form.Email" class="mp-form-control" placeholder="johan@voorbeeld.co.za" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Kontak Telefoon (Alternatief)</label>
+                    <InputText @bind-Value="_form.ContactPhone" class="mp-form-control" placeholder="+27 12 345 6789" />
+                </div>
+
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Huis Telefoonnommer</label>
+                    <InputText @bind-Value="_form.HomeTelephone" class="mp-form-control" placeholder="Huislyn" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Werk Telefoonnommer</label>
+                    <InputText @bind-Value="_form.WorkTelephone" class="mp-form-control" placeholder="Kantoorlyn" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Faksnommer</label>
+                    <InputText @bind-Value="_form.Fax" class="mp-form-control" placeholder="Faks (opsioneel)" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 4: Marital Status & Partner -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 4: HUWELIKSTATUS &amp; MAAT BESONDERHEDE</h3>
+            <div class="row g-3">
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Huwelikstatus</label>
+                    <InputSelect @bind-Value="_form.MaritalStatus" class="mp-form-control">
+                        <option value="Single">Enkellopend (Single)</option>
+                        <option value="Married">Getroud (Married)</option>
+                        <option value="Divorced">Geskei (Divorced)</option>
+                        <option value="Widow">Weduwee (Widow)</option>
+                        <option value="Widower">Wewenaar (Widower)</option>
+                        <option value="Other">Ander (Other)</option>
+                    </InputSelect>
+                </div>
+                <div class="col-md-8 mp-form-group">
+                    <label class="mp-form-label">Indien Ander Huwelikstatus, spesifiseer</label>
+                    <InputText @bind-Value="_form.MaritalStatusOtherSpecify" class="mp-form-control" placeholder="bv. Saamwonend / Burgerlike verbintenis" />
+                </div>
+
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Gade / Maat se Volle Name en Van</label>
+                    <InputText @bind-Value="_form.PartnerFullNameAndSurname" class="mp-form-control" placeholder="bv. Maria Magdalena van Wyk" />
+                </div>
+                <div class="col-md-3 mp-form-group">
+                    <label class="mp-form-label">Maat se SA ID Nommer</label>
+                    <InputText @bind-Value="_form.PartnerIdNum" class="mp-form-control" placeholder="13-syfer ID" />
+                </div>
+                <div class="col-md-3 mp-form-group">
+                    <label class="mp-form-label">Maat se Paspoortnommer</label>
+                    <InputText @bind-Value="_form.PartnerPassportNum" class="mp-form-control" placeholder="Paspoortnommer" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 5: Travel, Ports & Purpose -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 5: REISBESONDERHEDE, HAWENS &amp; REDE VIR PERMIT</h3>
+            <div class="row g-3">
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Land van Oorsprong (Country of Origin)</label>
+                    <InputText @bind-Value="_form.CountryOfOrigin" class="mp-form-control" placeholder="bv. United States" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Land van Bestemming</label>
+                    <InputText @bind-Value="_form.CountryOfDestination" class="mp-form-control" placeholder="South Africa" />
+                </div>
+                <div class="col-md-4 mp-form-group">
+                    <label class="mp-form-label">Vlugnommer (Flight Number)</label>
+                    <InputText @bind-Value="_form.FlightNumber" class="mp-form-control" placeholder="bv. SA204 / DL200" />
+                </div>
+
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Hawe van Binnekoms (Port of Entry)</label>
+                    <InputText @bind-Value="_form.PortOfEntry" class="mp-form-control" placeholder="O.R. Tambo International Airport (JNB)" />
+                </div>
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Hawe van Vertrek (Port of Exit)</label>
+                    <InputText @bind-Value="_form.PortOfExit" class="mp-form-control" placeholder="O.R. Tambo International Airport (JNB)" />
+                </div>
+
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Geldig Vanaf Datum / Aankomsdatum *</label>
+                    <InputDate @bind-Value="_form.ArrivalDate" class="mp-form-control" />
+                </div>
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Geldig Tot Datum / Vertrekdatum *</label>
+                    <InputDate @bind-Value="_form.DepartureDate" class="mp-form-control" />
+                </div>
+
+                <div class="col-md-12 mp-form-group">
+                    <label class="mp-form-label">Rede vir Permit (Reason for Permit)</label>
+                    <InputText @bind-Value="_form.ReasonForPermit" class="mp-form-control" placeholder="Tydelike invoer vir trofeejag safari en wildbewaring" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 6: Firearms & Ammunition Details -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 6: VUURWAPENS &amp; AMMUNISIE LYS</h3>
+            
+            <!-- Guns Sub-Section -->
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-gold fw-bold mb-0">Vuurwapens (Maksimum 10 Vuurwapens)</h5>
+                    <button type="button" class="mp-btn mp-btn-primary mp-btn-sm" @onclick="AddFirearmRow">
+                        + Voeg Vuurwapen By
+                    </button>
+                </div>
+                <p class="small text-muted mb-3">Vul die volledige spesifikasies vir elke vuurwapen in (insluitend aksietipe, raam- en loopreeksnommers soos op die amptelike vorm vereis).</p>
+
+                <div class="table-responsive">
+                    <table class="mp-table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Tipe</th>
+                                <th>Aksie</th>
+                                <th>Vervaardiger</th>
+                                <th>Model</th>
+                                <th>Kaliber</th>
+                                <th>Raam / Kulas Reeksnommer</th>
+                                <th>Loop Reeksnommer</th>
+                                <th style="width: 80px;">Aksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_form.Firearms.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-3">Geen vuurwapens bygevoeg nie. Klik "+ Voeg Vuurwapen By" om 'n vuurwapen in te voeg.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @for (int i = 0; i < _form.Firearms.Count; i++)
+                                {
+                                    int idx = i;
+                                    <tr>
+                                        <td>
+                                            <InputSelect @bind-Value="_form.Firearms[idx].Type" class="mp-select form-control-sm">
+                                                <option value="Rifle">Geweer (Rifle)</option>
+                                                <option value="Shotgun">Haelgeweer (Shotgun)</option>
+                                                <option value="Handgun">Handwapen (Handgun)</option>
+                                                <option value="Combination">Kombinasie</option>
+                                            </InputSelect>
+                                        </td>
+                                        <td>
+                                            <InputSelect @bind-Value="_form.Firearms[idx].Action" class="mp-select form-control-sm">
+                                                <option value="Grendelaksie (Bolt Action)">Grendelaksie</option>
+                                                <option value="Semi-Outomaties (Semi-Auto)">Semi-Outomaties</option>
+                                                <option value="Hefboomaksie (Lever Action)">Hefboomaksie</option>
+                                                <option value="Breekloop (Break Neck)">Breekloop</option>
+                                                <option value="Pompaksie (Pump Action)">Pompaksie</option>
+                                                <option value="Revolver">Revolver</option>
+                                            </InputSelect>
+                                        </td>
+                                        <td>
+                                            <InputText @bind-Value="_form.Firearms[idx].Make" class="mp-form-control form-control-sm" placeholder="bv. Sako / Tikka" />
+                                        </td>
+                                        <td>
+                                            <InputText @bind-Value="_form.Firearms[idx].Model" class="mp-form-control form-control-sm" placeholder="bv. 85 Bavarian" />
+                                        </td>
+                                        <td>
+                                            <InputText @bind-Value="_form.Firearms[idx].Calibre" class="mp-form-control form-control-sm" placeholder="bv. .30-06 Spr" />
+                                        </td>
+                                        <td>
+                                            <InputText @bind-Value="_form.Firearms[idx].FrameReceiverSerialNumber" class="mp-form-control form-control-sm" placeholder="Raamreeksnommer" />
+                                        </td>
+                                        <td>
+                                            <InputText @bind-Value="_form.Firearms[idx].BarrelSerialNumber" class="mp-form-control form-control-sm" placeholder="Loopreeksnommer" />
+                                        </td>
+                                        <td>
+                                            <button type="button" class="mp-btn mp-btn-danger mp-btn-sm py-1 px-2" @onclick="() => RemoveFirearmRow(idx)">
+                                                Verwyder
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Ammunition Sub-Section -->
+            <div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-gold fw-bold mb-0">Ammunisie (Maksimum 200 Patrone per Kaliber)</h5>
+                    <button type="button" class="mp-btn mp-btn-primary mp-btn-sm" @onclick="AddAmmunitionRow">
+                        + Voeg Ammunisie By
+                    </button>
+                </div>
+                <p class="small text-muted mb-3">Voeg die aantal patrone per ooreenstemmende kaliber in.</p>
+
+                <div class="table-responsive">
+                    <table class="mp-table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Kaliber / Tipe Patroon</th>
+                                <th>Aantal Patrone (Maks 200)</th>
+                                <th style="width: 80px;">Aksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_form.Ammunition.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="3" class="text-center text-muted py-3">Geen ammunisie bygevoeg nie. Klik "+ Voeg Ammunisie By" om ammunisie in te voeg.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @for (int i = 0; i < _form.Ammunition.Count; i++)
+                                {
+                                    int idx = i;
+                                    <tr>
+                                        <td>
+                                            <InputText @bind-Value="_form.Ammunition[idx].Type" class="mp-form-control form-control-sm" placeholder="bv. .30-06 Springfield 180gr" />
+                                        </td>
+                                        <td>
+                                            <InputNumber @bind-Value="_form.Ammunition[idx].Quantity" class="mp-form-control form-control-sm" max="200" />
+                                        </td>
+                                        <td>
+                                            <button type="button" class="mp-btn mp-btn-danger mp-btn-sm py-1 px-2" @onclick="() => RemoveAmmunitionRow(idx)">
+                                                Verwyder
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 7: Declaration & Possession Details -->
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-3">AFDELING 7: WETLIKE VERKLARING &amp; BESIT</h3>
+            <div class="row g-3">
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Verantwoordelike Persoon in Besit van Vuurwapen (Naam)</label>
+                    <InputText @bind-Value="_form.PossessionName" class="mp-form-control" placeholder="bv. Johan Hendrik van Wyk" />
+                </div>
+                <div class="col-md-3 mp-form-group">
+                    <label class="mp-form-label">Plek van Besit</label>
+                    <InputText @bind-Value="_form.PossessionPlace" class="mp-form-control" placeholder="Pretoria / OR Tambo" />
+                </div>
+                <div class="col-md-3 mp-form-group">
+                    <label class="mp-form-label">Datum van Besit</label>
+                    <InputDate @bind-Value="_form.PossessionDate" class="mp-form-control" />
+                </div>
+
+                <div class="col-md-6 mp-form-group">
+                    <label class="mp-form-label">Applikant se Volle Naam vir Verklaring</label>
+                    <InputText @bind-Value="_form.ApplicantDeclarationName" class="mp-form-control" placeholder="bv. Johan Hendrik van Wyk" />
+                </div>
+                <div class="col-md-3 mp-form-group">
+                    <label class="mp-form-label">Plek van Verklaring</label>
+                    <InputText @bind-Value="_form.ApplicantDeclarationPlace" class="mp-form-control" placeholder="bv. Johannesburg / Pretoria" />
+                </div>
+                <div class="col-md-3 mp-form-group">
+                    <label class="mp-form-label">Datum van Verklaring</label>
+                    <InputDate @bind-Value="_form.ApplicantDeclarationDate" class="mp-form-control" />
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-5">
+            <div class="d-flex gap-2 flex-wrap">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf me-1"></i> Voorskou &amp; Laai PDF Af
+                </button>
+            </div>
+            <div class="d-flex gap-3">
+                <button type="submit" class="mp-btn mp-btn-primary">
+                    <i class="bi bi-send-check me-1"></i> Stoor &amp; Dien In Vorm
+                </button>
+            </div>
+        </div>
+    </EditForm>
+
+    <!-- Confirmation Modal -->
+    @if (_showConfirmModal)
+    {
+        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.75); z-index: 2300;">
+            <div class="mp-card text-center p-4" style="max-width: 540px; width: 100%;">
+                <h4 class="brand-font text-gold mb-3">Aanspreeklikheidsverklaring &amp; Bevestiging</h4>
+                <p class="small mb-3" style="color: var(--text-primary);">
+                    U as applikant/jagter verklaar hiermee dat alle inligting verskaf op hierdie SAPS 520 vuurwapeninvoervorm volledig, waar en akkuraat is volgens Artikel 73 van die Wet op Beheer van Vuurwapens, 2000.
+                </p>
+                <p class="small mb-4" style="color: var(--text-muted);">
+                    Hierdie vorm sal elektronies aangeteken en aan die SAPS Sentrale Vuurwapenregister (CFR) en u uitruster oorgedra word.
+                </p>
+                <div class="d-flex justify-content-center gap-3">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showConfirmModal = false">Gaan Terug</button>
+                    <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmAndSave">Ek Bevestig &amp; Dien In</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private Saps520FormModel _form = new();
+    private string _idChoice = "Passport";
+    private bool _savedMsg = false;
+    private string? _saveError;
+    private bool _showConfirmModal = false;
+
+    /// <summary>Subscribes to auth-state changes and seeds the form.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-seeds the form once auth state resolves after initial render.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Resets to a blank form and auto-fills personal details from the logged-in user.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Jagter") || Auth.HasRole("Admin")))
+        {
+            _form = new Saps520FormModel();
+
+            if (Auth.CurrentUser != null)
+            {
+                _form.FullNames = Auth.CurrentUser.FirstName ?? string.Empty;
+                _form.Surname = Auth.CurrentUser.LastName ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(Auth.CurrentUser.FirstName))
+                    _form.Initials = Auth.CurrentUser.FirstName.Substring(0, 1).ToUpper() + ".";
+                
+                var idNum = Auth.CurrentUser.IdPassportNum ?? string.Empty;
+                // South African IDs are 13 digits
+                if (idNum.Length == 13 && idNum.All(char.IsDigit))
+                {
+                    _idChoice = "SA_ID";
+                    _form.IdentificationType = "SA_ID";
+                    _form.IdNum = idNum;
+                    _form.PassportNum = string.Empty;
+                }
+                else
+                {
+                    _idChoice = "Passport";
+                    _form.IdentificationType = "Passport";
+                    _form.PassportNum = idNum;
+                    _form.IdNum = string.Empty;
+                }
+
+                _form.Email = Auth.CurrentUser.Email ?? string.Empty;
+                _form.CellPhone = Auth.CurrentUser.Phone ?? string.Empty;
+                _form.ApplicantDeclarationName = $"{_form.FullNames} {_form.Surname}".Trim();
+                _form.PossessionName = $"{_form.FullNames} {_form.Surname}".Trim();
+            }
+
+            _form.Firearms = new List<FirearmItemModel>();
+            _form.Ammunition = new List<AmmunitionItemModel>();
+        }
+        await Task.CompletedTask;
+    }
+
+    private void OnIdChoiceChanged()
+    {
+        _form.IdentificationType = _idChoice;
+        if (_idChoice == "SA_ID")
+        {
+            _form.PassportNum = string.Empty;
+        }
+        else
+        {
+            _form.IdNum = string.Empty;
+        }
+    }
+
+    private void AddFirearmRow()
+    {
+        if (_form.Firearms.Count < 10)
+        {
+            _form.Firearms.Add(new FirearmItemModel());
+        }
+    }
+
+    private void RemoveFirearmRow(int index)
+    {
+        if (index >= 0 && index < _form.Firearms.Count)
+        {
+            _form.Firearms.RemoveAt(index);
+        }
+    }
+
+    private void AddAmmunitionRow()
+    {
+        if (_form.Ammunition.Count < 20)
+        {
+            _form.Ammunition.Add(new AmmunitionItemModel());
+        }
+    }
+
+    private void RemoveAmmunitionRow(int index)
+    {
+        if (index >= 0 && index < _form.Ammunition.Count)
+        {
+            _form.Ammunition.RemoveAt(index);
+        }
+    }
+
+    /// <summary>Validates required SAPS 520 fields before presenting confirmation modal.</summary>
+    private void HandleFormSubmit()
+    {
+        _saveError = null;
+
+        if (string.IsNullOrWhiteSpace(_form.Surname) || string.IsNullOrWhiteSpace(_form.FullNames))
+        {
+            _saveError = "Van en volle name is verpligtend op die SAPS 520 (Afdeling 1).";
+            return;
+        }
+
+        bool hasId = !string.IsNullOrWhiteSpace(_form.IdNum);
+        bool hasPassport = !string.IsNullOrWhiteSpace(_form.PassportNum);
+
+        if (!hasId && !hasPassport)
+        {
+            _saveError = "Vul asseblief 'n geldige SA ID-nommer of Paspoortnommer in (Afdeling 1).";
+            return;
+        }
+
+        if (hasId && hasPassport)
+        {
+            // Clear one based on choice to prevent backend 400 rejection
+            if (_idChoice == "SA_ID") _form.PassportNum = string.Empty;
+            else _form.IdNum = string.Empty;
+        }
+
+        // Validate Section 6: Firearms must have at least one line item with make/calibre
+        if (_form.Firearms.Count == 0 || _form.Firearms.All(f => string.IsNullOrWhiteSpace(f.Make) && string.IsNullOrWhiteSpace(f.Calibre)))
+        {
+            _saveError = "Validasiefout: U moet ten minste een vuurwapen met geldige fabrikaat en kaliber byvoeg in Afdeling 6 (Vuurwapens & Ammunisie).";
+            return;
+        }
+
+        _showConfirmModal = true;
+    }
+
+    private async Task ConfirmAndSave()
+    {
+        _showConfirmModal = false;
+        await HandleSave();
+    }
+
+    /// <summary>Persists the SAPS 520 application and displays the Afrikaans submission confirmation message.</summary>
+    private async Task HandleSave()
+    {
+        _form.UserId = Auth.CurrentUser?.UserId ?? 0;
+        _form.Status = "Submitted";
+
+        // Sync legacy single-item fields with first firearm/ammo row for full backwards compatibility
+        if (_form.Firearms.Count > 0)
+        {
+            var firstGun = _form.Firearms[0];
+            _form.FirearmType = firstGun.Type;
+            _form.Make = firstGun.Make;
+            _form.Model = firstGun.Model;
+            _form.Calibre = firstGun.Calibre;
+            _form.SerialNumber = !string.IsNullOrWhiteSpace(firstGun.FrameReceiverSerialNumber) 
+                ? firstGun.FrameReceiverSerialNumber 
+                : firstGun.SerialNumber;
+        }
+
+        if (_form.Ammunition.Count > 0)
+        {
+            _form.AmmoQuantity = _form.Ammunition[0].Quantity;
+        }
+
+        var (ok, message) = await Api.SaveSapsFormAsync(_form);
+        _savedMsg = ok;
+        _saveError = ok ? null : message;
+    }
+
+    private async Task ExportPdf()
+    {
+        // Ensure legacy fields match before export
+        if (_form.Firearms.Count > 0)
+        {
+            var firstGun = _form.Firearms[0];
+            _form.FirearmType = firstGun.Type;
+            _form.Make = firstGun.Make;
+            _form.Model = firstGun.Model;
+            _form.Calibre = firstGun.Calibre;
+            _form.SerialNumber = !string.IsNullOrWhiteSpace(firstGun.FrameReceiverSerialNumber) ? firstGun.FrameReceiverSerialNumber : firstGun.SerialNumber;
+        }
+        await PdfService.ExportSaps520PdfAsync(_form);
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

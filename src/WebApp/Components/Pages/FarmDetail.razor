@@ -1,0 +1,266 @@
+@* Public farm detail page (route: /farm/{FarmId}): anyone can view the farm. Booking
+   happens through one of this farm's published packages (every booking belongs to a
+   package): a signed-in hunter picks a package, dates, group and game, and the request is
+   sent to the real API (Api.RequestPackageAsync -> api/bookings/create). Nothing is
+   invented locally - on failure the server's reason is shown. Payment only follows once
+   the PJ has approved the request (see /jagter/bookings). *@
+@page "/plaas/{FarmId:int}"
+@page "/farm/{FarmId:int}"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+
+<PageTitle>Plaas Besonderhede | MikPunt</PageTitle>
+
+@if (_farm == null)
+{
+    <div class="mp-card text-center p-5">
+        <div class="fs-2 text-gold">Plaasbesonderhede word gelaai...</div>
+    </div>
+}
+else
+{
+    <div class="mp-card mb-4 p-4">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <h1 class="brand-font text-gold mb-2">@_farm.Name</h1>
+                <p class="text-muted fs-5 mb-2">@_farm.NearestTown, @_farm.Province &nbsp;|&nbsp; Grootte: @_farm.SizeHectares.ToString("N0") Hektar &nbsp;|&nbsp; Eienaar: @_farm.FarmerName</p>
+                <div class="d-flex gap-2 mb-3">
+                    <span class="mp-badge mp-badge-success">Dagtarief Jagter: R @_farm.DailyRateHunter.ToString("N0")</span>
+                    <span class="mp-badge mp-badge-warning">Dagtarief Waarnemer: R @_farm.DailyRateObserver.ToString("N0")</span>
+                </div>
+            </div>
+            <div class="col-md-4 text-end">
+                <a href="#booking-section" class="mp-btn mp-btn-primary">Dien Besprekingsversoek In</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- Main Info & Photo Gallery -->
+        <div class="col-lg-8">
+            <div class="mp-card mb-4">
+                <h3 class="brand-font text-gold mb-3">Foto Galery</h3>
+                <div style="height: 350px; overflow: hidden; border-radius: 12px;" class="mb-3">
+                    <img src="@(_farm.ImageUrls.FirstOrDefault() ?? "images/savanna_sunrise.jpg")" alt="@_farm.Name" style="width: 100%; height: 100%; object-fit: cover;" />
+                </div>
+                <h4 class="brand-font text-gold mb-2">Beskrywing van Plaas</h4>
+                <p class="text-muted leading-relaxed">@_farm.Description</p>
+            </div>
+
+            <!-- Game Inventory Matrix -->
+            <div class="mp-card mb-4">
+                <h3 class="brand-font text-gold mb-3">Wildspesies Inventaris &amp; Pryslys</h3>
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Spesie</th>
+                                <th>Beskikbaar</th>
+                                <th>Ram / Bul (Manlik)</th>
+                                <th>Ooi / Koei (Vroulik)</th>
+                                <th>Trofee Prys</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in _farm.GameInventory)
+                            {
+                                <tr>
+                                    <td><strong>@item.SpeciesName</strong></td>
+                                    <td><span class="mp-badge">@item.AvailableCount koppe</span></td>
+                                    <td>R @item.PriceMale.ToString("N0")</td>
+                                    <td>R @item.PriceFemale.ToString("N0")</td>
+                                    <td class="text-gold font-bold">R @item.PriceTrophy.ToString("N0")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Amenities -->
+            <div class="mp-card">
+                <h3 class="brand-font text-gold mb-3">Geriewe &amp; Fasiliteite</h3>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var am in _farm.Amenities)
+                    {
+                        <span class="mp-badge p-2 px-3">@am</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Booking Widget Form -->
+        <div class="col-lg-4" id="booking-section">
+            <div class="mp-card" style="border: 2px solid var(--accent-gold);">
+                <h3 class="brand-font text-gold mb-3">Bespreek Hierdie Plaas</h3>
+
+                @if (_sentBookingId > 0)
+                {
+                    <div class="alert alert-success">
+                        <strong>Besprekingsversoek gestuur.</strong> Die uitruster (PJ) hersien dit nou; sodra dit goedgekeur is,
+                        kan jy die deposito betaal onder <a href="/jagter/besprekings">My Besprekings</a>.
+                    </div>
+                }
+                else if (!Auth.IsAuthenticated)
+                {
+                    <p class="text-muted small">Teken in as jagter om hierdie plaas te bespreek.</p>
+                    <a href="/teken-in?returnUrl=/plaas/@FarmId" class="mp-btn mp-btn-primary w-100">Teken In &rarr;</a>
+                }
+                else if (_farmPackages.Count == 0)
+                {
+                    <p class="text-muted small mb-0">
+                        Hierdie plaas het nog geen gepubliseerde jagpakkette nie. Kontak die boer, of kyk na ander pakkette op die
+                        <a href="/markplein">markplein</a>.
+                    </p>
+                }
+                else
+                {
+                    @if (!string.IsNullOrEmpty(_errorMsg))
+                    {
+                        <div class="alert alert-danger small">@_errorMsg</div>
+                    }
+
+                    <EditForm Model="_booking" OnValidSubmit="SubmitBooking">
+                        <div class="mp-form-group">
+                            <label class="mp-form-label">Jagpakket</label>
+                            <select class="mp-form-control" @bind="_selectedPackageId">
+                                @foreach (var pkg in _farmPackages)
+                                {
+                                    <option value="@pkg.Id">@pkg.Title (R @pkg.PricePerHunter.ToString("N0") / jagter)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mp-form-group">
+                            <label class="mp-form-label">Aankoms Datum</label>
+                            <InputDate @bind-Value="_booking.StartDate" class="mp-form-control" />
+                        </div>
+
+                        <div class="mp-form-group">
+                            <label class="mp-form-label">Vertrek Datum</label>
+                            <InputDate @bind-Value="_booking.EndDate" class="mp-form-control" />
+                        </div>
+
+                        <div class="row">
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Aantal Jagters</label>
+                                <InputNumber @bind-Value="_booking.HunterCount" class="mp-form-control" min="1" />
+                            </div>
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Waarnemers</label>
+                                <InputNumber @bind-Value="_booking.ObserverCount" class="mp-form-control" min="0" />
+                            </div>
+                        </div>
+
+                        <div class="mp-form-group">
+                            <label class="mp-form-label">Kies Wild Om Te Jag</label>
+                            <div class="d-flex flex-column gap-2" style="max-height: 150px; overflow-y: auto;">
+                                @foreach (var sp in _farm.GameInventory)
+                                {
+                                    <label class="d-flex align-items-center gap-2 text-muted small cursor-pointer">
+                                        <input type="checkbox" @onchange="(e) => ToggleSpecies(sp.SpeciesName, e.Value)" />
+                                        <span>@sp.SpeciesName (Trofee: R@sp.PriceTrophy)</span>
+                                    </label>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="p-3 border rounded mb-3 mp-card" style="border-color: var(--border-color) !important;">
+                            <div class="d-flex justify-content-between text-muted small mb-1">
+                                <span>Skatting Totaal:</span>
+                                <span class="text-gold font-bold fs-5">R @CalculateTotal().ToString("N0")</span>
+                            </div>
+                            <div class="small text-muted">Die finale prys word deur die uitruster (PJ) bevestig wanneer die versoek goedgekeur word.</div>
+                        </div>
+
+                        <button type="submit" class="mp-btn mp-btn-primary w-100" disabled="@_isSubmitting">
+                            @(_isSubmitting ? "Stuur..." : "Dien Besprekingsversoek In →")
+                        </button>
+                    </EditForm>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int FarmId { get; set; }
+
+    private FarmModel? _farm;
+    private BookingModel _booking = new() { StartDate = DateTime.Today.AddDays(30), EndDate = DateTime.Today.AddDays(34) };
+    private List<string> _selectedSpeciesList = new();
+    private List<HuntingPackageModel> _farmPackages = new();
+    private int _selectedPackageId;
+    private bool _isSubmitting;
+    private string _errorMsg = string.Empty;
+    private int _sentBookingId;
+
+    /// <summary>Loads the farm and its published packages (the only way to book it).</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        _farm = await Api.GetFarmByIdAsync(FarmId);
+        _farmPackages = (await Api.GetPackagesAsync()).Where(p => p.FarmId == FarmId && p.IsPublished).ToList();
+        _selectedPackageId = _farmPackages.FirstOrDefault()?.Id ?? 0;
+    }
+
+    /// <summary>Checkbox handler for the game-species picker; maintains _selectedSpeciesList, which CalculateTotal and the request payload both read from.</summary>
+    private void ToggleSpecies(string name, object? isChecked)
+    {
+        if (isChecked is bool b && b)
+        {
+            if (!_selectedSpeciesList.Contains(name)) _selectedSpeciesList.Add(name);
+        }
+        else
+        {
+            _selectedSpeciesList.Remove(name);
+        }
+    }
+
+    private HuntingPackageModel? SelectedPackage => _farmPackages.FirstOrDefault(p => p.Id == _selectedPackageId);
+
+    /// <summary>Indicative only: the package's per-hunter/per-observer price plus a trophy price per selected species. The PJ confirms the real price on approval.</summary>
+    private decimal CalculateTotal()
+    {
+        var pkg = SelectedPackage;
+        if (_farm == null || pkg == null) return 0;
+        decimal speciesCost = 0;
+        foreach (var sName in _selectedSpeciesList)
+        {
+            var inv = _farm.GameInventory.FirstOrDefault(i => string.Equals(i.SpeciesName, sName, StringComparison.OrdinalIgnoreCase));
+            if (inv != null) speciesCost += inv.PriceTrophy;
+        }
+        return (_booking.HunterCount * pkg.PricePerHunter) + (_booking.ObserverCount * pkg.PricePerObserver) + speciesCost;
+    }
+
+    /// <summary>Sends a real booking request for the chosen package; shows the server's reason on failure.</summary>
+    private async Task SubmitBooking()
+    {
+        var pkg = SelectedPackage;
+        if (_farm == null || pkg == null) return;
+        _errorMsg = string.Empty;
+        if (_booking.EndDate <= _booking.StartDate)
+        {
+            _errorMsg = "Die vertrekdatum moet na die aankomsdatum wees.";
+            return;
+        }
+        if (_booking.HunterCount < 1)
+        {
+            _errorMsg = "Daar moet minstens een jagter wees.";
+            return;
+        }
+
+        _booking.PackageId = pkg.Id;
+        _booking.PackageTitle = pkg.Title;
+        _booking.FarmId = _farm.Id;
+        _booking.FarmName = _farm.Name;
+        _booking.HunterUserId = Auth.CurrentUser?.UserId ?? 0;
+        _booking.BookedSpecies = new List<string>(_selectedSpeciesList);
+
+        _isSubmitting = true;
+        var (ok, bookingId, message) = await Api.RequestPackageAsync(_booking);
+        _isSubmitting = false;
+        if (ok) _sentBookingId = bookingId;
+        else _errorMsg = message;
+    }
+}

@@ -1,0 +1,42 @@
+# Static analysis for the Jagbestuur app. Run with `flutter analyze`.
+#
+# On top of the recommended Flutter set, this turns on rules that catch the
+# resource leaks and swallowed async errors that make device testing unstable.
+# See docs/DEVICE_SAFETY.md for what the analyzer cannot catch on its own.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Leaks: an open StreamSubscription/StreamController/IOSink is a build
+    # failure, not a hint.
+    cancel_subscriptions: error
+    close_sinks: error
+    # Using a BuildContext after an await on a disposed widget throws.
+    use_build_context_synchronously: error
+    # A Future nobody awaits is a Future whose error nobody sees.
+    unawaited_futures: warning
+    # Throwing from a finally block hides the original error.
+    control_flow_in_finally: error
+  exclude:
+    - lib/assets/**
+
+linter:
+  rules:
+    # --- Streams, sinks and subscriptions ---
+    cancel_subscriptions: true
+    close_sinks: true
+
+    # --- Async error handling ---
+    unawaited_futures: true
+    avoid_void_async: true
+    only_throw_errors: true
+    control_flow_in_finally: true
+    empty_catches: true
+
+    # --- Lifecycle (State.dispose / initState ordering) ---
+    use_build_context_synchronously: true
+    no_logic_in_create_state: true
+
+    # --- Logging ---
+    # Use debugPrint / AppErrorBarrier.report so release logs stay quiet.
+    avoid_print: true

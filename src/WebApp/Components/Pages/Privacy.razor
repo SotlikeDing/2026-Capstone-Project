@@ -1,0 +1,77 @@
+@* Static Privacy Policy page (route: /privacy), Afrikaans-only legal copy. No @code
+   block - purely static markup, publicly reachable (no auth).
+   Section 4 describes the real password storage: salted PBKDF2-SHA256 (WebAPI and
+   MobileAPI Services/PasswordHasher.cs). Keep it in step with that code. *@
+@page "/privaatheid"
+@page "/privacy"
+
+<PageTitle>Privaatheidsbeleid | MikPunt</PageTitle>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="mp-card p-4 p-md-5 rounded-4 shadow-lg border-0">
+                <div class="border-bottom border-secondary pb-3 mb-4">
+                    <span class="badge bg-gold text-dark font-monospace mb-2 px-3 py-1 text-uppercase fw-bold">POPIA &amp; Databeskerming</span>
+                    <h1 class="brand-font text-gold display-6 fw-bold">Privaatheidsbeleid van MikPunt</h1>
+                    <p class="text-muted small mb-0">Laaste opgedateer: 12 Augustus 2026</p>
+                </div>
+
+                <div class="mp-policy-document">
+                    <h4 class="text-gold brand-font mt-4">1. Inleiding (POPIA Nakoming)</h4>
+                    <p>MikPunt respekteer jou privaatheid en is verbind tot die beskerming van jou persoonlike inligting in ooreenstemming met die Suid-Afrikaanse Wet op die Bescherming van Persoonlike Inligting (POPIA - Act 4 of 2013).</p>
+
+                    <h4 class="text-gold brand-font mt-4">2. Inligting Wat Ons Versamel</h4>
+                    <p>Ons versamel persoonlike inligting wat nodig is vir die bedryf van die Platform, insluitend:</p>
+                    <ul>
+                        <li>Persoonlike Identifikasie: Naam, van, e-posadres, telefoonnommer, land van oorsprong, bynaam vir ranglyste, en paspoort-/ID-nommers.</li>
+                        <li>Jag- &amp; Vuurwapeninligting: Besonderhede benodig vir die generering van SAPS 520 vorms, vuurwapenbevoegdheid en provinsiale jagpermitte.</li>
+                        <li>Professionele Kwalifikasies: PH-lisensies, PHASA/CHASA lidmaatskap, uitruster-magtings, CIPC/BTW registrasie, SACAA hommeltuiglisensies, en plaasgrondbriefbesonderhede vir verifikasiedoeleindes.</li>
+                    </ul>
+
+                    <h4 class="text-gold brand-font mt-4">3. Hoe Ons Jou Inligting Gebruik</h4>
+                    <p>Jou persoonlike inligting word uitsluitlik gebruik vir:</p>
+                    <ul>
+                        <li>Fasilitering van besprekings tussen Jagters, Boere en Uitrusters (PJ).</li>
+                        <li>Generering van amptelike SAPS 520 vuurwapenvorms en jagpermitte.</li>
+                        <li>Verifikasie van professionele rolle deur die MikPunt Administrateur.</li>
+                        <li>Stuur van e-pos verifikasiekodes en belangrike stelselkennisgewings.</li>
+                    </ul>
+
+                    <h4 class="text-gold brand-font mt-4">4. Datasekuriteit &amp; Berging</h4>
+                    <p>Wagwoorde word nooit in leesbare vorm gestoor nie: elke wagwoord word eenrigting gehash met PBKDF2-SHA256 en 'n unieke, ewekansige sout. Data oorruil tussen jou blaaier en die MikPunt-bediener word geënkripteer via SSL/TLS-protokolle.</p>
+
+                    <h4 class="text-gold brand-font mt-4">5. Deling van Inligting met Derde Partye</h4>
+                    <p>Ons verkoop of verhuur NOOIT jou persoonlike inligting aan enige derde partye nie. Inligting word slegs gedeel met geselekteerde diensverskaffers (soos betalingspoorte of SAPS) vir die wettige afhandeling van jou bespreking of permit.</p>
+
+                    <h4 class="text-gold brand-font mt-4">6. Jou Regte</h4>
+                    <p>Jy het die reg om toegang te versoek tot jou persoonlike inligting, jou data op te dateer, of te versoek dat jou rekening en geassosieerde data verwyder word deur ons te kontak.</p>
+                </div>
+
+                <div class="mt-5 pt-3 border-top border-secondary text-center">
+                    <a href="/registreer" class="mp-btn mp-btn-primary px-4 py-2 fw-bold text-decoration-none">Terug na Registrasie</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Responsive theme text color for Privacy Policy: White in Dark Mode, Black in Light Mode */
+    .mp-policy-document {
+        color: #111111;
+        line-height: 1.7;
+    }
+    .mp-policy-document p, 
+    .mp-policy-document li {
+        color: inherit;
+    }
+    [data-theme="dark"] .mp-policy-document,
+    .dark-theme .mp-policy-document {
+        color: #ffffff !important;
+    }
+    [data-theme="dark"] .mp-policy-document p,
+    [data-theme="dark"] .mp-policy-document li {
+        color: #ffffff !important;
+    }
+</style>

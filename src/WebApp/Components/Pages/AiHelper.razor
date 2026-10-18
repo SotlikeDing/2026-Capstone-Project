@@ -1,0 +1,1282 @@
+@* /ai-helper - the AI Helper for PJ, PH, VG, Boer (FARMER) and AP users, in two tabs:
+   1. Packet maker: price-and-package optimisation. The PRICE band comes from a trained model (WebAPI, ONNX); the WRITTEN advice
+      comes from a hosted language-model API grounded in those numbers. An existing package / farm / ad can be loaded in, and the
+      improved offer is handed to the role's normal editor (AiDraftHandoff) to review and save - PH day rates are saved directly.
+   2. Smart Teaming: ranked partner suggestions (PJ -> PH/VG/Boer, PH/VG/Boer -> PJ) with an invite button for PJs. Not for AP.
+   The page shows where the numbers come from (evidence/confidence) - it never presents an assumption as a fact. Role-gated: a
+   user only sees the roles they hold (Admin sees all). Deep links: ?role=PJ&packageId=5, ?role=VG&vgPackageId=2,
+   ?role=Boer&farmId=3, ?role=AP&adId=4, ?role=PH, and &tab=team. *@
+@page "/ki-helper"
+@page "/ai-helper"
+@using System.Globalization
+@inject AiHelperClient Ai
+@inject AuthService Auth
+@inject IJSRuntime JS
+@inject MikpuntApiService Api
+@inject AiDraftHandoff Handoff
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>AI-Helper | MikPunt</PageTitle>
+
+<style>
+    .ai-band { position: relative; height: 14px; border-radius: 8px; background: var(--border-color); margin: 22px 0 6px; }
+    .ai-band-range { position: absolute; top: 0; height: 100%; border-radius: 8px; background: rgba(34, 197, 94, 0.45); border: 1px solid rgba(34, 197, 94, 0.9); }
+    .ai-band-p50 { position: absolute; top: -4px; width: 2px; height: 22px; background: var(--accent-gold); }
+    .ai-band-current { position: absolute; top: -8px; width: 4px; height: 30px; border-radius: 2px; background: #ef4444; }
+    .ai-band-current::after { content: attr(data-label); position: absolute; top: -18px; left: -30px; width: 64px; text-align: center; font-size: 11px; font-weight: 700; color: #ef4444; }
+    .ai-band-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted, #9ca3af); }
+    .ai-tip { border-left: 3px solid var(--accent-gold); padding: 6px 12px; margin-bottom: 10px; }
+    .ai-tip-1 { border-left-color: #ef4444; }
+    .ai-chip { display: inline-block; padding: 3px 10px; border-radius: 14px; font-size: 12px; font-weight: 700; border: 1px solid var(--border-color); }
+    .ai-role-btn.active { outline: 2px solid var(--accent-gold); }
+    .ai-muted { color: var(--text-muted, #9ca3af); font-size: 12px; }
+    .ai-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; flex-wrap: wrap; }
+    .ai-tab { background: none; border: none; border-bottom: 3px solid transparent; padding: 8px 14px; font-weight: 700; color: inherit; opacity: .7; }
+    .ai-tab.active { border-bottom-color: var(--accent-gold); opacity: 1; }
+    .ai-meter { height: 6px; border-radius: 4px; background: var(--border-color); overflow: hidden; }
+    .ai-meter > div { height: 100%; background: var(--accent-gold); }
+    .ai-score { font-size: 28px; font-weight: 800; line-height: 1; }
+    .ai-apply { border: 1px solid var(--accent-gold); }
+</style>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die AI-Helper is slegs beskikbaar vir aangemelde lede met 'n Uitruster-, PH-, Videograaf-, Boer- of Adverteerder-rol.</p>
+        <a href="/teken-in?returnUrl=/ki-helper" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (Roles().Count == 0)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk</h3>
+        <p class="text-muted mb-4" style="max-width: 620px; margin: 0 auto;">
+            Die AI-Helper help Uitrusters (PJ), Professionele Jagters (PH), Videograwe (VG), Boere en Adverteerders om hul pryse en aanbiedinge te verbeter.
+            U rekening het tans nie een van hierdie rolle nie.
+        </p>
+        <a href="/profiel" class="mp-btn mp-btn-primary">Aktiveer 'n rol op u profiel &rarr;</a>
+    </div>
+}
+else
+{
+    EnsureRole();
+    <div class="mb-4">
+        <h1 class="brand-font text-gold mb-1">AI-Helper</h1>
+        <p class="text-muted mb-0">
+            Bou en verbeter u aanbod met 'n opgeleide prysmodel en 'n taalmodel, of vind die regte spanmaats.
+            Dit is 'n aanduiding, nie 'n waarborg nie.
+        </p>
+    </div>
+
+    <div class="ai-tabs">
+        <button class="ai-tab @(_tab == "price" ? "active" : "")" @onclick="ShowPriceTab">✨ Pakketmaker &amp; Prysoptimering</button>
+        <button class="ai-tab @(_tab == "team" ? "active" : "")" @onclick="ShowTeamTab">🤝 Slim Spanbou</button>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        @foreach (var r in Roles())
+        {
+            <button class="mp-btn @(r.Code == _role ? "mp-btn-primary active" : "mp-btn-secondary") mp-btn-sm ai-role-btn" @onclick="() => SelectRole(r.Code)">@r.Label</button>
+        }
+    </div>
+
+    @if (_tab == "team")
+    {
+        @TeamTab()
+    }
+    else
+    {
+    <div class="row g-4">
+        @* ============================== FORM ============================== *@
+        <div class="col-lg-5">
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-3">U aanbod</h4>
+
+                @if (_role == "PH")
+                {
+                    <button class="mp-btn mp-btn-secondary mp-btn-sm mb-3" disabled="@_loadingOffers" @onclick="LoadPhRatesIntoDraft">↺ Laai my huidige tariewe &amp; graderings</button>
+                }
+                else
+                {
+                    <div class="mp-form-group mb-3">
+                        <label class="mp-form-label">Begin by 'n bestaande @OfferNoun() <span class="ai-muted">(opsioneel)</span></label>
+                        <select class="mp-form-control" value="@_loadedId" @onchange="OnOfferChosen" disabled="@_loadingOffers">
+                            <option value="0">@(_loadingOffers ? "Laai tans..." : "- Nuwe aanbod -")</option>
+                            @foreach (var o in _offers) { <option value="@o.Id">@o.Label</option> }
+                        </select>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger py-2 small">⚠️ @_error</div>
+                }
+
+                @if (_role != "AP")
+                {
+                    <div class="row g-3 mb-2">
+                        <div class="col-6 mp-form-group">
+                            <label class="mp-form-label">Provinsie</label>
+                            <select class="mp-form-control" @bind="_province">
+                                @foreach (var p in Provinces) { <option value="@p">@p</option> }
+                            </select>
+                        </div>
+                        <div class="col-6 mp-form-group">
+                            <label class="mp-form-label">Begin-maand</label>
+                            <select class="mp-form-control" @bind="_month">
+                                @for (int m = 1; m <= 12; m++)
+                                {
+                                    <option value="@m">@CultureInfo.GetCultureInfo("af-ZA").DateTimeFormat.GetMonthName(m)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6 mp-form-group">
+                            <label class="mp-form-label">Geldeenheid</label>
+                            <select class="mp-form-control" @bind="_currency">
+                                <option value="USD">USD ($)</option>
+                                <option value="ZAR">ZAR (R)</option>
+                            </select>
+                        </div>
+                        <div class="col-6 mp-form-group">
+                            <label class="mp-form-label">Mark</label>
+                            <select class="mp-form-control" @bind="_market">
+                                <option value="">Outomaties</option>
+                                <option value="international">Internasionaal (USD)</option>
+                                <option value="domestic">Plaaslik (ZAR)</option>
+                            </select>
+                        </div>
+                    </div>
+                }
+
+                <div class="mp-form-group mb-3">
+                    <label class="mp-form-label">Doel</label>
+                    <select class="mp-form-control" @bind="_goal">
+                        <option value="balanced">Gebalanseerd</option>
+                        <option value="profit">Maksimum wins</option>
+                        <option value="sales">Meer besprekings</option>
+                    </select>
+                </div>
+
+                @switch (_role)
+                {
+                    case "PJ":
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Pakkettitel</label><input class="mp-form-control" @bind="_draft.Title" maxlength="200" placeholder="bv. Waterberg Trofee Koedoe &amp; Rooibok Safari" /></div>
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Beskrywing</label><textarea class="mp-form-control" rows="3" @bind="_draft.Description" maxlength="1500"></textarea></div>
+                        <div class="row g-3 mb-2">
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Prys per jagter (@_currency)</label><input type="number" class="mp-form-control" @bind="_draft.Price" min="0" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Waarnemerprys (@_currency)</label><input type="number" class="mp-form-control" @bind="_draft.ObserverPrice" min="0" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Aantal dae</label><input type="number" class="mp-form-control" @bind="_draft.DurationDays" min="1" max="60" /></div>
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Jagters per PH</label>
+                                <select class="mp-form-control" @bind="_draft.HuntersPerPh"><option value="1">1 (een-tot-een)</option><option value="2">2 (twee-tot-een)</option></select>
+                            </div>
+                        </div>
+                        <label class="mp-form-label">Ingesluit in die prys</label>
+                        <div class="row g-1 mb-2">
+                            @foreach (var s in PjServices)
+                            {
+                                <div class="col-12">
+                                    <label class="small"><input type="checkbox" checked="@_services.Contains(s.Key)" @onchange="e => ToggleService(s.Key, (bool)(e.Value ?? false))" /> @s.Label</label>
+                                </div>
+                            }
+                        </div>
+                        <div class="mp-form-group mb-2">
+                            <label class="mp-form-label">Spesies wat in die prys ingesluit is <span class="ai-muted">(kommagesky, opsioneel)</span></label>
+                            <input class="mp-form-control" @bind="_speciesText" list="ai-species" placeholder="bv. Rooibok, Vlakvark" />
+                        </div>
+                        break;
+
+                    case "PH":
+                        <div class="row g-3 mb-2">
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Dagtarief (@_currency)</label><input type="number" class="mp-form-control" @bind="_draft.Price" min="0" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Jare ervaring</label><input type="number" class="mp-form-control" @bind="_draft.YearsExperience" min="0" max="70" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Gemiddelde gradering (0-5)</label><input type="number" step="0.1" class="mp-form-control" @bind="_draft.RatingAverage" min="0" max="5" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Aantal graderings</label><input type="number" class="mp-form-control" @bind="_draft.RatingCount" min="0" /></div>
+                            <div class="col-12 mp-form-group"><label class="mp-form-label">Jagte voltooi</label><input type="number" class="mp-form-control" @bind="_draft.HuntsCompleted" min="0" /></div>
+                        </div>
+                        <label class="small d-block mb-1"><input type="checkbox" @bind="_draft.DangerousGameAccredited" /> Ek het gevaarlike-wild akkreditasie</label>
+                        <label class="small d-block mb-2"><input type="checkbox" @bind="_draft.DangerousGameRate" /> Hierdie tarief is vir gevaarlike wild</label>
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Kort beskrywing van u diens <span class="ai-muted">(opsioneel)</span></label><textarea class="mp-form-control" rows="3" @bind="_draft.Description" maxlength="1500"></textarea></div>
+                        break;
+
+                    case "VG":
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Pakkettitel</label><input class="mp-form-control" @bind="_draft.Title" maxlength="200" placeholder="bv. 4K Filmiese Safari &amp; Hommeltuigfilm" /></div>
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Beskrywing</label><textarea class="mp-form-control" rows="3" @bind="_draft.Description" maxlength="1500"></textarea></div>
+                        <div class="row g-3 mb-2">
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Totale pakketprys (@_currency)</label><input type="number" class="mp-form-control" @bind="_draft.Price" min="0" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Dae gedek</label><input type="number" class="mp-form-control" @bind="_draft.DurationDays" min="1" max="60" /></div>
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Produksievlak</label>
+                                <select class="mp-form-control" @bind="_draft.VgTier"><option value="basic">Basies (rou beeldmateriaal + teaser)</option><option value="standard">Standaard (gesnyde hoogtepunte)</option><option value="documentary">Dokumentêr (volledig)</option></select>
+                            </div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Bemanning</label><input type="number" class="mp-form-control" @bind="_draft.CrewSize" min="1" max="10" /></div>
+                            <div class="col-12 mp-form-group"><label class="mp-form-label">Jare ervaring</label><input type="number" class="mp-form-control" @bind="_draft.YearsExperience" min="0" max="70" /></div>
+                        </div>
+                        <label class="small d-block mb-1"><input type="checkbox" @bind="_draft.Drone" /> Hommeltuig-beelde ingesluit</label>
+                        <label class="small d-block mb-2"><input type="checkbox" @bind="_draft.Uhd4k" /> 4K-kwaliteit</label>
+                        break;
+
+                    case "FARMER":
+                        <div class="row g-3 mb-2">
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Dagtarief per jagter (@_currency)</label><input type="number" class="mp-form-control" @bind="_draft.Price" min="0" /></div>
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Jagters per PH</label>
+                                <select class="mp-form-control" @bind="_draft.HuntersPerPh"><option value="1">1</option><option value="2">2</option></select>
+                            </div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Plaasgrootte (ha)</label><input type="number" class="mp-form-control" @bind="_draft.FarmSizeHa" min="0" /></div>
+                            <div class="col-6 mp-form-group"><label class="mp-form-label">Lodge-kamers</label><input type="number" class="mp-form-control" @bind="_draft.LodgeRooms" min="0" /></div>
+                        </div>
+                        <div class="row g-1 mb-3">
+                            <div class="col-6"><label class="small"><input type="checkbox" @bind="_draft.Catering" /> Etes ingesluit</label></div>
+                            <div class="col-6"><label class="small"><input type="checkbox" @bind="_draft.GuideIncluded" /> Gids/PH ingesluit</label></div>
+                            <div class="col-6"><label class="small"><input type="checkbox" @bind="_draft.ColdRoom" /> Koelkamer</label></div>
+                            <div class="col-6"><label class="small"><input type="checkbox" @bind="_draft.Pool" /> Swembad</label></div>
+                            <div class="col-6"><label class="small"><input type="checkbox" @bind="_draft.Wifi" /> WiFi</label></div>
+                            <div class="col-6"><label class="small"><input type="checkbox" @bind="_draft.GameFenced" /> Wildsgehek</label></div>
+                        </div>
+                        <label class="mp-form-label">Spesie-pryse <span class="ai-muted">(opsioneel - word teen die mark gemeet)</span></label>
+                        @foreach (var row in _draft.SpeciesPricing.ToList())
+                        {
+                            <div class="row g-1 mb-1 align-items-center">
+                                <div class="col-5"><input class="mp-form-control" list="ai-species" @bind="row.Species" placeholder="Spesie" /></div>
+                                <div class="col-3">
+                                    <select class="mp-form-control" @bind="row.Tier"><option value="trophy">Trofee</option><option value="male">Manlik</option><option value="female">Wyfie</option></select>
+                                </div>
+                                <div class="col-3"><input type="number" class="mp-form-control" @bind="row.Price" min="0" placeholder="@_currency" /></div>
+                                <div class="col-1"><button class="btn btn-sm text-danger" title="Verwyder" @onclick="() => _draft.SpeciesPricing.Remove(row)">✕</button></div>
+                            </div>
+                        }
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm mt-1" @onclick="AddSpeciesRow">+ Spesie</button>
+                        break;
+
+                    case "AP":
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Advertensie-opskrif</label><input class="mp-form-control" @bind="_draft.Title" maxlength="200" placeholder="bv. Handgemaakte biltongmesse" /></div>
+                        <div class="mp-form-group mb-2"><label class="mp-form-label">Advertensieteks</label><textarea class="mp-form-control" rows="4" @bind="_draft.Description" maxlength="1500"></textarea></div>
+                        <div class="row g-3 mb-2">
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Kategorie</label>
+                                <select class="mp-form-control" @bind="_draft.AdCategory">
+                                    <option value="Toerusting">Toerusting &amp; Optika</option><option value="Taksidermie">Taksidermie &amp; Montage</option>
+                                    <option value="Vervoer">Vervoer &amp; Logistiek</option><option value="Akkommodasie">Akkommodasie &amp; Jagkampe</option>
+                                    <option value="Vuurwapens">Vuurwapens &amp; Ammunisie</option>
+                                </select>
+                            </div>
+                            <div class="col-6 mp-form-group">
+                                <label class="mp-form-label">Plasing</label>
+                                <select class="mp-form-control" @bind="_draft.AdPlacement"><option value="Banner">Banier</option><option value="Spotlight">Kollig</option><option value="Featured">Uitgelig</option></select>
+                            </div>
+                        </div>
+                        <p class="ai-muted">Die advertensie-ontleding gebruik u werklike kyk- en klikgetalle. Geen klik-koerse word geskat nie.</p>
+                        break;
+                }
+
+                <datalist id="ai-species">
+                    @foreach (var s in SpeciesNames) { <option value="@s"></option> }
+                </datalist>
+
+                <button class="mp-btn mp-btn-primary w-100 mt-3" disabled="@_busy" @onclick="Analyse">
+                    @if (_busy) { <span class="spinner-border spinner-border-sm me-2"></span><span>AI ontleed tans... (kan tot 'n minuut neem)</span> }
+                    else { <span>✨ Ontleed met AI</span> }
+                </button>
+                <p class="ai-muted mt-2 mb-0">Die AI-teks word deur 'n eksterne taalmodel-diens geskryf. Tik geen persoonlike of vertroulike inligting in die beskrywing nie.</p>
+            </div>
+        </div>
+
+        @* ============================== RESULTS ============================== *@
+        <div class="col-lg-7">
+            @if (_result == null && !_busy)
+            {
+                <div class="mp-card p-4 text-center text-muted">
+                    <div style="font-size: 40px;">📊</div>
+                    <p class="mb-0">Vul u aanbod in en klik <strong>Ontleed met AI</strong> om 'n prysverdikt en konkrete voorstelle te kry.</p>
+                </div>
+            }
+            @if (_result != null)
+            {
+                @ApplyPanel(_result)
+                @Results(_result)
+            }
+        </div>
+    </div>
+    }
+}
+
+@code {
+    private static readonly string[] Provinces = { "Limpopo", "Gauteng", "Mpumalanga", "Noordwes", "Vrystaat", "Noord-Kaap", "Oos-Kaap", "Wes-Kaap", "KwaZulu-Natal" };
+
+    private static readonly (string Key, string Label)[] PjServices =
+    {
+        ("ph_included", "Professionele jagter (PH) & spoorsnyers"), ("accommodation", "Akkommodasie"), ("meals", "Alle etes"),
+        ("field_prep", "Veldvoorbereiding van trofeë"), ("airport_transfer", "Lughawe-vervoer"),
+        ("videography", "Videografie"), ("drone", "Hommeltuig-video")
+    };
+
+    private static readonly string[] SpeciesNames =
+    {
+        "Koedoe", "Eland", "Njala", "Swartwitpens", "Bastergemsbok", "Waterbok", "Gemsbok", "Tsessebe", "Blouwildebees", "Swartwildebees",
+        "Rooihartbees", "Sebra", "Rooibok", "Blesbok", "Springbok", "Vlakvark", "Bosbok", "Bosvark", "Klipspringer", "Rooiribbok",
+        "Rietbok", "Gewone Duiker", "Steenbok", "Lechwe", "Vaalribbok", "Kameelperd", "Buffel"
+    };
+
+    private string _role = "";
+    private string _province = "Limpopo";
+    private int _month = DateTime.UtcNow.Month;
+    private string _currency = WebApp.Services.Money.PackageCurrency;
+    private string _market = "";
+    private string _goal = "balanced";
+    private string _speciesText = "";
+    private readonly HashSet<string> _services = new() { "ph_included", "accommodation", "meals", "field_prep" };
+    private AiDraftModel _draft = NewDraft();
+
+    private bool _busy;
+    private string? _error;
+    private AiOptimizeResponseModel? _result;
+    private bool _feedbackSent;
+
+    [SupplyParameterFromQuery(Name = "role")] public string? QueryRole { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? QueryTab { get; set; }
+    [SupplyParameterFromQuery(Name = "packageId")] public int? QueryPackageId { get; set; }
+    [SupplyParameterFromQuery(Name = "vgPackageId")] public int? QueryVgPackageId { get; set; }
+    [SupplyParameterFromQuery(Name = "farmId")] public int? QueryFarmId { get; set; }
+    [SupplyParameterFromQuery(Name = "adId")] public int? QueryAdId { get; set; }
+
+    private string _tab = "price";
+    private bool _queryApplied;
+    private int MyUserId => Auth.CurrentUser?.UserId ?? 0;
+
+    // ---- existing offers that can be loaded into the form (and updated by "apply")
+    private bool _loadingOffers;
+    private int _loadedId;
+    private List<(int Id, string Label)> _offers = new();
+    private List<HuntingPackageModel> _myPackages = new();
+    private List<ServicePackageModel> _myVgPackages = new();
+    private List<FarmModel> _myFarms = new();
+    private List<AdvertisementModel> _myAds = new();
+    private PhDailyRatesModel? _phRates;
+
+    // ---- packet maker: the offer assembled from the advice
+    private string _applyTitle = "";
+    private string _applyDescription = "";
+    private string _applyPriceMode = "current";
+    private decimal? _applyCustomPrice;
+    private bool _applyAsNew;
+    private bool _applySpecies = true;
+    private int _applyFarmId;
+    private string? _applyMessage;
+    private bool _applyBusy;
+
+    private static AiDraftModel NewDraft() => new() { DurationDays = 5, HuntersPerPh = 1, VgTier = "standard", CrewSize = 1, AdCategory = "Toerusting", AdPlacement = "Banner" };
+
+    protected override void OnInitialized() => Auth.OnAuthStateChanged += OnAuthChanged;
+
+    protected override Task OnParametersSetAsync() => ApplyQueryOnceAsync();
+
+    private void OnAuthChanged() => _ = InvokeAsync(async () => { await ApplyQueryOnceAsync(); StateHasChanged(); });
+
+    private void ShowPriceTab() => _tab = "price";
+
+    private void ShowTeamTab() => _tab = "team";
+
+    /// <summary>Honours deep links (?role=..&amp;tab=team&amp;packageId=..) once, as soon as the user and their roles are known.</summary>
+    private async Task ApplyQueryOnceAsync()
+    {
+        if (_queryApplied || !Auth.IsInitialized || !Auth.IsAuthenticated) return;
+        _queryApplied = true;
+        if (QueryTab == "team") _tab = "team";
+        var wanted = (QueryRole ?? "").Trim().ToUpperInvariant() switch { "BOER" or "FARMER" => "FARMER", var r => r };
+        if (Roles().Any(r => r.Code == wanted)) SelectRole(wanted); else EnsureRole();
+
+        int? id = _role switch { "PJ" => QueryPackageId, "VG" => QueryVgPackageId, "FARMER" => QueryFarmId, "AP" => QueryAdId, _ => null };
+        if (_role == "PH" && !string.IsNullOrEmpty(QueryRole)) await LoadPhRatesIntoDraft();
+        else if (id is > 0)
+        {
+            await LoadOffersAsync();
+            if (_offers.Any(o => o.Id == id)) SelectOffer(id.Value);
+        }
+    }
+
+    public void Dispose() => Auth.OnAuthStateChanged -= OnAuthChanged;
+
+    /// <summary>The AI-Helper roles this user actually holds (Admin sees all).</summary>
+    private List<(string Code, string Label)> Roles()
+    {
+        var all = new[] { ("PJ", "Uitruster (PJ)"), ("PH", "Professionele Jagter (PH)"), ("VG", "Videograaf (VG)"), ("FARMER", "Grondeienaar (Boer)"), ("AP", "Adverteerder (AP)") };
+        bool admin = Auth.HasRole("Admin");
+        return all.Where(r => admin || Auth.HasRole(r.Item1 == "FARMER" ? "Boer" : r.Item1)).ToList();
+    }
+
+    private void EnsureRole()
+    {
+        var roles = Roles();
+        if (roles.Count > 0 && roles.All(r => r.Code != _role)) SelectRole(roles[0].Code);
+    }
+
+    private void SelectRole(string code)
+    {
+        bool changed = _role != code;
+        _role = code;
+        _result = null;
+        _error = null;
+        _draft = NewDraft();
+        _speciesText = "";
+        _market = "";
+        _currency = code == "PJ" ? WebApp.Services.Money.PackageCurrency : "ZAR";
+        if (code == "PH") { _draft.DangerousGameAccredited = false; }
+        _loadedId = 0;
+        _applyMessage = null;
+        if (changed)
+        {
+            _offers = new();
+            _team = null;
+            _teamError = null;
+            if (code != "PH") _ = InvokeAsync(async () => { await LoadOffersAsync(); StateHasChanged(); });
+        }
+    }
+
+    private void ToggleService(string key, bool on)
+    {
+        if (on) _services.Add(key); else _services.Remove(key);
+    }
+
+    private void AddSpeciesRow() => _draft.SpeciesPricing.Add(new AiSpeciesPriceDraftModel());
+
+    private static List<string> SplitList(string text) =>
+        text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).Take(30).ToList();
+
+    private AiOptimizeRequestModel BuildRequest()
+    {
+        var d = _draft;
+        var draft = new AiDraftModel { Title = d.Title, Description = d.Description, Price = d.Price is > 0 ? d.Price : null };
+        switch (_role)
+        {
+            case "PJ":
+                draft.ObserverPrice = d.ObserverPrice is > 0 ? d.ObserverPrice : null;
+                draft.DurationDays = d.DurationDays; draft.HuntersPerPh = d.HuntersPerPh;
+                draft.Services = _services.ToList(); draft.Species = SplitList(_speciesText);
+                break;
+            case "PH":
+                draft.YearsExperience = d.YearsExperience; draft.RatingAverage = d.RatingAverage; draft.RatingCount = d.RatingCount;
+                draft.HuntsCompleted = d.HuntsCompleted; draft.DangerousGameRate = d.DangerousGameRate; draft.DangerousGameAccredited = d.DangerousGameAccredited;
+                break;
+            case "VG":
+                draft.DurationDays = d.DurationDays; draft.VgTier = d.VgTier; draft.Drone = d.Drone; draft.Uhd4k = d.Uhd4k;
+                draft.CrewSize = d.CrewSize; draft.YearsExperience = d.YearsExperience;
+                break;
+            case "FARMER":
+                draft.HuntersPerPh = d.HuntersPerPh; draft.FarmSizeHa = d.FarmSizeHa; draft.LodgeRooms = d.LodgeRooms; draft.Catering = d.Catering;
+                draft.GuideIncluded = d.GuideIncluded; draft.ColdRoom = d.ColdRoom; draft.Pool = d.Pool; draft.Wifi = d.Wifi; draft.GameFenced = d.GameFenced;
+                draft.SpeciesPricing = d.SpeciesPricing.Where(r => !string.IsNullOrWhiteSpace(r.Species)).ToList();
+                draft.Species = draft.SpeciesPricing.Select(r => r.Species).ToList();
+                break;
+            case "AP":
+                draft.AdCategory = d.AdCategory; draft.AdPlacement = d.AdPlacement;
+                break;
+        }
+        return new AiOptimizeRequestModel
+        {
+            RoleCode = _role, Province = _role == "AP" ? null : _province, Currency = _currency,
+            Market = string.IsNullOrEmpty(_market) ? null : _market, Goal = _goal, Month = _role == "AP" ? null : _month, Draft = draft
+        };
+    }
+
+    private async Task Analyse()
+    {
+        _error = null;
+        _result = null;
+        _feedbackSent = false;
+        if (_role == "AP" && string.IsNullOrWhiteSpace(_draft.Title) && string.IsNullOrWhiteSpace(_draft.Description))
+        {
+            _error = "Voer ten minste 'n opskrif of teks vir u advertensie in.";
+            return;
+        }
+
+        _busy = true;
+        _applyMessage = null;
+        StateHasChanged();
+        var (ok, result, error) = await Ai.OptimizeAsync(BuildRequest());
+        _busy = false;
+        if (ok && result != null) { _result = result; InitApply(result); } else _error = error;
+    }
+
+    private async Task Feedback(bool helpful)
+    {
+        if (_result == null || _result.AdviceId <= 0) return;
+        _feedbackSent = await Ai.SendFeedbackAsync(_result.AdviceId, helpful);
+    }
+
+    private async Task Copy(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { /* clipboard blocked - ignore */ }
+    }
+
+    // ------------------------------------------------------------------ existing offers (load into the form)
+
+    private string OfferNoun() => _role switch { "PJ" => "pakket", "VG" => "videopakket", "FARMER" => "plaas", "AP" => "advertensie", _ => "aanbod" };
+
+    /// <summary>Fetches the caller's own packages / video packages / farms / ads for the current role (Admin sees all PJ packages).</summary>
+    private async Task LoadOffersAsync()
+    {
+        if (MyUserId <= 0 || _role == "PH") return;
+        _loadingOffers = true;
+        try
+        {
+            switch (_role)
+            {
+                case "PJ":
+                    // A PJ's own packages, including ones the marketplace still hides (documents pending).
+                    _myPackages = Auth.HasRole("Admin") ? await Api.GetPackagesAsync() : await Api.GetMyPackagesAsync();
+                    _offers = _myPackages.Select(p => (p.Id, $"{p.Title} ({WebApp.Services.Money.Format(p.PricePerHunter, WebApp.Services.Money.PackageCurrency)}, {p.DurationDays} dae)")).ToList();
+                    break;
+                case "VG":
+                    _myVgPackages = await Api.GetVgPackagesAsync(MyUserId) ?? new();
+                    _offers = _myVgPackages.Select(p => (p.Id, $"{p.Title} (R{p.DailyRate:N0}/dag)")).ToList();
+                    break;
+                case "FARMER":
+                    _myFarms = await Api.GetFarmsAsync(MyUserId);
+                    _offers = _myFarms.Select(f => (f.Id, $"{f.Name} (R{f.DailyRateHunter:N0}/dag)")).ToList();
+                    break;
+                case "AP":
+                    _myAds = await Api.GetAdsAsync(MyUserId);
+                    _offers = _myAds.Select(a => (a.Id, string.IsNullOrWhiteSpace(a.Title) ? $"Advertensie #{a.Id}" : a.Title)).ToList();
+                    break;
+            }
+        }
+        catch { _offers = new(); }
+        finally { _loadingOffers = false; }
+    }
+
+    private void OnOfferChosen(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id) && id > 0) SelectOffer(id);
+        else { _loadedId = 0; _draft = NewDraft(); _speciesText = ""; _result = null; }
+    }
+
+    private string MatchProvince(string? text) =>
+        Provinces.FirstOrDefault(p => string.Equals(p, text?.Trim(), StringComparison.OrdinalIgnoreCase))
+        ?? Provinces.FirstOrDefault(p => !string.IsNullOrWhiteSpace(text) && text.Contains(p, StringComparison.OrdinalIgnoreCase))
+        ?? _province;
+
+    private static bool Has(IEnumerable<string> list, params string[] words) =>
+        list.Any(a => words.Any(w => a.Contains(w, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Fills the form from one of the caller's existing offers, so the advice is about what is really listed.</summary>
+    private void SelectOffer(int id)
+    {
+        _result = null;
+        _error = null;
+        _applyMessage = null;
+        _draft = NewDraft();
+        _speciesText = "";
+        _loadedId = id;
+        switch (_role)
+        {
+            case "PJ" when _myPackages.FirstOrDefault(p => p.Id == id) is { } p:
+                _currency = WebApp.Services.Money.PackageCurrency;
+                _draft.Title = p.Title; _draft.Description = p.Description; _draft.Price = p.PricePerHunter;
+                _draft.ObserverPrice = p.PricePerObserver > 0 ? p.PricePerObserver : null;
+                _draft.DurationDays = p.DurationDays > 0 ? p.DurationDays : 5;
+                _speciesText = string.Join(", ", p.AvailableFarmSpecies ?? new List<string>());
+                _province = MatchProvince(p.Province);
+                break;
+            case "VG" when _myVgPackages.FirstOrDefault(v => v.Id == id) is { } v:
+                _currency = "ZAR";
+                _draft.Title = v.Title; _draft.Description = v.Description;
+                _draft.DurationDays = 3;
+                _draft.Price = v.DailyRate > 0 ? v.DailyRate * 3 : null;
+                _draft.Drone = Has(new[] { v.EquipmentProvided, v.Description }, "drone", "hommeltuig", "mavic");
+                _draft.Uhd4k = Has(new[] { v.EquipmentProvided, v.Description, v.Title }, "4k");
+                _province = MatchProvince(v.RegionCovered);
+                break;
+            case "FARMER" when _myFarms.FirstOrDefault(f => f.Id == id) is { } f:
+                _currency = "ZAR";
+                _draft.Price = f.DailyRateHunter > 0 ? f.DailyRateHunter : null;
+                _draft.FarmSizeHa = f.SizeHectares > 0 ? f.SizeHectares : null;
+                _draft.Description = f.Description;
+                _draft.Catering = Has(f.Amenities, "etes", "maaltye", "catering", "spyseniering");
+                _draft.ColdRoom = Has(f.Amenities, "koelkamer", "cold");
+                _draft.Pool = Has(f.Amenities, "swembad", "pool");
+                _draft.Wifi = Has(f.Amenities, "wifi");
+                _draft.GuideIncluded = Has(f.Amenities, "spoorsnyer", "gids", "guide");
+                _province = MatchProvince(f.Province);
+                foreach (var g in f.GameInventory.Where(g => !string.IsNullOrWhiteSpace(g.SpeciesName)))
+                {
+                    if (g.PriceTrophy > 0) _draft.SpeciesPricing.Add(new() { Species = g.SpeciesName, Tier = "trophy", Price = g.PriceTrophy });
+                    if (g.PriceMale > 0) _draft.SpeciesPricing.Add(new() { Species = g.SpeciesName, Tier = "male", Price = g.PriceMale });
+                    if (g.PriceFemale > 0) _draft.SpeciesPricing.Add(new() { Species = g.SpeciesName, Tier = "female", Price = g.PriceFemale });
+                }
+                _draft.SpeciesPricing = _draft.SpeciesPricing.Take(25).ToList();
+                break;
+            case "AP" when _myAds.FirstOrDefault(a => a.Id == id) is { } a:
+                _draft.Title = a.Title; _draft.Description = a.Description;
+                _draft.AdCategory = CanonicalAdCategory(a.Category);
+                _draft.AdPlacement = a.PlacementType is "Banner" or "Spotlight" or "Featured" ? a.PlacementType : "Banner";
+                break;
+            default:
+                _loadedId = 0;
+                break;
+        }
+    }
+
+    private static string CanonicalAdCategory(string? c) => (c ?? "").Trim().ToLowerInvariant() switch
+    {
+        "taxidermy" or "taksidermie" or "taksidermie & montage" => "Taksidermie",
+        "transport" or "vervoer" or "vervoer & logistiek" => "Vervoer",
+        "accommodation" or "akkommodasie" or "akkommodasie & jagkampe" or "verblyf" => "Akkommodasie",
+        "firearms" or "vuurwapens" or "vuurwapens & ammunisie" => "Vuurwapens",
+        _ => "Toerusting"
+    };
+
+    /// <summary>PH: loads the saved day rates and the real rating stats into the form.</summary>
+    private async Task LoadPhRatesIntoDraft()
+    {
+        if (MyUserId <= 0) return;
+        _loadingOffers = true;
+        try
+        {
+            _phRates = await Api.GetPhDailyRatesAsync(MyUserId);
+            var stats = await Api.GetRatingProfileStatsAsync(MyUserId, "PH");
+            _currency = "ZAR";
+            _draft.DangerousGameAccredited = _phRates.HasDangerousGameAccreditation;
+            _draft.Price = _draft.DangerousGameRate ? _phRates.DangerousGameDailyRate : _phRates.StandardDailyRate;
+            if (stats.RatingCount > 0) { _draft.RatingAverage = (double)stats.AverageStars; _draft.RatingCount = stats.RatingCount; }
+            _draft.HuntsCompleted = stats.CompletedTrips;
+        }
+        catch { _error = "Kon nie u huidige tariewe laai nie."; }
+        finally { _loadingOffers = false; }
+    }
+
+    // ------------------------------------------------------------------ packet maker: build the offer from the advice
+
+    private void InitApply(AiOptimizeResponseModel r)
+    {
+        _applyTitle = !string.IsNullOrWhiteSpace(_draft.Title) ? _draft.Title! : r.Narrative?.TitleSuggestions.FirstOrDefault() ?? "";
+        _applyDescription = r.Narrative?.DescriptionRewrite ?? _draft.Description ?? "";
+        _applyPriceMode = r.Price == null || _draft.Price is not > 0 || r.Price.Position is "above" or "below" ? "median" : "current";
+        _applyCustomPrice = r.Price?.P50;
+        _applyAsNew = _loadedId == 0 || _role == "VG";
+        _applyFarmId = _role == "FARMER" ? _loadedId : 0;
+        _applyMessage = null;
+        if (_role == "FARMER" && _myFarms.Count == 0) _ = InvokeAsync(async () => { await LoadOffersAsync(); StateHasChanged(); });
+    }
+
+    private decimal? ChosenPrice(AiOptimizeResponseModel r) => _applyPriceMode switch
+    {
+        "median" => r.Price?.P50,
+        "custom" => _applyCustomPrice is > 0 ? _applyCustomPrice : null,
+        _ => _draft.Price is > 0 ? _draft.Price : null
+    };
+
+    /// <summary>The editors store PJ packages in the package currency and everything else in ZAR; converts with the exchange rate the API used.</summary>
+    private static decimal? Convert(decimal? v, string from, string to, decimal fx)
+    {
+        if (v is null || from == to || fx <= 0) return v;
+        return Math.Round(from == "USD" ? v.Value * fx : v.Value / fx, 0);
+    }
+
+    private string TargetCurrency => _role == "PJ" ? WebApp.Services.Money.PackageCurrency : "ZAR";
+
+    private string TargetMoney(decimal v) => TargetCurrency == "ZAR" ? $"R{v:N0}" : $"${v:N0}";
+
+    private async Task ApplyAsync()
+    {
+        if (_result is not { } r) return;
+        _applyMessage = null;
+        var price = Convert(ChosenPrice(r), r.Currency, TargetCurrency, r.UsdToZarRate);
+        string? title = string.IsNullOrWhiteSpace(_applyTitle) ? null : _applyTitle.Trim();
+        string? description = string.IsNullOrWhiteSpace(_applyDescription) ? null : _applyDescription.Trim();
+
+        switch (_role)
+        {
+            case "PH":
+                if (price is not > 0) { _applyMessage = "Kies of tik eers 'n dagtarief."; return; }
+                _applyBusy = true;
+                try
+                {
+                    _phRates ??= await Api.GetPhDailyRatesAsync(MyUserId);
+                    decimal standard = _draft.DangerousGameRate ? _phRates.StandardDailyRate ?? 0 : price.Value;
+                    decimal dg = _draft.DangerousGameRate ? price.Value : _phRates.DangerousGameDailyRate ?? 0;
+                    await Api.SavePhDailyRatesAsync(MyUserId, standard, dg, _phRates.HasDangerousGameAccreditation || _draft.DangerousGameRate);
+                    _phRates = await Api.GetPhDailyRatesAsync(MyUserId);
+                    var saved = _draft.DangerousGameRate ? _phRates.DangerousGameDailyRate : _phRates.StandardDailyRate;
+                    _applyMessage = saved == price
+                        ? $"✓ Gestoor: u {(_draft.DangerousGameRate ? "gevaarlike-wild" : "gewone")} dagtarief is nou R{price:N0}."
+                        : "Kon nie die tarief stoor nie. Probeer asseblief weer.";
+                }
+                catch { _applyMessage = "Kon nie die tarief stoor nie. Probeer asseblief weer."; }
+                finally { _applyBusy = false; }
+                return;
+
+            case "PJ":
+                Handoff.Put(new AiAppliedDraft
+                {
+                    RoleCode = "PJ", TargetId = _applyAsNew ? 0 : _loadedId, Title = title, Description = description, Price = price,
+                    ObserverPrice = Convert(_draft.ObserverPrice, r.Currency, WebApp.Services.Money.PackageCurrency, r.UsdToZarRate), DurationDays = _draft.DurationDays
+                });
+                Nav.NavigateTo("/pj/pakkette?ai=1");
+                return;
+
+            case "VG":
+                int days = Math.Max(1, _draft.DurationDays ?? 1);
+                Handoff.Put(new AiAppliedDraft
+                {
+                    RoleCode = "VG", Title = title, Description = description, Province = _province,
+                    Price = price is > 0 ? Math.Round(price.Value / days, 0) : null, DurationDays = days
+                });
+                Nav.NavigateTo("/vg/pakkette?ai=1");
+                return;
+
+            case "FARMER":
+                if (_applyFarmId <= 0) { _applyMessage = "Kies eers watter plaas bygewerk moet word."; return; }
+                var handoff = new AiAppliedDraft { RoleCode = "FARMER", TargetId = _applyFarmId, Description = description, Price = price };
+                if (_applySpecies)
+                {
+                    // The API answers species in the order they were sent; map back to the farm's own spelling (the API returns the catalogue name).
+                    var sent = _draft.SpeciesPricing.Where(x => !string.IsNullOrWhiteSpace(x.Species)).ToList();
+                    for (int i = 0; i < r.SpeciesPrices.Count; i++)
+                    {
+                        var s = r.SpeciesPrices[i];
+                        if (s.Price is not { Position: "above" or "below" }) continue;
+                        handoff.SpeciesPrices.Add(new AiSpeciesPriceDraftModel
+                        {
+                            Species = i < sent.Count ? sent[i].Species : s.Species, Tier = s.Tier,
+                            Price = Convert(s.Price.P50, r.Currency, "ZAR", r.UsdToZarRate)
+                        });
+                    }
+                }
+                Handoff.Put(handoff);
+                Nav.NavigateTo($"/boer/wysig-plaas/{_applyFarmId}?ai=1");
+                return;
+
+            case "AP":
+                Handoff.Put(new AiAppliedDraft
+                {
+                    RoleCode = "AP", TargetId = _applyAsNew ? 0 : _loadedId, Title = title, Description = description, AdCategory = _draft.AdCategory
+                });
+                Nav.NavigateTo(_applyAsNew ? "/ap/nuwe-advertensie?ai=1" : $"/ap/wysig-advertensie/{_loadedId}?ai=1");
+                return;
+        }
+    }
+
+    private RenderFragment ApplyPanel(AiOptimizeResponseModel r) => @<div class="mp-card p-4 ai-apply">
+        @{
+            var n = r.Narrative;
+            var median = Convert(r.Price?.P50, r.Currency, TargetCurrency, r.UsdToZarRate);
+            var current = Convert(_draft.Price is > 0 ? _draft.Price : null, r.Currency, TargetCurrency, r.UsdToZarRate);
+        }
+        <h4 class="brand-font text-gold mb-1">✨ Bou u verbeterde @OfferNoun()</h4>
+        <p class="ai-muted mb-3">Kies wat u wil gebruik. @(_role == "PH" ? "Die tarief word op u profiel gestoor." : "Dit word in die gewone redigeerder oopgemaak sodat u alles kan nagaan voor u stoor.")</p>
+
+        @if (_role is "PJ" or "VG" or "AP")
+        {
+            <div class="mp-form-group mb-2">
+                <label class="mp-form-label">@(_role == "AP" ? "Opskrif" : "Titel")</label>
+                <input class="mp-form-control" @bind="_applyTitle" maxlength="200" />
+                @if (n != null && n.TitleSuggestions.Count > 0)
+                {
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        @foreach (var t in n.TitleSuggestions)
+                        {
+                            <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => _applyTitle = t">@t</button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (_role != "PH")
+        {
+            <div class="mp-form-group mb-2">
+                <label class="mp-form-label">@(_role == "AP" ? "Advertensieteks" : "Beskrywing")</label>
+                <textarea class="mp-form-control" rows="4" @bind="_applyDescription" maxlength="1800"></textarea>
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                    @if (!string.IsNullOrWhiteSpace(n?.DescriptionRewrite))
+                    {
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => _applyDescription = n!.DescriptionRewrite!">Gebruik AI-beskrywing</button>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_draft.Description))
+                    {
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => _applyDescription = _draft.Description!">Gebruik my oorspronklike</button>
+                    }
+                </div>
+            </div>
+        }
+        @if (_role != "AP" && r.Price != null)
+        {
+            <label class="mp-form-label">@(_role == "VG" ? "Pakketprys (word na 'n dagtarief omgereken)" : "Prys")</label>
+            <div class="mb-2">
+                @if (current.HasValue)
+                {
+                    <label class="small d-block"><input type="radio" name="ai-price" checked="@(_applyPriceMode == "current")" @onchange='() => _applyPriceMode = "current"' /> Hou my huidige prys (@TargetMoney(current.Value))</label>
+                }
+                <label class="small d-block"><input type="radio" name="ai-price" checked="@(_applyPriceMode == "median")" @onchange='() => _applyPriceMode = "median"' /> Gebruik die model se markmediaan (@TargetMoney(median ?? 0))</label>
+                <label class="small d-block">
+                    <input type="radio" name="ai-price" checked="@(_applyPriceMode == "custom")" @onchange='() => _applyPriceMode = "custom"' /> Eie bedrag (@r.Currency):
+                    <input type="number" class="mp-form-control d-inline-block ms-1" style="width: 140px;" @bind="_applyCustomPrice" @onfocus='() => _applyPriceMode = "custom"' min="0" />
+                </label>
+            </div>
+        }
+        @if (_role == "FARMER")
+        {
+            @if (r.SpeciesPrices.Any(s => s.Price is { Position: "above" or "below" }))
+            {
+                <label class="small d-block mb-2"><input type="checkbox" @bind="_applySpecies" /> Stel spesie-pryse buite die markband op die mediaan (@r.SpeciesPrices.Count(s => s.Price is { Position: "above" or "below" }) spesie(s))</label>
+            }
+            <div class="mp-form-group mb-2">
+                <label class="mp-form-label">Plaas om by te werk</label>
+                <select class="mp-form-control" @bind="_applyFarmId">
+                    <option value="0">- Kies 'n plaas -</option>
+                    @foreach (var f in _myFarms) { <option value="@f.Id">@f.Name</option> }
+                </select>
+            </div>
+        }
+        @if (_role is "PJ" or "AP" && _loadedId > 0)
+        {
+            <div class="mb-2">
+                <label class="small d-block"><input type="radio" name="ai-target" checked="@(!_applyAsNew)" @onchange="() => _applyAsNew = false" /> Werk die bestaande @OfferNoun() by</label>
+                <label class="small d-block"><input type="radio" name="ai-target" checked="@_applyAsNew" @onchange="() => _applyAsNew = true" /> Skep 'n nuwe @OfferNoun()</label>
+            </div>
+        }
+        @if (_role == "VG")
+        {
+            <p class="ai-muted mb-2">Word as 'n nuwe videopakket geskep (bestaande videopakkette kan nog nie gewysig word nie).</p>
+        }
+        @if (!string.IsNullOrEmpty(_applyMessage))
+        {
+            <div class="alert @(_applyMessage.StartsWith("✓") ? "alert-success" : "alert-warning") py-2 small mb-2">@_applyMessage</div>
+        }
+        <button class="mp-btn mp-btn-primary" disabled="@_applyBusy" @onclick="ApplyAsync">
+            @(_role == "PH" ? (_draft.DangerousGameRate ? "Stoor as my gevaarlike-wild dagtarief" : "Stoor as my dagtarief") : "Maak oop in redigeerder →")
+        </button>
+    </div>;
+
+    // ------------------------------------------------------------------ Smart Teaming
+
+    private static readonly Dictionary<string, string> ProvinceIds = new()
+    {
+        ["Limpopo"] = "limpopo", ["Gauteng"] = "gauteng", ["Mpumalanga"] = "mpumalanga", ["Noordwes"] = "north_west", ["Vrystaat"] = "free_state",
+        ["Noord-Kaap"] = "northern_cape", ["Oos-Kaap"] = "eastern_cape", ["Wes-Kaap"] = "western_cape", ["KwaZulu-Natal"] = "kwazulu_natal"
+    };
+
+    private static string ProvinceName(string id) => ProvinceIds.FirstOrDefault(kv => kv.Value == id).Key ?? id;
+
+    private static string RoleName(string code) => code switch
+    {
+        "PJ" => "Uitruster (PJ)", "PH" => "Professionele Jagter (PH)", "VG" => "Videograaf (VG)", "FARMER" => "Boer", _ => code
+    };
+
+    private string _teamProvince = "";
+    private decimal? _teamBudget;
+    private readonly HashSet<string> _teamWant = new() { "PH", "VG", "FARMER" };
+    private bool _teamBusy;
+    private string? _teamError;
+    private AiTeamResponseModel? _team;
+    private readonly HashSet<int> _invited = new();
+    private string? _teamMessage;
+
+    private void ToggleWant(string role, bool on)
+    {
+        if (on) _teamWant.Add(role); else _teamWant.Remove(role);
+    }
+
+    private async Task FindPartners()
+    {
+        _teamError = null;
+        _teamMessage = null;
+        if (_role == "PJ" && _teamWant.Count == 0) { _teamError = "Kies ten minste een soort vennoot."; return; }
+        _teamBusy = true;
+        StateHasChanged();
+        var (ok, res, error) = await Ai.TeamMatchesAsync(new AiTeamRequestModel
+        {
+            RoleCode = _role, Province = string.IsNullOrEmpty(_teamProvince) ? null : _teamProvince,
+            MaxDailyRate = _role == "PJ" && _teamBudget is > 0 ? _teamBudget : null,
+            WantRoles = _role == "PJ" ? _teamWant.ToList() : new()
+        });
+        _teamBusy = false;
+        if (ok) _team = res; else _teamError = error;
+    }
+
+    private async Task Invite(AiTeamMatchModel m)
+    {
+        _teamMessage = null;
+        bool ok = await Api.SendTeamInviteAsync(MyUserId, m.UserId, m.UserRoleId, targetUserName: m.Name,
+            targetRoleCode: m.RoleCode == "FARMER" ? "Boer" : m.RoleCode);
+        if (ok) { _invited.Add(m.UserRoleId); _teamMessage = $"✓ Span-uitnodiging aan {m.Name} gestuur."; }
+        else _teamMessage = $"Kon nie die uitnodiging aan {m.Name} stuur nie.";
+    }
+
+    private void MessagePartner(AiTeamMatchModel m) =>
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(m.Name)}&targetUserId={m.UserId}");
+
+    private RenderFragment TeamTab() => @<div>
+        <div class="d-flex flex-wrap gap-2 mb-4">
+            @foreach (var r in Roles())
+            {
+                <button class="mp-btn @(r.Code == _role ? "mp-btn-primary active" : "mp-btn-secondary") mp-btn-sm ai-role-btn" @onclick="() => SelectRole(r.Code)">@r.Label</button>
+            }
+        </div>
+        @if (_role == "AP")
+        {
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-2">Slim Spanbou is nie vir adverteerders nie</h4>
+                <p class="mb-3">@ApExclusion</p>
+                <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="ShowPriceTab">✨ Optimeer eerder u advertensie</button>
+            </div>
+        }
+        else
+        {
+            <div class="row g-4">
+                <div class="col-lg-4">
+                    <div class="mp-card p-4">
+                        <h4 class="brand-font text-gold mb-3">@(_role == "PJ" ? "Soek spanmaats" : "Soek uitrusters")</h4>
+                        <p class="ai-muted">
+                            @(_role == "PJ"
+                                ? "Vind professionele jagters, videograwe en boere wat by u span pas."
+                                : "Vind uitrusters (PJ) wat by u pas - net 'n uitruster kan 'n span-uitnodiging stuur, so stuur vir hulle 'n boodskap.")
+                        </p>
+                        <div class="mp-form-group mb-2">
+                            <label class="mp-form-label">U gebied</label>
+                            <select class="mp-form-control" @bind="_teamProvince">
+                                <option value="">Outomaties (uit u lyste)</option>
+                                @foreach (var p in Provinces) { <option value="@p">@p</option> }
+                            </select>
+                        </div>
+                        @if (_role == "PJ")
+                        {
+                            <label class="mp-form-label">Soek na</label>
+                            <div class="mb-2">
+                                <label class="small d-block"><input type="checkbox" checked="@_teamWant.Contains("PH")" @onchange='e => ToggleWant("PH", (bool)(e.Value ?? false))' /> Professionele jagters (PH)</label>
+                                <label class="small d-block"><input type="checkbox" checked="@_teamWant.Contains("VG")" @onchange='e => ToggleWant("VG", (bool)(e.Value ?? false))' /> Videograwe (VG)</label>
+                                <label class="small d-block"><input type="checkbox" checked="@_teamWant.Contains("FARMER")" @onchange='e => ToggleWant("FARMER", (bool)(e.Value ?? false))' /> Boere / plase</label>
+                            </div>
+                            <div class="mp-form-group mb-2">
+                                <label class="mp-form-label">Maksimum dagtarief (R) <span class="ai-muted">(opsioneel)</span></label>
+                                <input type="number" class="mp-form-control" @bind="_teamBudget" min="0" />
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(_teamError))
+                        {
+                            <div class="alert alert-danger py-2 small">⚠️ @_teamError</div>
+                        }
+                        <button class="mp-btn mp-btn-primary w-100 mt-2" disabled="@_teamBusy" @onclick="FindPartners">
+                            @if (_teamBusy) { <span class="spinner-border spinner-border-sm me-2"></span><span>Soek tans...</span> }
+                            else { <span>🤝 Vind vennote</span> }
+                        </button>
+                        <p class="ai-muted mt-3 mb-0">
+                            Die passingtelling kombineer nabyheid (35%), geloofsbriewe &amp; graderings (25%), @(_role == "PJ" ? "tarief teen u begroting" : "werkvolume") (20%)
+                            en rekord (20%). Sodra daar genoeg aanvaarde en afgekeurde uitnodigings is, leer die model self watter faktore saak maak.
+                            Die taalmodel sien geen name of kontakbesonderhede nie.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-lg-8">
+                    @if (_team == null && !_teamBusy)
+                    {
+                        <div class="mp-card p-4 text-center text-muted">
+                            <div style="font-size: 40px;">🤝</div>
+                            <p class="mb-0">Klik <strong>Vind vennote</strong> om voorstelle te kry.</p>
+                        </div>
+                    }
+                    @if (_team != null)
+                    {
+                        @TeamResults(_team)
+                    }
+                </div>
+            </div>
+        }
+    </div>;
+
+    private const string ApExclusion = "Adverteerders (AP) bemark kommersiële produkte/dienste op die markplein en neem nie deel aan jagspan-teaming in die veld nie. Teaming is beskikbaar vir Uitrusters (PJ), Professionele Jagters (PH), Videograwe (VG) en Boere.";
+
+    private RenderFragment TeamResults(AiTeamResponseModel t) => @<div>
+        @if (!string.IsNullOrEmpty(_teamMessage))
+        {
+            <div class="alert @(_teamMessage.StartsWith("✓") ? "alert-success" : "alert-warning") py-2 small">@_teamMessage</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(t.Summary))
+        {
+            <div class="mp-card p-3"><strong>AI-opsomming:</strong> @t.Summary</div>
+        }
+        else if (t.NarrativeStatus != "ok" && t.Matches.Count > 0)
+        {
+            <div class="alert alert-info small">Die AI-skryfhulp is tans nie beskikbaar nie@(string.IsNullOrEmpty(t.NarrativeError) ? "" : $" ({t.NarrativeError})"). Die rangorde hieronder is steeds geldig.</div>
+        }
+        @if (t.Matches.Count == 0)
+        {
+            <div class="mp-card p-4 text-center text-muted">Geen geskikte @(_role == "PJ" ? "spanmaats" : "uitrusters") gevind nie. Probeer 'n ander gebied of verwyder die begroting.</div>
+        }
+        @foreach (var m in t.Matches)
+        {
+            <div class="mp-card p-4">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                    <div>
+                        <div class="fw-bold fs-5">@m.Name</div>
+                        <div class="ai-muted">@RoleName(m.RoleCode)@(string.IsNullOrEmpty(m.BusinessName) ? "" : $" · {m.BusinessName}")@(m.Provinces.Count > 0 ? " · " + string.Join(", ", m.Provinces.Select(ProvinceName)) : "")</div>
+                    </div>
+                    <div class="text-end">
+                        <div class="ai-score text-gold">@m.Score%</div>
+                        <div class="ai-muted">passing</div>
+                    </div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(m.Reason))
+                {
+                    <p class="mt-2 mb-2">@m.Reason</p>
+                }
+                <div class="row g-2 my-2">
+                    @foreach (var c in m.Components)
+                    {
+                        <div class="col-6 col-md-3">
+                            <div class="ai-muted">@c.Label</div>
+                            <div class="ai-meter"><div style="width:@((c.Value * 100).ToString("0", CultureInfo.InvariantCulture))%"></div></div>
+                        </div>
+                    }
+                </div>
+                <div class="small mb-3">@foreach (var f in m.Facts) { <span class="me-3">• @f</span> }</div>
+                <div class="d-flex gap-2 flex-wrap">
+                    @if (_role == "PJ")
+                    {
+                        @if (_invited.Contains(m.UserRoleId) || m.Relationship == "invite_pending")
+                        {
+                            <span class="mp-badge mp-badge-warning">Uitnodiging gestuur</span>
+                        }
+                        else if (m.CanInvite)
+                        {
+                            <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="() => Invite(m)">Stuur Span-Uitnodiging</button>
+                        }
+                        @if (m.Relationship == "invite_declined")
+                        {
+                            <span class="ai-muted align-self-center">Het vantevore 'n uitnodiging afgekeur</span>
+                        }
+                    }
+                    <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => MessagePartner(m)">Stuur boodskap</button>
+                    <a class="mp-btn mp-btn-secondary mp-btn-sm" href="/profiel/@m.UserId">Profiel</a>
+                </div>
+            </div>
+        }
+        <div class="ai-muted px-1">
+            Telling: @(t.Model.Source == "prior+learned"
+                ? $"voorafgewigte gemeng met 'n model wat uit {t.Model.LabelledPairs} werklike uitnodiging-uitkomste geleer het ({t.Model.LearnedShare:P0} geleer)"
+                : $"voorafgewigte (nog te min werklike uitnodiging-uitkomste om van te leer: {t.Model.LabelledPairs})")
+            · Taalmodel @(string.IsNullOrEmpty(t.Engine.LlmModel) ? "-" : $"{t.Engine.LlmProvider}/{t.Engine.LlmModel}").
+        </div>
+    </div>;
+
+    // ------------------------------------------------------------------ presentation helpers
+
+    private string Money(decimal v) => (_result?.Currency ?? _currency) == "ZAR" ? $"R{v:N0}" : $"${v:N0}";
+
+    private static (string Css, string Text) Verdict(string position) => position switch
+    {
+        "within" => ("mp-badge-success", "In lyn met die mark"),
+        "below" => ("mp-badge-warning", "Onder die mark - moontlik te goedkoop"),
+        "above" => ("mp-badge-danger", "Bo die mark - moontlik te duur"),
+        _ => ("", "Geen prys ingevoer")
+    };
+
+    private static string ConfidenceText(string c) => c switch { "high" => "Hoë vertroue", "medium" => "Gemiddelde vertroue", _ => "Lae vertroue" };
+
+    private static string EvidenceText(string e) => e switch
+    {
+        "published" => "Gebaseer op gepubliseerde 2026/27 Suid-Afrikaanse uitrusterpryse (internasionale mark, USD).",
+        "real+published" => "Gebaseer op gepubliseerde pryse, aangevul met werklike MikPunt-data.",
+        _ => "Geen gepubliseerde prysbron bestaan hiervoor nie - die skatting berus op aannames."
+    };
+
+    private static string TierText(string t) => t switch { "female" => "wyfie", "male" => "manlik", _ => "trofee" };
+
+    private static string Pct(decimal v, decimal min, decimal max) =>
+        Math.Clamp((double)((v - min) / Math.Max(1m, max - min)) * 100, 0, 100).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private RenderFragment PriceBand(AiPriceAssessmentModel p) => @<div>
+        @{
+            decimal lo = Math.Min(p.P10, p.Current ?? p.P10) * 0.85m;
+            decimal hi = Math.Max(p.P90, p.Current ?? p.P90) * 1.10m;
+            var (css, text) = Verdict(p.Position);
+        }
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+                <div class="fw-bold">@p.Label</div>
+                <div class="ai-muted">Verwagte markprys: <strong>@Money(p.P50)</strong> (gewone band @Money(p.P10) - @Money(p.P90))</div>
+            </div>
+            <span class="mp-badge @css">@text@(p.DeltaPercent.HasValue ? $" ({(p.DeltaPercent > 0 ? "+" : "")}{p.DeltaPercent:0.#}%)" : "")</span>
+        </div>
+        <div class="ai-band">
+            <div class="ai-band-range" style="left:@Pct(p.P10, lo, hi)%; width:@((double.Parse(Pct(p.P90, lo, hi), CultureInfo.InvariantCulture) - double.Parse(Pct(p.P10, lo, hi), CultureInfo.InvariantCulture)).ToString("0.#", CultureInfo.InvariantCulture))%"></div>
+            <div class="ai-band-p50" style="left:@Pct(p.P50, lo, hi)%" title="Verwagte markprys"></div>
+            @if (p.Current.HasValue)
+            {
+                <div class="ai-band-current" style="left:@Pct(p.Current.Value, lo, hi)%" data-label="@Money(p.Current.Value)"></div>
+            }
+        </div>
+        <div class="ai-band-labels"><span>@Money(p.P10)</span><span>@Money(p.P50)</span><span>@Money(p.P90)</span></div>
+        <div class="mt-2">
+            <span class="ai-chip" style="@(p.Confidence == "low" ? "border-color:#f59e0b;color:#f59e0b" : "")">@ConfidenceText(p.Confidence)</span>
+            <span class="ai-muted ms-1">@EvidenceText(p.Evidence)</span>
+        </div>
+    </div>;
+
+    private RenderFragment Results(AiOptimizeResponseModel r) => @<div>
+        @if (r.Notes.Count > 0)
+        {
+            <div class="alert alert-warning py-2 small">
+                @foreach (var n in r.Notes) { <div>⚠️ @n</div> }
+            </div>
+        }
+
+        @if (r.Price != null)
+        {
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-3">Prysverdikt</h4>
+                @PriceBand(r.Price)
+                @if (r.Market == "domestic")
+                {
+                    <div class="alert alert-warning py-2 small mt-3 mb-0">Die plaaslike (ZAR) prisvlak is 'n aanname: geen gepubliseerde plaaslike pryslys kon bevestig word nie. Beskou dit as 'n ruwe aanduiding.</div>
+                }
+            </div>
+        }
+
+        @if (r.SpeciesPrices.Count > 0)
+        {
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-3">Spesie-pryse</h4>
+                @foreach (var s in r.SpeciesPrices)
+                {
+                    <div class="mb-3 pb-3 border-bottom" style="border-color: var(--border-color) !important;">
+                        @if (s.Price != null) { @PriceBand(s.Price) }
+                        else { <div class="fw-bold">@s.Species (@TierText(s.Tier))</div><div class="ai-muted">Nie in die markkatalogus nie - geen prysskatting.</div> }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (r.AdBenchmark != null)
+        {
+            var b = r.AdBenchmark;
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-3">Advertensie-prestasie <span class="ai-muted">(werklike getalle)</span></h4>
+                @if (b.OwnViews > 0)
+                {
+                    <p class="mb-1">U @b.OwnAdCount advertensie(s): <strong>@b.OwnViews</strong> kyke, <strong>@b.OwnClicks</strong> klikke - klik-koers <strong>@(b.OwnClickThroughPercent?.ToString("0.##") ?? "-")%</strong>.</p>
+                }
+                else
+                {
+                    <p class="mb-1 text-muted">U advertensies het nog geen aangetekende kyke nie, so daar is niks om mee te vergelyk nie.</p>
+                }
+                <p class="ai-muted mb-0">Platform-gemiddeld: @(b.PlatformClickThroughPercent?.ToString("0.##") ?? "onbekend")% · Kategorie (@b.Category): @(b.CategoryClickThroughPercent?.ToString("0.##") ?? "onbekend")% oor @b.CategoryAdCount advertensie(s).</p>
+            </div>
+        }
+
+        @if (r.Narrative != null)
+        {
+            var n = r.Narrative;
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-2">AI-advies</h4>
+                <p class="fw-bold fs-6">@n.Headline</p>
+
+                @if (n.Tips.Count > 0)
+                {
+                    <h6 class="text-gold mt-3">Aanbevelings</h6>
+                    @foreach (var t in n.Tips)
+                    {
+                        <div class="ai-tip ai-tip-@t.Priority"><div class="fw-bold small">@t.Title</div><div class="small">@t.Detail</div></div>
+                    }
+                }
+                @if (n.TitleSuggestions.Count > 0)
+                {
+                    <h6 class="text-gold mt-3">Titelvoorstelle</h6>
+                    @foreach (var t in n.TitleSuggestions)
+                    {
+                        <div class="d-flex justify-content-between align-items-center small mb-1"><span>• @t</span><button class="btn btn-sm ai-muted" @onclick="() => Copy(t)">Kopieer</button></div>
+                    }
+                }
+                @if (!string.IsNullOrWhiteSpace(n.DescriptionRewrite))
+                {
+                    <h6 class="text-gold mt-3">Verbeterde beskrywing</h6>
+                    <p class="small mb-1">@n.DescriptionRewrite</p>
+                    <button class="btn btn-sm ai-muted" @onclick="() => Copy(n.DescriptionRewrite)">Kopieer</button>
+                }
+                @if (n.InclusionSuggestions.Count > 0)
+                {
+                    <h6 class="text-gold mt-3">Wat om by te voeg</h6>
+                    @foreach (var i in n.InclusionSuggestions)
+                    {
+                        <div class="small mb-1">• <strong>@i.Item</strong> <span class="ai-chip">@i.Impact</span> - @i.Why</div>
+                    }
+                }
+                @if (n.Upsells.Count > 0)
+                {
+                    <h6 class="text-gold mt-3">Byverkope</h6>
+                    @foreach (var u in n.Upsells)
+                    {
+                        <div class="small mb-1">• <strong>@u.Name</strong> - @u.Why</div>
+                    }
+                }
+                @if (!string.IsNullOrWhiteSpace(n.SeasonalAdvice))
+                {
+                    <h6 class="text-gold mt-3">Seisoen</h6>
+                    <p class="small mb-0">@n.SeasonalAdvice</p>
+                }
+                @if (n.Risks.Count > 0)
+                {
+                    <h6 class="text-gold mt-3">Risiko's</h6>
+                    @foreach (var x in n.Risks) { <div class="small mb-1">⚠️ @x</div> }
+                }
+
+                <div class="mt-4 pt-3 border-top" style="border-color: var(--border-color) !important;">
+                    @if (_feedbackSent)
+                    {
+                        <span class="small text-success">Dankie vir u terugvoer - dit help die AI leer.</span>
+                    }
+                    else if (r.AdviceId > 0)
+                    {
+                        <span class="small me-2">Was hierdie advies nuttig?</span>
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => Feedback(true)">👍 Ja</button>
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => Feedback(false)">👎 Nee</button>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-info small">
+                Die AI-skryfhulp is tans nie beskikbaar nie@(string.IsNullOrEmpty(r.NarrativeError) ? "" : $" ({r.NarrativeError})"). Die prysskatting hierbo is steeds geldig.
+            </div>
+        }
+
+        @if (r.Comparables.Count > 0)
+        {
+            <div class="mp-card p-4">
+                <h4 class="brand-font text-gold mb-3">Vergelykbare lyste op MikPunt</h4>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0" style="color: inherit;">
+                        <thead><tr><th>Lys</th><th>Bedrag</th><th>Nota</th></tr></thead>
+                        <tbody>
+                            @foreach (var c in r.Comparables)
+                            {
+                                <tr>
+                                    <td>@c.Title@(c.DurationDays.HasValue ? $" · {c.DurationDays} dae" : "")@(string.IsNullOrEmpty(c.Province) ? "" : $" · {c.Province}")</td>
+                                    <td>@(c.Price.HasValue ? c.Price.Value.ToString("N0") : "-")</td>
+                                    <td class="ai-muted">@c.PriceNote</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <div class="ai-muted px-1">
+            Prysmodel @(r.Engine.ModelVersion ?? "-") · Taalmodel @(string.IsNullOrEmpty(r.Engine.LlmModel) ? "-" : $"{r.Engine.LlmProvider}/{r.Engine.LlmModel}")
+            @(r.Engine.LatencyMs > 0 ? $"({r.Engine.LatencyMs / 1000.0:0.#}s)" : "") · Wisselkoers R@(r.UsdToZarRate.ToString("0.00", CultureInfo.InvariantCulture))/USD.
+            AI-advies kan foute bevat - kontroleer altyd self voor u publiseer.
+        </div>
+    </div>;
+}

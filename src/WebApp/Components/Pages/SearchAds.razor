@@ -1,0 +1,152 @@
+@* Public advertisement/service directory (routes: /searchads and /ads, both map here),
+   no auth required. Uses a stale-while-revalidate pattern: shows Api's in-memory ad
+   cache instantly, then replaces it with a fresh fetch in the background. Also records
+   an ad-impression (once per ad per page-view, deduped via _recordedImpressions) after
+   each render for analytics. Nav is injected but unused - dead injection, harmless. *@
+@page "/advertensies"
+@page "/searchads"
+@page "/ads"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+
+<PageTitle>Dienste &amp; Promosies | MikPunt</PageTitle>
+
+<div class="mb-4">
+    <h1 class="brand-font text-gold mb-1">Dienste &amp; Promosies</h1>
+    <p class="text-muted mb-0">Verken produkte, vervoer, taksidermie, verblyf en toerusting van geverifieerde adverteerders en verskaffers.</p>
+</div>
+
+<!-- Category Filters -->
+<div class="d-flex gap-2 mb-4 flex-wrap">
+    <button class="mp-btn @(string.IsNullOrEmpty(_category) ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _category = ""'>Alle Kategorieë</button>
+    <button class="mp-btn @(_category == "Toerusting" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _category = "Toerusting"'>Toerusting &amp; Optika</button>
+    <button class="mp-btn @(_category == "Taksidermie" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _category = "Taksidermie"'>Taksidermie &amp; Montage</button>
+    <button class="mp-btn @(_category == "Vervoer" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _category = "Vervoer"'>Vervoer &amp; Logistiek</button>
+    <button class="mp-btn @(_category == "Akkommodasie" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _category = "Akkommodasie"'>Akkommodasie &amp; Jagkampe</button>
+    <button class="mp-btn @(_category == "Vuurwapens" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _category = "Vuurwapens"'>Vuurwapens &amp; Ammunisie</button>
+</div>
+
+<!-- Ads Grid -->
+@if (_isLoading && !_ads.Any())
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-5 text-gold">Laai tans promosies en dienste...</div>
+    </div>
+}
+else if (!FilteredAds.Any())
+{
+    <div class="mp-card text-center p-5 text-muted">
+        <h4 class="brand-font text-gold mb-2">Geen Aktiewe Dienste Gevind Nie</h4>
+        <p class="mb-0">Daar is tans geen aktiewe advertensies of dienste in hierdie kategorie gelys nie.</p>
+    </div>
+}
+else
+{
+    <div class="mp-grid">
+        @foreach (var ad in FilteredAds)
+        {
+            <div class="mp-card d-flex flex-column h-100 p-3">
+                <div class="position-relative mb-3" style="height: 180px; overflow: hidden; border-radius: 10px;">
+                    <img src="@ad.ImageUrl" alt="@ad.Title" style="width: 100%; height: 100%; object-fit: cover;" />
+                    @if (ad.ImageUrls != null && ad.ImageUrls.Count > 1)
+                    {
+                        <span class="badge bg-dark text-gold position-absolute bottom-0 end-0 m-2 border border-secondary shadow-sm" style="font-size: 11px;">
+                            📷 @ad.ImageUrls.Count fotos
+                        </span>
+                    }
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                    <span class="mp-badge mp-badge-warning align-self-start">@MikpuntApiService.FormatCategory(ad.Category)</span>
+                    @if (!string.IsNullOrWhiteSpace(ad.AddressCity))
+                    {
+                        <span class="small text-muted">📍 @ad.AddressCity@(!string.IsNullOrWhiteSpace(ad.AddressRegion) ? $", {ad.AddressRegion}" : "")</span>
+                    }
+                </div>
+                <h3 class="brand-font text-gold mb-2" style="font-size: 18px;">@ad.Title</h3>
+                <p class="text-muted fs-6 mb-3 flex-grow-1" style="font-size: 14px; line-height: 1.4;">@ad.Description</p>
+
+                <div class="d-flex justify-content-between align-items-center small text-muted mb-3 pt-2 border-top border-secondary">
+                    <span>Borg: <strong class="text-gold">@ad.AdvertiserName</strong></span>
+                    @if (!string.IsNullOrEmpty(ad.ContactNumber))
+                    {
+                        <span class="text-muted">@ad.ContactNumber</span>
+                    }
+                </div>
+
+                <a href="/advertensies/@ad.Id" class="mp-btn mp-btn-primary mt-auto text-center">
+                    Sien Advertensie &rarr;
+                </a>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<AdvertisementModel> _ads = new();
+    private string _category = string.Empty;
+    private bool _isLoading = true;
+
+    /// <summary>Stale-while-revalidate: paints instantly from cache if available, then always re-fetches fresh data in the background regardless of whether the cache hit.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        // Fast-path: immediately display from in-memory cache with 0 delay
+        var cached = Api.GetCachedAds(status: "Aktief");
+        if (cached != null && cached.Count > 0)
+        {
+            _ads = cached;
+            _isLoading = false;
+        }
+
+        // Background update from API
+        try
+        {
+            var fresh = await Api.GetAdsAsync(status: "Aktief");
+            if (fresh != null && fresh.Count > 0)
+            {
+                _ads = fresh;
+            }
+        }
+        catch { }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private readonly HashSet<int> _recordedImpressions = new();
+
+    /// <summary>
+    /// Fires an impression record (fire-and-forget, result discarded via `_ =`) for
+    /// every currently-visible ad the first time it's rendered, deduped per component
+    /// instance by _recordedImpressions. Runs after every render (not just firstRender)
+    /// so newly-filtered-into-view ads still get recorded.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (FilteredAds.Any())
+        {
+            var currentUserId = Auth.CurrentUser?.UserId;
+            foreach (var ad in FilteredAds)
+            {
+                if (_recordedImpressions.Add(ad.Id))
+                {
+                    _ = Api.RecordAdImpressionAsync(ad.Id, currentUserId);
+                }
+            }
+        }
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Active, not-yet-expired ads matching the category filter, matched loosely against both the raw category code and its display-formatted label.</summary>
+    private IEnumerable<AdvertisementModel> FilteredAds => _ads.Where(a =>
+        a.IsActive && 
+        a.EndDate >= DateTime.Today &&
+        (string.IsNullOrEmpty(_category) || 
+         MikpuntApiService.FormatCategory(a.Category).Contains(_category, StringComparison.OrdinalIgnoreCase) ||
+         a.Category.Contains(_category, StringComparison.OrdinalIgnoreCase))
+    );
+}
+

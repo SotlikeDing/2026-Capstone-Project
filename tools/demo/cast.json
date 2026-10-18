@@ -1,0 +1,98 @@
+{
+  "marker_domain": "demo.mikpunt.co.za",
+  "demo_package_title": "Waterberg Koedoe-safari, 4 dae",
+  "live_species": "Springbok",
+  "people": [
+    {
+      "key": "johan",
+      "first_name": "Johan",
+      "surname": "van Wyk",
+      "email": "johan.vanwyk@demo.mikpunt.co.za",
+      "phone": "0825550101",
+      "roles": ["HUNTER"],
+      "country": "Suid-Afrika",
+      "username": "BosveldJohan",
+      "bio": "Toegewyde bosveld- en vlaktewildjagter met 'n voorkeur vir etiese jagpraktyke."
+    },
+    {
+      "key": "mia",
+      "first_name": "Mia",
+      "surname": "Botha",
+      "email": "mia.botha@demo.mikpunt.co.za",
+      "phone": "0835550102",
+      "roles": ["HUNTER"],
+      "country": "Suid-Afrika",
+      "username": "MiaInDieVeld",
+      "bio": "Jagter, natuurmens en Johan se gereelde jagmaat."
+    },
+    {
+      "key": "pieter",
+      "first_name": "Pieter",
+      "surname": "Nel",
+      "email": "pieter.nel@demo.mikpunt.co.za",
+      "phone": "0845550103",
+      "roles": ["PJ"],
+      "business_name": "Nel Safaris (Edms) Bpk",
+      "business_registration": "2021/418275/07",
+      "years_experience": 15,
+      "bio": "Waterberg-uitruster wat volledige, veilige jagervarings vir plaaslike en internasionale gaste aanbied."
+    },
+    {
+      "key": "thabo",
+      "first_name": "Thabo",
+      "surname": "Mokoena",
+      "email": "thabo.mokoena@demo.mikpunt.co.za",
+      "phone": "0725550104",
+      "roles": ["PH"],
+      "years_experience": 12,
+      "bio": "Professionele jagter met twaalf jaar se Waterberg-ervaring en gevaarlike-wild-endossement.",
+      "standard_daily_rate": 4200,
+      "dangerous_game_daily_rate": 7800
+    },
+    {
+      "key": "vusi",
+      "first_name": "Vusi",
+      "surname": "Dlamini",
+      "email": "vusi.dlamini@demo.mikpunt.co.za",
+      "phone": "0735550105",
+      "roles": ["VG"],
+      "business_name": "Vusi Media",
+      "business_registration": "2022/550184/07",
+      "years_experience": 8,
+      "has_drone": true,
+      "drone_licence": "CAA-RPL-VM-2614"
+    },
+    {
+      "key": "anna",
+      "first_name": "Anna",
+      "surname": "Pretorius",
+      "email": "anna.pretorius@demo.mikpunt.co.za",
+      "phone": "0765550106",
+      "roles": ["FARMER"],
+      "business_name": "Kameeldoring Wildplaas",
+      "business_registration": "2018/304921/07",
+      "bio": "Waterberg-wildboer met volhoubare wildbestuur, gerieflike verblyf en 'n passie vir die bosveld."
+    },
+    {
+      "key": "karoo_optics",
+      "first_name": "Karoo",
+      "surname": "Optics",
+      "email": "bemarking@demo.mikpunt.co.za",
+      "phone": "0215550107",
+      "roles": ["AP"],
+      "business_name": "Karoo Optics"
+    },
+    {
+      "key": "lerato",
+      "first_name": "Lerato",
+      "surname": "Khumalo",
+      "email": "lerato.khumalo@demo.mikpunt.co.za",
+      "phone": "0795550108",
+      "roles": ["PJ"],
+      "business_name": "Khumalo Jagervarings",
+      "business_registration": "2026/105448/07",
+      "years_experience": 3,
+      "bio": "Nuwe Limpopo-uitruster wie se dokumente nog deur die platform nagegaan word."
+    }
+  ]
+}

@@ -1,0 +1,223 @@
+@* VG (Videographer) assigned-bookings page (route: /vg/bookings), gated to VG/Admin.
+   Toggles between a flat assignment list and a calendar-style table of confirmed
+   (Approved/Paid) bookings only. Nav is injected but unused - dead injection, harmless.
+   Finished trips get a "Media & Gradering" action: the VG uploads photos/short clips for the
+   hunt story (VgBookingMediaPanel) and rates the hunter/PH (BookingTeamRatingPanel). *@
+@page "/vg/besprekings"
+@page "/vg/bookings"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>VG Verfilmings Opdragte | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/vg/besprekings" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("VG") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Videograaf (VG) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Videograaf (VG)</strong> nie. U kan hierdie rol op u profiel aktiveer om u video-opdragte te sien.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer VG Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="brand-font text-gold mb-1">VG Verfilmings Opdragte &amp; Skedule</h1>
+            <p class="text-muted mb-0">Toegewese ekspedisies vir verfilming en hommeltuig opnames.</p>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-4">
+        <button type="button" class="mp-btn mp-btn-sm @(_showCalendar ? "mp-btn-secondary" : "mp-btn-primary")" @onclick='() => _showCalendar = false'>
+            📋 Opdragte Lys
+        </button>
+        <button type="button" class="mp-btn mp-btn-sm @(_showCalendar ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _showCalendar = true'>
+            📅 My Kalender
+        </button>
+    </div>
+
+    @if (_showCalendar)
+    {
+        <div class="mp-card p-4 mb-4">
+            <h5 class="brand-font text-gold mb-3">📅 My Verfilmings Skedule Kalender</h5>
+            @{
+                var calVgBookings = _bookings
+                    .Where(b => b.Status == "Approved" || b.Status == "Paid")
+                    .OrderBy(b => b.StartDate)
+                    .ToList();
+            }
+            @if (!calVgBookings.Any())
+            {
+                <p class="text-muted">Geen bevestigde verfilmings opdragte om te vertoon nie.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Ekspedisie</th>
+                                <th>Plaas</th>
+                                <th>Aankoms</th>
+                                <th>Vertrek</th>
+                                <th>Dae</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in calVgBookings)
+                            {
+                                <tr>
+                                    <td>@(b.PackageTitle ?? b.FarmName ?? "Bespreking")</td>
+                                    <td>@(b.FarmName ?? "—")</td>
+                                    <td class="text-gold fw-bold">@b.StartDate.ToString("dd MMM yyyy")</td>
+                                    <td class="text-gold fw-bold">@b.EndDate.ToString("dd MMM yyyy")</td>
+                                    <td>@(Math.Max(1,(b.EndDate-b.StartDate).Days))</td>
+                                    <td><span class="mp-badge @(b.Status == "Paid" ? "mp-badge-success" : "mp-badge-warning")">@StatusLabels.Booking(b.Status)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="mp-card">
+        @if (_loading)
+        {
+            <div class="text-center p-5 text-muted">
+                <div class="spinner-border text-warning spinner-border-sm me-2"></div> Laai opdragte...
+            </div>
+        }
+        else if (_bookings.Count == 0)
+        {
+            <div class="text-center p-5 text-muted">
+                <p class="mb-2 fs-5">U het tans geen aktiewe verfilmings opdragte nie.</p>
+                <p class="small">Uitrusters (PJ) kan u na hul spanne nooi via die netwerk.</p>
+            </div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Ekspedisie / Projek</th>
+                            <th>Uitruster (PJ)</th>
+                            <th>Datums</th>
+                            <th>Rol</th>
+                            <th>Aflewering Status</th>
+                            <th>Na die Jag</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in _bookings)
+                        {
+                            <tr>
+                                <td><strong>@b.PackageTitle</strong><br/><small class="text-muted">Kliënt: @b.HunterName</small></td>
+                                <td>@b.PjName</td>
+                                <td>@b.StartDate.ToString("dd MMM yyyy") – @b.EndDate.ToString("dd MMM yyyy")</td>
+                                <td><span class="mp-badge mp-badge-warning">Hoof Videograaf</span></td>
+                                <td>
+                                    <span class="mp-badge @(TripLifecycle.IsFinished(b) ? "mp-badge-success" : "mp-badge-secondary")">
+                                        @(TripLifecycle.IsFinished(b) ? "Aflewerbaar Gereed" : (b.Status == "Active" ? "Besig met Verfilming" : "Beplan"))
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (TripLifecycle.IsFinished(b))
+                                    {
+                                        <button type="button" class="mp-btn mp-btn-sm @(_selected?.Id == b.Id ? "mp-btn-primary" : "mp-btn-secondary")"
+                                                @onclick="() => ToggleSelected(b)">
+                                            🎬 Media &amp; ⭐ Gradering
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="small text-muted">Na @b.EndDate.ToString("dd MMM")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    @if (_selected != null)
+    {
+        <div class="mt-4">
+            <h5 class="brand-font text-gold mb-3">@(_selected.PackageTitle ?? $"Bespreking #{_selected.Id}") — na die jag</h5>
+            <VgBookingMediaPanel BookingId="_selected.Id" CurrentUserId="@(Auth.CurrentUser?.UserId ?? 0)"
+                                 StartDate="_selected.StartDate" EndDate="_selected.EndDate"
+                                 Eligible="TripLifecycle.IsFinished(_selected)" />
+            <BookingTeamRatingPanel BookingId="_selected.Id" />
+        </div>
+    }
+}
+
+@code {
+    private List<BookingModel> _bookings = new();
+    private bool _loading = true;
+    private bool _showCalendar = false;
+    /// <summary>Finished booking whose media + team-rating panels are open below the table, or null.</summary>
+    private BookingModel? _selected;
+
+    private void ToggleSelected(BookingModel booking) => _selected = _selected?.Id == booking.Id ? null : booking;
+
+    /// <summary>Subscribes to auth-state changes so the booking list reloads without a full page refresh right after login.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Unsubscribes from Auth's event to avoid a stale-callback leak once this component is disposed.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>Fetches bookings this VG is assigned to. The `?? 5` fallback is a defensive placeholder that should never trigger inside this authenticated branch - not a live bug.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("VG") || Auth.HasRole("Admin")))
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _bookings = await Api.GetBookingsForVgAsync(myUserId);
+        }
+        _loading = false;
+    }
+}

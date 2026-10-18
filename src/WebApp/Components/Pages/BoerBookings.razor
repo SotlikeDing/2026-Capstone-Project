@@ -1,0 +1,312 @@
+@* /boer/bookings - list + calendar view of inbound bookings for the Boer's farms, with
+   approve/reject actions and a detail-inspector modal. Bookings come from
+   api/bookings/getFarmBookings (only this farmer's farms); an Admin without the Boer role
+   sees every booking via the Admin-only api/admin/bookings. *@
+@page "/boer/besprekings"
+@page "/boer/bookings"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Inkomende Plaas Besprekings | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Inkomende Plaas Besprekings is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/boer/besprekings" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Boer") && !Auth.HasRole("Farmer") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Boer Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Boer (Grondeienaar)</strong> nie. U kan hierdie rol op u profiel aktiveer om besprekingsversoeke van jagters te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Boer Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Inkomende Plaas Besprekings</h1>
+            <p class="text-muted mb-0">Keur of wysig besprekingsversoeke van jagters op jou plase.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    <div class="d-flex gap-2 mb-4">
+        <button type="button" class="mp-btn mp-btn-sm @(_showCalendar ? "mp-btn-secondary" : "mp-btn-primary")" @onclick='() => _showCalendar = false'>
+            📋 Besprekings Lys
+        </button>
+        <button type="button" class="mp-btn mp-btn-sm @(_showCalendar ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _showCalendar = true'>
+            📅 Plaas Kalender
+        </button>
+    </div>
+
+    @if (_showCalendar)
+    {
+        <div class="mp-card p-4 mb-4">
+            <h5 class="brand-font text-gold mb-3">📅 Plaas Beskikbaarheids Kalender</h5>
+            @{
+                var calBoerBookings = _bookings
+                    .Where(b => b.Status == "Approved" || b.Status == "Paid")
+                    .OrderBy(b => b.StartDate)
+                    .ToList();
+            }
+            @if (!calBoerBookings.Any())
+            {
+                <p class="text-muted">Geen bevestigde besprekings op u plase nie.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Plaas</th>
+                                <th>Jagter</th>
+                                <th>Aankoms</th>
+                                <th>Vertrek</th>
+                                <th>Dae</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in calBoerBookings)
+                            {
+                                <tr>
+                                    <td class="fw-bold">@(b.FarmName ?? "—")</td>
+                                    <td>@b.HunterName</td>
+                                    <td class="text-danger fw-bold">@b.StartDate.ToString("dd MMM yyyy")</td>
+                                    <td class="text-danger fw-bold">@b.EndDate.ToString("dd MMM yyyy")</td>
+                                    <td>@(Math.Max(1,(b.EndDate-b.StartDate).Days))</td>
+                                    <td><span class="mp-badge @(b.Status == "Paid" ? "mp-badge-success" : "mp-badge-warning")">@StatusLabels.Booking(b.Status)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="mp-card">
+        @if (_bookings.Count == 0)
+        {
+            <div class="text-center p-4 text-muted">Geen inkomende besprekingsversoeke gelys nie.</div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Plaas / Bespreking</th>
+                            <th>Jagter Naam</th>
+                            <th>Datums</th>
+                            <th>Gaste</th>
+                            <th>Totaal Verskuldig</th>
+                            <th>Status</th>
+                            <th>Aksies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in _bookings)
+                        {
+                            <tr>
+                                <td><strong>@(string.IsNullOrWhiteSpace(b.FarmName) ? "Plaas Bespreking" : b.FarmName)</strong></td>
+                                <td>@b.HunterName</td>
+                                <td class="small">@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</td>
+                                <td class="small">@b.HunterCount Jagters, @b.ObserverCount Waarnemers</td>
+                                <td><strong class="text-gold">R @b.TotalPrice.ToString("N0")</strong></td>
+                                <td>
+                                    @if (string.Equals(b.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="mp-badge mp-badge-success">Goedgekeur</span>
+                                    }
+                                    else if (string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="mp-badge mp-badge-warning">Afwagtend</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-badge mp-badge-danger">@StatusLabels.Booking(b.Status)</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        <button class="mp-btn mp-btn-outline-gold mp-btn-sm text-nowrap" @onclick="() => StartChat(b.HunterName, b.HunterUserId)">
+                                            <i class="bi bi-chat-dots-fill text-gold me-1"></i> Klets
+                                        </button>
+                                        <button class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap" @onclick="() => InspectBooking(b)">
+                                            Besonderhede 📋
+                                        </button>
+                                        @if (string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <button class="mp-btn mp-btn-success mp-btn-sm text-nowrap" @onclick='() => UpdateStatus(b.Id, "Approved", b.HunterName)'>Goedgekeur &#10003;</button>
+                                            <button class="mp-btn mp-btn-danger mp-btn-sm text-nowrap" @onclick='() => UpdateStatus(b.Id, "Rejected", b.HunterName)'>Wys van hand</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+<!-- Booking Inspector Modal -->
+@if (_selectedBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="mp-card" style="width: 550px; max-width: 92%; border: 1.5px solid var(--accent-gold);">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h3 class="brand-font text-gold mb-0">Bespreking Vorm: @_selectedBooking.FarmName</h3>
+                    <p class="text-muted small mb-0">Verifieer jagter en ekspedisie besonderhede.</p>
+                </div>
+                <button class="btn-close" @onclick="() => _selectedBooking = null"></button>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    <div class="p-2 rounded bg-opacity-10 border" style="border-color: var(--border-color) !important;">
+                        <span class="small text-muted d-block">Hoofjagter</span>
+                        <strong class="fs-6">@_selectedBooking.HunterName</strong>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-2 rounded bg-opacity-10 border" style="border-color: var(--border-color) !important;">
+                        <span class="small text-muted d-block">Bespreking Status</span>
+                        <span class="mp-badge mp-badge-warning">@StatusLabels.Booking(_selectedBooking.Status)</span>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-2 rounded bg-opacity-10 border" style="border-color: var(--border-color) !important;">
+                        <span class="small text-muted d-block">Jag Datums</span>
+                        <strong>@_selectedBooking.StartDate.ToString("dd MMM") – @_selectedBooking.EndDate.ToString("dd MMM yyyy")</strong>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-2 rounded bg-opacity-10 border" style="border-color: var(--border-color) !important;">
+                        <span class="small text-muted d-block">Gaste Verdeling</span>
+                        <strong>@_selectedBooking.HunterCount Jagters, @_selectedBooking.ObserverCount Waarnemers</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-3 mb-4 rounded border" style="border-color: var(--accent-gold) !important; background: rgba(217, 119, 6, 0.08);">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">Totale Geskatte Besprekingsbedrag:</span>
+                    <strong class="fs-4 text-gold">R @_selectedBooking.TotalPrice.ToString("N0")</strong>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <button class="mp-btn mp-btn-outline-gold mp-btn-sm" @onclick="() => StartChat(_selectedBooking.HunterName, _selectedBooking.HunterUserId)">
+                    <i class="bi bi-chat-dots-fill text-gold me-1"></i> Klets met Jagter
+                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _selectedBooking = null">Sluit</button>
+                    @if (string.Equals(_selectedBooking.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <button type="button" class="mp-btn mp-btn-success" @onclick='() => UpdateStatus(_selectedBooking.Id, "Approved", _selectedBooking.HunterName)'>Keur Goed &#10003;</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<BookingModel> _bookings = new();
+    private BookingModel? _selectedBooking = null;
+    private string _notificationMsg = string.Empty;
+    private bool _showCalendar = false;
+
+    /// <summary>Subscribes to auth-state changes and loads bookings.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-loads bookings once auth state resolves after initial render.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Loads inbound bookings for this farmer's farms (see the file header).</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Boer") || Auth.HasRole("Farmer") || Auth.HasRole("Admin")))
+        {
+            _bookings = await LoadBookingsAsync();
+        }
+    }
+
+    private async Task<List<BookingModel>> LoadBookingsAsync() =>
+        Auth.HasRole("Boer") || Auth.HasRole("Farmer") ? await Api.GetFarmBookingsAsync(Auth.CurrentUser?.UserId ?? 0) : await Api.GetBookingsAsync();
+
+    /// <summary>Opens the booking-detail inspector modal.</summary>
+    private void InspectBooking(BookingModel booking)
+    {
+        _selectedBooking = booking;
+    }
+
+    /// <summary>Approves/rejects a booking, then re-fetches the full list rather than patching the item locally.</summary>
+    private async Task UpdateStatus(int id, string status, string? hunterName)
+    {
+        var (ok, error) = await Api.UpdateBookingStatusAsync(id, status);
+        _bookings = await LoadBookingsAsync();
+        _selectedBooking = null;
+        _notificationMsg = !ok
+            ? (error ?? "Die bespreking kon nie opgedateer word nie.")
+            : string.Equals(status, "Approved", StringComparison.OrdinalIgnoreCase)
+                ? $"Bespreking vir {hunterName} is suksesvol goedgekeur!"
+                : $"Bespreking vir {hunterName} is van die hand gewys.";
+    }
+
+    /// <summary>Navigates to Messages pre-targeted at the hunter from a booking row.</summary>
+    private void StartChat(string? hunterName, int userId)
+    {
+        var name = string.IsNullOrWhiteSpace(hunterName) ? "Jagter" : hunterName;
+        var targetId = userId > 0 ? userId : 1;
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(name)}&targetUserId={targetId}");
+    }
+
+    /// <summary>Unsubscribes from auth-state changes on teardown.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

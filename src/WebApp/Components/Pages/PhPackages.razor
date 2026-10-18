@@ -1,0 +1,299 @@
+@* /ph/packages - CRUD screen for a PH (professional hunter) to manage their own guide-service
+   listings (rate, region, equipment) shown on the marketplace. Role-gated inline like
+   CreateFarm.razor; delete goes through a confirm modal before calling the API. *@
+@page "/ph/pakkette"
+@page "/ph/packages"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>PH Gidspakkette | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans PH toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde Professionele Jagters (PH).</p>
+        <a href="/teken-in?returnUrl=/ph/pakkette" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PH") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Professionele Jagter (PH) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Professionele Jagter (PH)</strong> nie. U kan hierdie rol op u profiel aktiveer om PH-gidspakkette te skep en te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PH Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="no-print">
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+            <div>
+                <h1 class="brand-font text-gold mb-1">Bestuur PH Gidspakkette</h1>
+                <p class="text-muted mb-0">Stel u professionele gidsdienste, streek en dagtariewe in vir die markplein.</p>
+            </div>
+
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="/ph/paneelbord" class="mp-btn mp-btn-secondary mp-btn-sm">
+                    &larr; Terug na Paneelbord
+                </a>
+                <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="OpenCreateForm">
+                    + Skep Nuwe PH Pakket
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_notificationMsg))
+        {
+            <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+                <div>@_notificationMsg</div>
+                <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+            </div>
+        }
+
+        @if (_showForm)
+        {
+            <div class="mp-card p-4 mb-4 border-warning">
+                <h3 class="brand-font text-gold mb-3">@(_isEditing ? "Wysig PH Gidspakket" : "Skep Nuwe PH Gidspakket")</h3>
+                <EditForm Model="_pkg" OnValidSubmit="SavePackage">
+                    <div class="row g-3">
+                        <div class="col-md-6 mp-form-group">
+                            <label class="mp-form-label">Titel van Gidspakket</label>
+                            <InputText @bind-Value="_pkg.Title" class="mp-form-control" placeholder="Gevaarlike Wild &amp; Vlaktewild Begeleiding" required />
+                        </div>
+                        <div class="col-md-6 mp-form-group">
+                            <label class="mp-form-label">Dagtarief (ZAR)</label>
+                            <InputNumber @bind-Value="_pkg.DailyRate" class="mp-form-control" placeholder="2800" required />
+                        </div>
+                    </div>
+
+                    <div class="mp-form-group">
+                        <label class="mp-form-label">Streek Gedek</label>
+                        <InputText @bind-Value="_pkg.RegionCovered" class="mp-form-control" placeholder="Limpopo, Mpumalanga &amp; Free State" required />
+                    </div>
+
+                    <div class="mp-form-group">
+                        <label class="mp-form-label">Beskrywing van Dienste</label>
+                        <InputTextArea @bind-Value="_pkg.Description" class="mp-form-control" rows="3" placeholder="Beskryf u ondervinding, etiese leiding, veiligheidstoerusting en veldvoorbereiding..." required />
+                    </div>
+
+                    <div class="mp-form-group">
+                        <label class="mp-form-label">Uitrusting &amp; Gewere Verskaf</label>
+                        <InputText @bind-Value="_pkg.EquipmentProvided" class="mp-form-control" placeholder="Rugsteun .458 Lott geweer, Noodhulp, Satelliet-GPS" />
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-3">
+                        <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseForm">Kanselleer</button>
+                        <button type="submit" class="mp-btn mp-btn-primary">
+                            @(_isEditing ? "Opdateer Pakket" : "Stoor PH Pakket")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        }
+
+        @if (_phPackages.Count == 0)
+        {
+            <div class="mp-card text-center p-5 text-muted">
+                <p class="mb-2 fs-5">U het tans geen PH-gidspakkette opgestel nie.</p>
+                <p class="small mb-3">Klik op "+ Skep Nuwe PH Pakket" om u eerste dagtarief en gidsdiens te publiseer.</p>
+                <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="OpenCreateForm">+ Skep Nuwe Pakket</button>
+            </div>
+        }
+        else
+        {
+            <PackageFilterBar State="_filter" OnChanged="StateHasChanged" RegionOptions="Regions" RegionLabel="Streek"
+                              PriceLabel="dagtarief" SearchPlaceholder="Soek op titel, beskrywing, streek of dienste..."
+                              Total="_phPackages.Count" Shown="Filtered.Count" />
+
+            <div class="mp-grid">
+                @foreach (var p in Filtered)
+                {
+                    <div class="mp-card d-flex flex-column justify-content-between h-100">
+                        <div>
+                            <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                                <h3 class="brand-font text-gold mb-0 fs-5">@p.Title</h3>
+                                <span class="mp-badge mp-badge-success fs-6">R @p.DailyRate.ToString("N0") / dag</span>
+                            </div>
+                            <div class="small text-muted mb-2"><strong>📍 Streek:</strong> @p.RegionCovered</div>
+                            <p class="text-muted small mb-3">@p.Description</p>
+                            @if (!string.IsNullOrWhiteSpace(p.EquipmentProvided))
+                            {
+                                <div class="small text-muted mb-3"><strong>🎒 Uitrusting:</strong> @p.EquipmentProvided</div>
+                            }
+                        </div>
+                        <div class="pt-3 border-top d-flex justify-content-end gap-2" style="border-color: var(--border-color) !important;">
+                            <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => EditPackage(p)">
+                                Wysig ✏️
+                            </button>
+                            <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => ConfirmDeletePackage(p)">
+                                Skrap 🗑️
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_packageToDelete != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="mp-card" style="width: 450px; max-width: 90%; border: 1.5px solid #ef4444;">
+            <h3 class="brand-font text-danger mb-2">Bevestig Skrapping</h3>
+            <p class="text-muted small mb-4">
+                Is u seker u wil die gidspakket <strong>"@_packageToDelete.Title"</strong> skrap? Hierdie aksie kan nie ongedaan gemaak word nie.
+            </p>
+            <div class="d-flex justify-content-end gap-2">
+                <button class="mp-btn mp-btn-secondary" @onclick="() => _packageToDelete = null">Kanselleer</button>
+                <button class="mp-btn mp-btn-danger" @onclick="ExecuteDeletePackage">Skrap Definitief</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ServicePackageModel> _phPackages = new();
+    private readonly PackageFilterState _filter = new();
+
+    private static readonly PackageFilterFields<ServicePackageModel> FilterFields = new()
+    {
+        Id = p => p.Id,
+        Title = p => p.Title,
+        Price = p => p.DailyRate,
+        Text = p => new[] { p.Title, p.Description, p.RegionCovered, p.EquipmentProvided }.Concat(p.ServicesIncluded),
+        Region = p => (p.RegionCovered ?? string.Empty).Split(new[] { ',', ';', '/' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+    };
+    private List<string> Regions => PackageFilterState.Options(_phPackages.SelectMany(FilterFields.Region!));
+    private List<ServicePackageModel> Filtered => _filter.Apply(_phPackages, FilterFields).ToList();
+    private bool _showForm = false;
+    private bool _isEditing = false;
+    private ServicePackageModel _pkg = new();
+    private ServicePackageModel? _packageToDelete = null;
+    private string _notificationMsg = string.Empty;
+
+    /// <summary>Loads the PH's own packages on first render (only once auth/role is confirmed).</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-loads packages once auth state resolves after initial render.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Fetches the caller's PH packages; GetPhPackagesAsync itself is server-scoped to the caller's own packages, so no client-side filtering is needed here.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("PH") || Auth.HasRole("Admin")))
+        {
+            _phPackages = await Api.GetPhPackagesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Opens the form pre-filled with placeholder starter values for a new package.
+    /// Same leftover-demo-default pattern as CreateFarm.razor's InitFarm: "?? 4" /
+    /// "Hendrik Viljoen (PH)" only matter if Auth.CurrentUser is unexpectedly null.
+    /// </summary>
+    private void OpenCreateForm()
+    {
+        _isEditing = false;
+        _pkg = new ServicePackageModel
+        {
+            ProviderUserId = Auth.CurrentUser?.UserId ?? 0,
+            ProviderName = Auth.CurrentUser?.FullName ?? string.Empty,
+            RoleCode = "PH",
+            DailyRate = 2800m,
+            RegionCovered = "Limpopo & Mpumalanga",
+            ServicesIncluded = new List<string> { "Trackers & Skinners", "Hunting 4x4 Vehicle", "Field Prep" }
+        };
+        _showForm = true;
+    }
+
+    /// <summary>Opens the form pre-filled with an existing package's data (a copy, not the list item itself, so cancelling doesn't mutate the displayed card).</summary>
+    private void EditPackage(ServicePackageModel target)
+    {
+        _isEditing = true;
+        _pkg = new ServicePackageModel
+        {
+            Id = target.Id,
+            ProviderUserId = target.ProviderUserId,
+            ProviderName = target.ProviderName,
+            RoleCode = target.RoleCode,
+            Title = target.Title,
+            Description = target.Description,
+            DailyRate = target.DailyRate,
+            RegionCovered = target.RegionCovered,
+            ServicesIncluded = new List<string>(target.ServicesIncluded),
+            EquipmentProvided = target.EquipmentProvided
+        };
+        _showForm = true;
+    }
+
+    /// <summary>Creates or updates the package (SavePhPackageAsync distinguishes the two by whether _pkg.Id is set), then re-fetches the list rather than patching it locally.</summary>
+    private async Task SavePackage()
+    {
+        if (string.IsNullOrWhiteSpace(_pkg.Title)) return;
+        await Api.SavePhPackageAsync(_pkg);
+        _phPackages = await Api.GetPhPackagesAsync();
+        _notificationMsg = _isEditing
+            ? $"Gidspakket '{_pkg.Title}' is suksesvol opgedateer!"
+            : $"Nuwe gidspakket '{_pkg.Title}' is suksesvol opgestel!";
+        CloseForm();
+    }
+
+    /// <summary>Stages a package for deletion, triggering the confirm modal (no API call yet).</summary>
+    private void ConfirmDeletePackage(ServicePackageModel pkg)
+    {
+        _packageToDelete = pkg;
+    }
+
+    /// <summary>Deletes the staged package after modal confirmation and re-fetches the list.</summary>
+    private async Task ExecuteDeletePackage()
+    {
+        if (_packageToDelete == null) return;
+        await Api.DeletePhPackageAsync(_packageToDelete.Id);
+        _phPackages = await Api.GetPhPackagesAsync();
+        _notificationMsg = $"Gidspakket '{_packageToDelete.Title}' is suksesvol geskrap.";
+        _packageToDelete = null;
+    }
+
+    private void CloseForm()
+    {
+        _showForm = false;
+        _isEditing = false;
+    }
+
+    /// <summary>Unsubscribes from auth-state changes on teardown.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

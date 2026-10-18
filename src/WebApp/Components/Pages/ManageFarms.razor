@@ -1,0 +1,177 @@
+@* Boer (farm owner) farm-listing management page (route: /boer/farms), gated to the
+   Boer/Farmer/Admin role. Lists the signed-in owner's farms with edit/delete actions;
+   creation happens on a separate page (/boer/nuwe-plaas). Nav is injected but
+   unused - dead injection, harmless. *@
+@page "/boer/plase"
+@page "/boer/farms"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Bestuur Plase | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Plaasbestuur is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/boer/plase" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Boer") && !Auth.HasRole("Farmer") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Boer Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Boer (Grondeienaar)</strong> nie. U kan hierdie rol op u profiel aktiveer om u plase te lys en te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Boer Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Bestuur Jou Jagplase</h1>
+            <p class="text-muted mb-0">Lys, wysig en bestuur geriewe en wildspesies vir jou plase.</p>
+        </div>
+
+        <a href="/boer/nuwe-plaas" class="mp-btn mp-btn-primary mp-btn-sm">+ Voeg Nuwe Plaas By</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    <div class="mp-card">
+        @if (_farms.Count == 0)
+        {
+            <div class="text-center p-4 text-muted">U het tans nog geen plase geregistreer nie. Klik "+ Voeg Nuwe Plaas By" hierbo.</div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Plaasnaam</th>
+                            <th>Provinsie / Dorp</th>
+                            <th>Grootte (ha)</th>
+                            <th>Jagter Tarief / dag</th>
+                            <th>Wildspesies</th>
+                            <th>Status</th>
+                            <th>Aksies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var f in _farms)
+                        {
+                            <tr>
+                                <td><strong>@f.Name</strong></td>
+                                <td>@f.Province, @f.NearestTown</td>
+                                <td>@f.SizeHectares ha</td>
+                                <td><strong class="text-gold">R @f.DailyRateHunter.ToString("N0")</strong></td>
+                                <td>@f.GameInventory.Count Spesies</td>
+                                <td>
+                                    <span class="mp-badge mp-badge-success">@(string.IsNullOrWhiteSpace(f.Status) ? "Aktief" : f.Status)</span>
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-1">
+                                        <a href="/boer/wysig-plaas/@f.Id" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">Wysig ✏️</a>
+                                        <button class="mp-btn mp-btn-danger mp-btn-sm text-nowrap" @onclick="() => ConfirmDeleteFarm(f)">Skrap 🗑️</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_farmToDelete != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="mp-card" style="width: 450px; max-width: 90%; border: 1.5px solid #ef4444;">
+            <h3 class="brand-font text-danger mb-2">Bevestig Skrapping</h3>
+            <p class="text-muted small mb-4">
+                Is u seker u wil die wildsplaas <strong>"@_farmToDelete.Name"</strong> skrap? Hierdie aksie kan nie ongedaan gemaak word nie.
+            </p>
+            <div class="d-flex justify-content-end gap-2">
+                <button class="mp-btn mp-btn-secondary" @onclick="() => _farmToDelete = null">Kanselleer</button>
+                <button class="mp-btn mp-btn-danger" @onclick="ExecuteDeleteFarm">Skrap Definitief</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<FarmModel> _farms = new();
+    private FarmModel? _farmToDelete = null;
+    private string _notificationMsg = string.Empty;
+
+    /// <summary>Subscribes to auth-state changes so the farm list reloads without a full page refresh right after login.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Fetches only this owner's farms (Api.GetFarmsAsync(userId) overload). The `?? 2` fallback is a defensive placeholder that should never trigger inside this authenticated branch - not a live bug.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Boer") || Auth.HasRole("Farmer") || Auth.HasRole("Admin")))
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _farms = await Api.GetFarmsAsync(myUserId);
+        }
+    }
+
+    private void ConfirmDeleteFarm(FarmModel farm)
+    {
+        _farmToDelete = farm;
+    }
+
+    /// <summary>Deletes then re-fetches the owner's farm list from the server (rather than just removing the item locally), so the UI reflects any server-side side effects of the delete.</summary>
+    private async Task ExecuteDeleteFarm()
+    {
+        if (_farmToDelete == null) return;
+        var myUserId = Auth.CurrentUser?.UserId ?? 0;
+        await Api.DeleteFarmAsync(_farmToDelete.Id);
+        _farms = await Api.GetFarmsAsync(myUserId);
+        _notificationMsg = $"Wildsplaas '{_farmToDelete.Name}' is suksesvol geskrap.";
+        _farmToDelete = null;
+    }
+
+    /// <summary>Unsubscribes from Auth's event to avoid a stale-callback leak once this component is disposed.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

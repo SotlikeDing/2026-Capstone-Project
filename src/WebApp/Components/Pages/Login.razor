@@ -1,0 +1,235 @@
+@* Login page (route: /login), public/anonymous. Handles credential submission,
+   surfaces the "email not verified" branch with a link into VerifyEmail.razor, and
+   completes the login by fetching the full profile (name/surname/photo) so the header
+   doesn't flash with only the JWT's minimal claims.
+   After sign-in it returns to ?returnUrl= (local paths only) or else /profile.
+   "Onthou my" keeps the session after the browser closes; unticked, it ends with the
+   browser session (see AuthService / mikpuntAuthStorage). *@
+@page "/teken-in"
+@page "/login"
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject MikpuntApiService Api
+@inject IJSRuntime JS
+
+<PageTitle>Teken in | MikPunt</PageTitle>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="mp-card p-4 p-md-5 rounded-4 shadow-lg border-0">
+                <div class="text-center mb-4">
+                    <h2 class="brand-font text-gold display-6 fw-bold mb-2">Teken In op MikPunt</h2>
+                    <p class="text-muted small">Voer jou e-posadres en wagwoord in om toegang te verkry.</p>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+                            <div>@_errorMessage</div>
+                        </div>
+                    </div>
+                }
+
+                @if (_requiresVerification)
+                {
+                    <div class="alert alert-warning border-warning mb-4">
+                        <h6 class="fw-bold text-dark mb-1"><i class="bi bi-envelope-exclamation me-1"></i>E-pos nie geverifieer nie</h6>
+                        <p class="small text-dark mb-2">Jou e-posadres <strong>@_loginModel.Email</strong> is nog nie geverifieer nie. 'n Nuwe verifikasie-kode is gestuur.</p>
+                        <a href="/bevestig-epos?email=@Uri.EscapeDataString(_loginModel.Email)&status=resent" class="btn btn-sm btn-dark w-100 fw-bold">
+                            Voer Verifikasiekode In <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                }
+
+                <EditForm Model="_loginModel" OnValidSubmit="HandleLogin">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label mp-label-theme small fw-bold">E-posadres</label>
+                        <InputText @bind-Value="_loginModel.Email" class="form-control mp-form-input" placeholder="bv. jagter@mikpunt.co.za" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label mp-label-theme small fw-bold">Wagwoord</label>
+                        <div class="input-group">
+                            <InputText @bind-Value="_loginModel.Password" type="@(_showPassword ? "text" : "password")" class="form-control mp-form-input" placeholder="••••••••" />
+                            <button type="button" class="btn mp-eye-toggle-btn px-3 d-flex align-items-center justify-content-center" @onclick="() => _showPassword = !_showPassword" title="Wissel wagwoord sigbaarheid" tabindex="-1">
+                                @if (_showPassword)
+                                {
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-eye-slash-fill" viewBox="0 0 16 16">
+                                        <path d="m10.79 12.912-1.614-1.615a3.5 3.5 0 0 1-4.474-4.474l-2.06-2.06C.938 6.278 0 8 0 8s3 5.5 8 5.5a7.029 7.029 0 0 0 2.79-.588zM5.21 3.088A7.028 7.028 0 0 1 8 2.5c5 0 8 5.5 8 5.5s-.939 1.721-2.641 3.238l-2.062-2.062a3.5 3.5 0 0 0-4.474-4.474L5.21 3.089z"/>
+                                        <path d="M5.525 7.646a2.5 2.5 0 0 0 2.829 2.829l-2.83-2.829zm4.95.708-2.829-2.83a2.5 2.5 0 0 1 2.829 2.829zm3.171 6-12-12 .708-.708 12 12-.708.708z"/>
+                                    </svg>
+                                }
+                                else
+                                {
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-eye-fill" viewBox="0 0 16 16">
+                                        <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+                                        <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                                    </svg>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div class="form-check">
+                            <InputCheckbox @bind-Value="_loginModel.RememberMe" class="form-check-input" id="rememberCheck" />
+                            <label class="form-check-label text-muted small" for="rememberCheck">Onthou My</label>
+                        </div>
+                        <a href="/wagwoord-vergeet" class="text-gold small text-decoration-none">Wagwoord vergeet?</a>
+                    </div>
+
+                    <button type="submit" class="mp-btn mp-btn-primary w-100 py-2 fs-5 fw-bold mb-3" disabled="@_isSubmitting">
+                        @if (_isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Besig om in te teken...</span>
+                        }
+                        else
+                        {
+                            <span>Teken In</span>
+                        }
+                    </button>
+                </EditForm>
+
+                <div class="text-center mt-3 pt-3 border-top border-secondary">
+                    <span class="text-muted small">Nog nie 'n rekening op MikPunt nie? </span>
+                    <a href="/registreer" class="fw-bold text-gold small text-decoration-none ms-1">Registreer Hier</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Set when redirected here as "/teken-in?Verified=true" right after email verification - currently only used to (redundantly) clear an already-empty error message.</summary>
+    [SupplyParameterFromQuery]
+    private string? Verified { get; set; }
+
+    /// <summary>Where to go after signing in, e.g. "/teken-in?returnUrl=/jagter/paneelbord".</summary>
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    /// <summary>"/teken-in?rede=sessie": the site signed this browser out because the server refused the session.</summary>
+    [SupplyParameterFromQuery(Name = "rede")]
+    private string? Reason { get; set; }
+
+    /// <summary>Only a path on this site ("/x"), never "//host" or an absolute URL - so the link can't send people elsewhere.</summary>
+    private string SafeReturnUrl =>
+        !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//") && !ReturnUrl.StartsWith("/\\")
+            && !ReturnUrl.StartsWith("/teken-in", StringComparison.OrdinalIgnoreCase)
+            && !ReturnUrl.StartsWith("/login", StringComparison.OrdinalIgnoreCase)
+            ? ReturnUrl
+            : "/profiel";
+
+    private LoginViewModel _loginModel = new();
+    private string _errorMessage = string.Empty;
+    private bool _requiresVerification = false;
+    private bool _isSubmitting = false;
+    private bool _showPassword = false;
+
+    protected override void OnInitialized()
+    {
+        if (Verified == "true")
+        {
+            _errorMessage = string.Empty;
+        }
+        if (Reason == "sessie")
+        {
+            _errorMessage = "Jy is afgemeld omdat jou sessie nie meer geldig is nie. As jou profiel opgeskort is, kontak asseblief ondersteuning.";
+        }
+    }
+
+    /// <summary>
+    /// Submits credentials; if the API reports the account isn't email-verified yet,
+    /// shows an inline resend-verification prompt instead of a generic error. On
+    /// success, best-effort enriches the minimal JWT-derived user with the full DB
+    /// profile (name/photo) before completing Auth.LoginAsync - a profile-fetch
+    /// failure here is swallowed (empty catch) since login can still proceed with the
+    /// JWT-only data.
+    /// </summary>
+    private async Task HandleLogin()
+    {
+        _errorMessage = string.Empty;
+        _requiresVerification = false;
+
+        if (string.IsNullOrWhiteSpace(_loginModel.Email) || string.IsNullOrWhiteSpace(_loginModel.Password))
+        {
+            _errorMessage = "Vul asseblief jou e-posadres en wagwoord in.";
+            return;
+        }
+
+        _isSubmitting = true;
+
+        var loginReq = new LoginApiRequestModel
+        {
+            Email = _loginModel.Email,
+            Password = _loginModel.Password
+        };
+
+        var (success, apiMsg, requiresVerification, data) = await Api.LoginUserAsync(loginReq);
+
+        if (requiresVerification)
+        {
+            _requiresVerification = true;
+            _errorMessage = apiMsg;
+            _isSubmitting = false;
+            return;
+        }
+
+        if (!success || data == null)
+        {
+            _errorMessage = apiMsg;
+            _isSubmitting = false;
+            return;
+        }
+
+        var user = new UserModel
+        {
+            UserId = data.UserId,
+            Email = data.Email,
+            IsVerified = true,
+            Roles = data.Roles ?? new List<UserRoleModel>()
+        };
+
+        // Store the token first: api/profile/getProfile only returns private fields (phone,
+        // ID number) to the signed-in owner, so the fetch below must carry this user's JWT.
+        var token = data.AccessToken ?? "jwt-token";
+        await Auth.LoginAsync(user, token, JS, _loginModel.RememberMe);
+
+        // Fetch full profile from database so name, surname and profile picture are set immediately
+        try
+        {
+            var (profSuccess, dbProfile, _) = await Api.GetProfileAsync(data.UserId);
+            if (profSuccess && dbProfile != null)
+            {
+                user.FirstName = dbProfile.Name;
+                user.LastName = dbProfile.Surname;
+                user.Phone = dbProfile.Phone ?? "";
+                user.ProfilePictureUrl = dbProfile.ProfilePictureUrl;
+                if (dbProfile.Roles != null && dbProfile.Roles.Count > 0)
+                {
+                    user.Roles = dbProfile.Roles;
+                }
+            }
+        }
+        catch { }
+
+        await Auth.LoginAsync(user, token, JS, _loginModel.RememberMe); // persist the enriched profile
+        _isSubmitting = false;
+
+        // Back to where the user came from (or their profile).
+        Nav.NavigateTo(SafeReturnUrl);
+    }
+
+    public class LoginViewModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public bool RememberMe { get; set; } = true;
+    }
+}

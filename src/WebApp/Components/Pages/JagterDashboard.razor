@@ -1,0 +1,143 @@
+@* Jagter (Hunter) role landing dashboard (route: /jagter/dashboard). Gates on
+   Auth.IsInitialized -> IsAuthenticated -> HasRole("Jagter" or "Admin") in that order,
+   showing a login prompt / role-activation prompt / full dashboard respectively. *@
+@page "/jagter/paneelbord"
+@page "/jagter/dashboard"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Jagterportaal | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die Jagterportaal is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/jagter/paneelbord" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Jagter") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Jagter Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Jagter</strong> nie. U kan hierdie rol met 'n enkele klik op u profiel aktiveer om toegang tot die Jagterportaal, permitte en SAPS 520 generator te verkry.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Jagter Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Jagterportaal &amp; Paneelbord</h1>
+            <p class="text-muted mb-0">Welkom terug, @(Auth.CurrentUser?.FirstName ?? "Jagter"). Bestuur jou besprekings, permitte en vuurwapeninvoere.</p>
+        </div>
+    </div>
+
+    <!-- Metrics Cards -->
+    <div class="mp-grid-4 mb-4">
+        <div class="mp-card text-center">
+            <div class="fs-2 text-gold font-bold">@_bookings.Count</div>
+            <div class="small text-muted text-uppercase fw-bold">Aktiewe Besprekings</div>
+        </div>
+        <div class="mp-card text-center">
+            <div class="fs-2 text-gold font-bold">@(_bookings.FirstOrDefault()?.StartDate.ToString("dd MMM") ?? "Geen")</div>
+            <div class="small text-muted text-uppercase fw-bold">Volgende Jagdatum</div>
+        </div>
+        <div class="mp-card text-center">
+            <div class="fs-2 text-success font-bold">Vrygestel</div>
+            <div class="small text-muted text-uppercase fw-bold">SAPS 520 Status</div>
+        </div>
+        <div class="mp-card text-center">
+            <div class="fs-2 text-gold font-bold">@(_ratingStats.RatingCount > 0 ? $"{_ratingStats.AverageStars:0.0} / 5" : "Geen nog")</div>
+            <div class="small text-muted text-uppercase fw-bold">My Gradering</div>
+            <div class="small text-muted mt-1" style="font-size: 11px;">@(_ratingStats.RatingCount > 0 ? $"Gebaseer op {_ratingStats.RatingCount} gradering(s)" : "Deur PH/VG na voltooide jagte")</div>
+        </div>
+    </div>
+
+    <!-- Quick Action Navigation Cards -->
+    <h3 class="brand-font text-gold mb-3">Vinnige Aksies</h3>
+    <div class="mp-grid mb-5">
+        <a href="/markplein" class="mp-card text-decoration-none">
+            <h4 class="brand-font text-gold mb-2">Deursoek Jag Pakkette</h4>
+            <p class="text-muted small mb-0">Vind eksklusiewe ekspedisies met alles ingesluit.</p>
+        </a>
+
+        <a href="/jagter/besprekings" class="mp-card text-decoration-none">
+            <h4 class="brand-font text-gold mb-2">Bestuur Besprekings</h4>
+            <p class="text-muted small mb-0">Sien jou goedgekeurde en afwagtende besprekings.</p>
+        </a>
+
+        <a href="/jagter/permitte" class="mp-card text-decoration-none">
+            <h4 class="brand-font text-gold mb-2">SAPS 520 Permitte</h4>
+            <p class="text-muted small mb-0">Bekyk gestoor SAPS 520 vorms en genereer PDF permitte.</p>
+        </a>
+
+        <a href="/jagter/e520" class="mp-card text-decoration-none" style="border: 2px solid var(--accent-gold);">
+            <h4 class="brand-font text-gold mb-2">SAPS 520-opsteller</h4>
+            <p class="text-muted small mb-0">Skep en druk jou amptelike SAPS 520 vuurwapeninvoer permit.</p>
+        </a>
+    </div>
+}
+
+@code {
+    private List<BookingModel> _bookings = new();
+    // Loaded but never read by the markup below (only _bookings and _ratingStats are
+    // rendered) - dead fetch, harmless beyond the wasted API call. Nav is likewise
+    // injected but unused.
+    private List<PermitModel> _permits = new();
+    private RatingProfileStatsModel _ratingStats = new();
+
+    /// <summary>Subscribes to auth-state changes (login/logout elsewhere in the app, e.g. HeaderNav) so the dashboard's data reloads without a full page refresh.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Only fetches once role/auth gating passes. The `?? 1` fallback for userId is a
+    /// defensive placeholder that should never actually trigger here (this branch only
+    /// runs when Auth.IsAuthenticated is true, which implies CurrentUser is populated) -
+    /// same defensive pattern seen elsewhere in the app, not a live bug in this call site.
+    /// </summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Jagter") || Auth.HasRole("Admin")))
+        {
+            int userId = Auth.CurrentUser?.UserId ?? 0;
+            // The hunter's own bookings (the Admin-only api/admin/bookings 403'd for hunters).
+            _bookings = await Api.GetHunterBookingsAsync(userId);
+            _permits = await Api.GetPermitsAsync(userId);
+            _ratingStats = await Api.GetRatingProfileStatsAsync(userId, "HUNTER");
+        }
+    }
+
+    /// <summary>Unsubscribes from Auth's event to avoid a memory leak/stale-callback if this component is disposed while the AuthService (a longer-lived singleton/scoped service) survives.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

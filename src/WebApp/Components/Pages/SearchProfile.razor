@@ -1,0 +1,85 @@
+@* Profile directory search page (route: /searchprofile). Client-side filter over a
+   name/bio keyword and a role-code dropdown.
+   Unused/mock: unlike SearchAds.razor and PublicProfileDetail.razor (which hit the real
+   API), this page's _profiles list is a hardcoded 3-item mock and nothing else in the
+   app links to /searchprofile (verified via grep) - it appears to be an early prototype
+   the real search pages superseded, left unwired. *@
+@page "/soek-profiele"
+@page "/searchprofile"
+
+<PageTitle>Deursoek Profiele | MikPunt</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h1 class="brand-font text-gold mb-1">Profiel Gids</h1>
+        <p class="text-muted mb-0">Deursoek Professionele Jagters (PH), Videograwe, Boere en Gidsdienste.</p>
+    </div>
+</div>
+
+<div class="mp-card mb-4">
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="mp-form-label">Sleutelwoord / Naam</label>
+            <input type="text" class="mp-form-control" placeholder="bv. Hendrik, Limpopo, Drone..." @bind="_query" @bind:event="oninput" />
+        </div>
+        <div class="col-md-6">
+            <label class="mp-form-label">Rol Kode</label>
+            <select class="mp-form-control" @bind="_roleFilter">
+                <option value="">Alle Rolle</option>
+                <option value="PH">PH (Professionele Jagter)</option>
+                <option value="VG">VG (Videograaf)</option>
+                <option value="Boer">Boer (Plaaseienaar)</option>
+                <option value="PJ">PJ (Pakket Uitruster)</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<div class="mp-grid">
+    @foreach (var p in FilteredProfiles)
+    {
+        <div class="mp-card">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 42px; height: 42px;">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0">@p.Name</h3>
+                    <span class="mp-badge mp-badge-warning">@p.RoleCode</span>
+                </div>
+            </div>
+            <p class="text-muted small mb-2">Streek: @p.Region | Gradering: @p.Rating / 5</p>
+            <p class="text-muted fs-6 mb-3">@p.Bio</p>
+            <a href="/profiel/@p.Id" class="mp-btn mp-btn-secondary w-100 text-center">Sien Publieke Profiel</a>
+        </div>
+    }
+</div>
+
+@code {
+    private string _query = string.Empty;
+    private string _roleFilter = string.Empty;
+
+    private List<PublicProfileModel> _profiles = new()
+    {
+        new PublicProfileModel { Id = 4, Name = "Hendrik Viljoen", RoleCode = "PH", Region = "Limpopo", Rating = 4.9, Bio = "Gevorderde gevaarlike wild PH gids met 15+ jaar ondervinding." },
+        new PublicProfileModel { Id = 5, Name = "Dirk Coetzee", RoleCode = "VG", Region = "Nasionaal", Rating = 5.0, Bio = "4K wild- en ekspedisie videograaf met hommeltuig (drone) registrasie." },
+        new PublicProfileModel { Id = 2, Name = "Kobus Pretorius", RoleCode = "Boer", Region = "Thabazimbi", Rating = 4.8, Bio = "Plaaseienaar van Gemsbokpan Wildreservaat met volop trofeewild." }
+    };
+
+    /// <summary>Case-insensitive name/bio substring match combined with an exact role-code match, both optional.</summary>
+    private IEnumerable<PublicProfileModel> FilteredProfiles => _profiles.Where(p =>
+        (string.IsNullOrEmpty(_query) || p.Name.Contains(_query, StringComparison.OrdinalIgnoreCase) || p.Bio.Contains(_query, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrEmpty(_roleFilter) || p.RoleCode == _roleFilter)
+    );
+
+    /// <summary>Local view-model for the mock profile cards - not the real API's profile/user model.</summary>
+    public class PublicProfileModel
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string RoleCode { get; set; } = string.Empty;
+        public string Region { get; set; } = string.Empty;
+        public double Rating { get; set; }
+        public string Bio { get; set; } = string.Empty;
+    }
+}

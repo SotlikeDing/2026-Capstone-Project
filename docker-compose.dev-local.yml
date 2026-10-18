@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  webapi:
+    build:
+      context: .
+      dockerfile: src/WebAPI/Dockerfile.dockerfile
+    container_name: webapi-dev
+    restart: unless-stopped
+    env_file: .env.dev
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      # VG media from the website is relayed to MobileAPI (needs InternalApi__Key in the env file).
+      - InternalApi__MobileApiBaseUrl=http://mobileapi:80
+    ports:
+      - "0.0.0.0:9081:80"
+    volumes:
+      - ./src/WebAPI:/src/src/WebAPI
+      - ./src:/src/src
+      - ai_models:/data/ai-models
+    networks:
+      - span2_dev
+
+  mobileapi:
+    build:
+      context: .
+      dockerfile: src/MobileAPI/Dockerfile.dockerfile
+    container_name: mobileapi-dev
+    restart: unless-stopped
+    env_file: .env.dev
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      # App team ratings are relayed to WebAPI (needs InternalApi__Key in the env file).
+      - InternalApi__WebApiBaseUrl=http://webapi:80
+    ports:
+      - "0.0.0.0:9082:80"
+    volumes:
+      - ./src/MobileAPI:/src/src/MobileAPI
+      - ./src:/src/src
+      - mobileapi_trophy_photos_dev:/app/Data/TrophyPhotos
+      - mobileapi_shared_booking_dev:/data/shared-booking
+      - mobileapi_youtube_keys_dev:/data/youtube-keys
+    networks:
+      - span2_dev
+
+  webapp:
+    build:
+      context: .
+      dockerfile: src/WebApp/Dockerfile.dockerfile
+    container_name: webapp-dev
+    restart: unless-stopped
+    env_file: .env.dev
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ApiBaseUrl=http://webapi:80
+    ports:
+      - "0.0.0.0:9080:80"
+    volumes:
+      - ./src/WebApp:/src/src/WebApp
+      - ./src:/src/src
+    depends_on:
+      - webapi
+      - mobileapi
+    networks:
+      - span2_dev
+
+volumes:
+  ai_models:
+  mobileapi_trophy_photos_dev:
+  mobileapi_shared_booking_dev:
+  mobileapi_youtube_keys_dev:
+
+networks:
+  span2_dev:
+    driver: bridge

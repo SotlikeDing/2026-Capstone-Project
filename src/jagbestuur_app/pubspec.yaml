@@ -1,0 +1,59 @@
+name: jagbestuur_app
+description: "Pre-alpha Jagbestuur mobiele toepassing"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.1
+  dio: ^5.9.0
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.5.3
+  gal: ^2.3.0
+
+  cupertino_icons: ^1.0.8
+  url_launcher: ^6.3.1
+
+  # Regte kaart + GPS
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
+  geolocator: ^14.0.2
+  ffmpeg_kit_flutter_new: ^4.6.2
+  path_provider: ^2.1.6
+  intl: ^0.20.3
+  video_player: ^2.14.0
+  image_picker: ^1.2.4
+  exif: ^3.3.0
+  image_size_getter: ^2.4.1
+  storage_space: ^1.2.0
+  record: ^7.1.1
+  tflite_flutter: ^0.12.1
+  flutter_foreground_task: ^11.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+  video_player_platform_interface: ^6.9.0
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "lib/assets/logos/logo.png"
+  adaptive_icon_foreground: "lib/assets/logos/logo.png"
+  adaptive_icon_background: "#2B2118"
+  min_sdk_android: 21
+
+flutter:
+  uses-material-design: true
+  assets:
+    - lib/assets/logos/logo.png
+    # Outo-skoot: Google YAMNet (Apache-2.0), TF Hub lite-model/yamnet/tflite/1 + its class map.
+    - lib/assets/models/yamnet.tflite
+    - lib/assets/models/yamnet_class_map.csv

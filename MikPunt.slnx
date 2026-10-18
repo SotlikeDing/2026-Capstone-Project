@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/MobileAPI/">
+    <Project Path="src/MobileAPI/MobileAPI/MobileAPI.csproj" />
+  </Folder>
+  <Folder Name="/src/WebAPI/">
+    <Project Path="src/WebAPI/WebAPI/WebAPI.csproj" />
+  </Folder>
+  <Folder Name="/src/WebApp/">
+    <Project Path="src/WebApp/WebApp.csproj" />
+  </Folder>
+</Solution>

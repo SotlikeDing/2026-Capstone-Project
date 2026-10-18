@@ -1,0 +1,734 @@
+@* Public hunting-package marketplace, at /marketplace and /packets. Open to anonymous
+   visitors for browsing/filtering (PackageFilterBar: search, province, species, price, days, sort - all client-side over
+   the full published-package list) and viewing package detail; requesting a package
+   requires being signed in with the Jagter (hunter) role. Submitting a request creates
+   a Pending BookingModel via Api.RequestPackageAsync and redirects to /jagter/bookings -
+   the PJ later reviews it, assigns PH/VG, and quotes a final price. *@
+@page "/markplein"
+@page "/marketplace"
+@page "/packets"
+@using System.ComponentModel.DataAnnotations
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Jag Pakkette Markplein | MikPunt</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h1 class="brand-font text-gold mb-1">Jag Pakkette Markplein</h1>
+        <p class="text-muted mb-0">Eksklusiewe jagekspedisie-pakkette saamgestel deur geregistreerde Uitrusters (PJ) vir plaaslike en oorsese jagters.</p>
+    </div>
+
+    @if (Auth.IsAuthenticated && Auth.HasRole("PJ"))
+    {
+        <a href="/pj/paneelbord" class="mp-btn mp-btn-secondary mp-btn-sm">+ Bou Nuwe Pakket (PJ)</a>
+    }
+</div>
+
+@if (_packages == null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-gold" role="status">
+            <span class="visually-hidden">Laai pakkette...</span>
+        </div>
+        <p class="text-muted mt-3">Besig om markplein te laai...</p>
+    </div>
+}
+else if (_packages.Count == 0)
+{
+    <div class="alert mp-alert-info text-center py-5">
+        <i class="bi bi-info-circle display-4 mb-3 d-block"></i>
+        <h4>Geen Pakkette Beskikbaar</h4>
+        <p>Daar is tans geen gepubliseerde jagpakkette op die markplein nie. Kom kyk later weer.</p>
+    </div>
+}
+else
+{
+    <PackageFilterBar State="_filter" OnChanged="OnFilterChanged" RegionOptions="AvailableProvinces" SpeciesOptions="AvailableSpecies"
+                      ShowDays="true" PriceLabel="prys / jagter" CurrencySymbol="@Money.PackageCurrencySymbol"
+                      SearchPlaceholder="Soek op pakket, plaas, uitruster, dorp of spesie..."
+                      Total="PublishedPackages.Count()" Shown="_totalCount" />
+
+    <div class="row g-4">
+        @foreach (var pkg in PagedPackages)
+        {
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="mp-card d-flex flex-column h-100 position-relative" style="cursor: pointer; transition: transform 0.2s ease, border-color 0.2s ease;" @onclick="() => OpenDetailModal(pkg)">
+                    <!-- Image Header with Location Badge Only -->
+                    <div class="position-relative mb-3" style="height: 190px; overflow: hidden; border-radius: 10px;">
+                        <img src="@pkg.ImageUrl" alt="@pkg.Title" style="width: 100%; height: 100%; object-fit: cover;" />
+                        <div class="position-absolute bottom-0 start-0 m-2">
+                            <span class="mp-badge" style="background: rgba(43, 24, 12, 0.88); color: #fff;">
+                                @(!string.IsNullOrEmpty(pkg.Province) ? pkg.Province : "Suid-Afrika")
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Package Summary Details -->
+                    <h3 class="brand-font text-gold mb-1" style="font-size: 19px;">@pkg.Title</h3>
+                    
+                    <div class="small text-muted mb-2">
+                        <span><strong>Bestemming:</strong> @(!string.IsNullOrEmpty(pkg.Province) ? pkg.Province : "Suid-Afrika")</span><br />
+                        <span><strong>Tarief:</strong> Vanaf <span class="text-gold fw-bold">@Money.Format(pkg.PricePerHunter, Money.PackageCurrency)</span> / jagter @if (!Money.IsZar(Money.PackageCurrency)) { <span class="text-muted small">(@Money.ZarHint(pkg.PricePerHunter, Money.PackageCurrency, _usdToZar))</span> }</span>
+                        <span class="d-block" style="font-size: 11.5px;">Vanaf @Money.Format(pkg.PricePerObserver, Money.PackageCurrency) / nie-jagter</span>
+                        <span><strong>Uitruster (PJ):</strong> @pkg.OrganiserName</span>
+                    </div>
+
+                    <p class="text-muted fs-6 mb-3 flex-grow-1" style="line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                        @pkg.Description
+                    </p>
+
+                    <!-- Available Wildlife on Farm -->
+                    <div class="mb-3">
+                        <div class="small text-gold fw-bold mb-1">Beskikbare Wild op Plaas:</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var sp in GetPackageSpecies(pkg).Take(4))
+                            {
+                                <span class="mp-badge" style="font-size: 11px;">@sp</span>
+                            }
+                            @if (GetPackageSpecies(pkg).Count > 4)
+                            {
+                                <span class="mp-badge" style="font-size: 11px;">+@(GetPackageSpecies(pkg).Count - 4) meer</span>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Open Detail Action Button -->
+                    <div class="mt-auto pt-2">
+                        <button class="mp-btn mp-btn-secondary w-100" @onclick:stopPropagation="true" @onclick="() => OpenDetailModal(pkg)">
+                            <span>Sien Besonderhede &amp; Versoek</span>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+            </div>
+        }
+    <!-- Pagination Controls -->
+    @if (_totalPages > 1)
+    {
+        <nav aria-label="Bladsynavigasie" class="mt-5">
+            <ul class="pagination justify-content-center">
+                <li class="page-item @(Page <= 1 ? "disabled" : "")">
+                    <a class="page-link" style="cursor:pointer;" @onclick="() => ChangePage(Page - 1)">Vorige</a>
+                </li>
+                
+                @for (int i = 1; i <= _totalPages; i++)
+                {
+                    var pageNum = i;
+                    <li class="page-item @(Page == pageNum ? "active" : "")">
+                        <a class="page-link" style="cursor:pointer;" @onclick="() => ChangePage(pageNum)">@pageNum</a>
+                    </li>
+                }
+                
+                <li class="page-item @(Page >= _totalPages ? "disabled" : "")">
+                    <a class="page-link" style="cursor:pointer;" @onclick="() => ChangePage(Page + 1)">Volgende</a>
+                </li>
+            </ul>
+        </nav>
+    }
+<!-- EXPANDED DETAIL MODAL -->
+@if (_selectedPackageForDetail != null && !_showRequestFormModal)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2500; padding: 20px;" @onclick="CloseDetailModal">
+        <div class="mp-card" style="width: 800px; max-width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.8);" @onclick:stopPropagation="true">
+            <!-- Modal Header Image & Title -->
+            <div class="position-relative mb-4" style="height: 240px; overflow: hidden; border-radius: 12px; margin: -24px -24px 20px -24px;">
+                <img src="@_selectedPackageForDetail.ImageUrl" alt="@_selectedPackageForDetail.Title" style="width: 100%; height: 100%; object-fit: cover;" />
+                <div class="position-absolute top-0 end-0 m-3">
+                    <button type="button" class="btn-close btn-close-white" aria-label="Maak toe" @onclick="CloseDetailModal"></button>
+                </div>
+                <div class="position-absolute bottom-0 start-0 w-100 p-3" style="background: linear-gradient(transparent, rgba(10, 14, 20, 0.95));">
+                    <h2 class="brand-font text-white mb-0" style="font-size: 24px;">@_selectedPackageForDetail.Title</h2>
+                    <div class="small text-gold mt-1">
+                        Bestemming: @(!string.IsNullOrEmpty(_selectedPackageForDetail.Province) ? _selectedPackageForDetail.Province : "Suid-Afrika") | Vanaf @Money.Format(_selectedPackageForDetail.PricePerHunter, Money.PackageCurrency) (Jagter) / @Money.Format(_selectedPackageForDetail.PricePerObserver, Money.PackageCurrency) (Nie-jagter)
+                    </div>
+                </div>
+            </div>
+
+            <!-- Host Farm & Organiser Summary -->
+            <div class="row g-3 mb-4 p-3 rounded" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                <div class="col-md-6">
+                    <span class="text-muted small">Uitruster (PJ):</span><br />
+                    <strong class="text-gold">@_selectedPackageForDetail.OrganiserName</strong>
+                </div>
+                <div class="col-md-6">
+                    <span class="text-muted small">Bestemming Streek:</span><br />
+                    <strong>@(!string.IsNullOrEmpty(_selectedPackageForDetail.Province) ? _selectedPackageForDetail.Province : "Suid-Afrika")</strong>
+                    <div class="small text-muted mt-1" style="font-size: 11px;">* Presiese plaas- en gasheerbesonderhede word vertroulik gehou tot na finale besprekingsbevestiging.</div>
+                </div>
+            </div>
+
+            <!-- Narrative Description -->
+            <div class="mb-4">
+                <h4 class="brand-font text-gold mb-2" style="font-size: 16px;">Oor Hierdie Ekspedisie</h4>
+                <p class="text-muted" style="line-height: 1.6; font-size: 14px; white-space: pre-line;">@_selectedPackageForDetail.Description</p>
+            </div>
+
+            <!-- Available Wildlife Species on the Farm -->
+            <div class="mb-4">
+                <h4 class="brand-font text-gold mb-2" style="font-size: 16px;">Beskikbare Wildspesies op die Plaas:</h4>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    @foreach (var sp in GetPackageSpecies(_selectedPackageForDetail))
+                    {
+                        <span class="mp-badge" style="font-size: 13px; padding: 6px 14px;">@sp</span>
+                    }
+                </div>
+                <small class="text-muted" style="font-size: 12px;">
+                    * Wildspesies word nie vooraf by die pakket ingesluit nie. U kies tydens die ekspedisie watter beskikbare wild u wil jag volgens die plaas se tariewe en kwotas.
+                </small>
+            </div>
+
+            <!-- Inclusions and Exclusions Side-by-Side -->
+            @if (_selectedPackageForDetail.IncludedServices.Count > 0 || _selectedPackageForDetail.ExcludedServices.Count > 0)
+            {
+            <div class="row g-3 mb-4">
+                <!-- Inclusions Column -->
+                <div class="col-md-6">
+                    <div class="p-3 rounded h-100" style="background: rgba(21, 128, 61, 0.08); border: 1px solid rgba(21, 128, 61, 0.3);">
+                        <div class="small fw-bold text-success mb-2 d-flex align-items-center gap-1">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            Wat Ingesluit Is:
+                        </div>
+                        <ul class="list-unstyled mb-0 small text-muted" style="line-height: 1.7;">
+                            @foreach (var inc in _selectedPackageForDetail.IncludedServices)
+                            {
+                                <li class="d-flex align-items-start gap-2 mb-1">
+                                    <span class="text-success fw-bold">&#10003;</span>
+                                    <span>@inc</span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Exclusions Column -->
+                <div class="col-md-6">
+                    <div class="p-3 rounded h-100" style="background: rgba(185, 28, 28, 0.06); border: 1px solid rgba(185, 28, 28, 0.25);">
+                        <div class="small fw-bold text-danger mb-2 d-flex align-items-center gap-1">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            Wat Uitgesluit Is:
+                        </div>
+                        <ul class="list-unstyled mb-0 small text-muted" style="line-height: 1.7;">
+                            @foreach (var exc in _selectedPackageForDetail.ExcludedServices)
+                            {
+                                <li class="d-flex align-items-start gap-2 mb-1">
+                                    <span class="text-danger fw-bold">&#10005;</span>
+                                    <span>@exc</span>
+                                </li>
+                            }
+                            @if (_selectedPackageForDetail.ExcludedServices.Count == 0)
+                            {
+                                <li>Die uitruster het niks uitgesluit nie.</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            }
+
+            <!-- Duration & Pricing Explanatory Callout -->
+            <div class="p-3 rounded mb-4" style="background: rgba(217, 119, 6, 0.08); border-left: 3px solid var(--accent-amber);">
+                <div class="small text-muted" style="line-height: 1.5;">
+                    <strong class="text-gold">Ekspedisielengte &amp; Kwotasie (@Money.PackageCurrencySymbol):</strong> U as jagter kies u eie begindatum en aantal dae vir die ekspedisie tydens die versoek. Die amptelike prys word in @(Money.IsZar(Money.PackageCurrency) ? "rand (R)" : "Amerikaanse dollar (US$)") bereken op grond van u gekose ekspedisiedae, aantal jagters, en gids-/videodienste. Geen betaling word nou vereis nie.
+                </div>
+            </div>
+
+            <!-- Modal Action Buttons (Access-Controlled) -->
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-2 border-top border-secondary">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseDetailModal">Maak Toe</button>
+
+                <div>
+                    @if (!Auth.IsAuthenticated)
+                    {
+                        <button class="mp-btn mp-btn-primary" @onclick="NavigateToLogin">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                            Teken in om te versoek
+                        </button>
+                    }
+                    else if (!Auth.HasRole("Jagter"))
+                    {
+                        <button class="mp-btn mp-btn-secondary" @onclick="NavigateToRegisterRole">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                            Slegs vir Geregistreerde Jagters (Aktiveer Rol)
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="mp-btn mp-btn-primary" @onclick="() => TransitionToRequestForm(_selectedPackageForDetail)">
+                            <span>Gaan Voort met Versoek</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- REQUEST FORM MODAL (Jagter Bepaal Lengte & Datums) -->
+@if (_showRequestFormModal && _selectedPackageForRequest != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2600; padding: 20px;">
+        <div class="mp-card" style="width: 720px; max-width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.8);">
+            <!-- Modal Header -->
+            <div class="d-flex justify-content-between align-items-start border-bottom border-secondary pb-3 mb-3">
+                <div>
+                    <span class="mp-badge mp-badge-warning mb-1">Nuwe Ekspedisieversoek</span>
+                    <h2 class="brand-font text-gold mb-0" style="font-size: 21px;">@_selectedPackageForRequest.Title</h2>
+                    <div class="small text-muted mt-1">
+                        Bestemming: @(!string.IsNullOrEmpty(_selectedPackageForRequest.Province) ? _selectedPackageForRequest.Province : "Suid-Afrika") | Uitruster (PJ): @_selectedPackageForRequest.OrganiserName
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" aria-label="Maak toe" @onclick="CloseRequestFormModal"></button>
+            </div>
+
+            <!-- Modal Form Body -->
+            <EditForm Model="_requestForm" OnValidSubmit="SubmitPackageRequest" novalidate>
+                <DataAnnotationsValidator />
+                <ValidationSummary class="alert alert-danger p-2 small mb-3" />
+                @if (!string.IsNullOrWhiteSpace(_requestError))
+                {
+                    <div class="alert alert-danger p-2 small mb-3">@_requestError</div>
+                }
+
+                <!-- Section 1: Hunter Determines Dates & Expedition Length -->
+                <div class="mp-card p-3 mb-3" style="background: rgba(217, 119, 6, 0.06); border: 1px solid var(--border-color);">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="mp-form-label mb-0">Ekspedisie Datums &amp; Duur (Deur Jagter Bepaal)</label>
+                        <span class="mp-badge mp-badge-warning" style="font-size: 13px;">
+                            @CustomDurationDays Dae Ekspedisie
+                        </span>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="small text-muted mb-1">Aankoms / Begindatum</label>
+                            <InputDate @bind-Value="_requestForm.StartDate" class="mp-form-control" />
+                            <ValidationMessage For="() => _requestForm.StartDate" class="text-danger small mt-1 d-block" />
+                        </div>
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="small text-muted mb-1">Vertrek / Einddatum</label>
+                            <InputDate @bind-Value="_requestForm.EndDate" class="mp-form-control" />
+                            <ValidationMessage For="() => _requestForm.EndDate" class="text-danger small mt-1 d-block" />
+                        </div>
+                    </div>
+                    <small class="text-muted mt-2 d-block" style="font-size: 11px;">
+                        Kies u verlangde jagdatums. Die Uitruster (PJ) sal die beskikbaarheid op die plaas en gids-skedules bevestig.
+                    </small>
+                </div>
+
+                <!-- Section 2: Available Wildlife on Farm Reference -->
+                <div class="mb-3">
+                    <label class="mp-form-label mb-1">Beskikbare Wildspesies op die Plaas:</label>
+                    <div class="d-flex flex-wrap gap-1">
+                        @foreach (var sp in GetPackageSpecies(_selectedPackageForRequest))
+                        {
+                            <span class="mp-badge" style="font-size: 11px;">@sp</span>
+                        }
+                    </div>
+                </div>
+
+                <!-- Section 3: Guest Breakdown -->
+                <div class="row g-3 mb-2">
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label d-flex justify-content-between">
+                            <span>Aantal Aktiewe Jagters</span>
+                            <span class="text-gold fw-bold">Vanaf @Money.Format(_selectedPackageForRequest.PricePerHunter, Money.PackageCurrency)</span>
+                        </label>
+                        <InputNumber @bind-Value="_requestForm.HunterCount" class="mp-form-control" />
+                        <ValidationMessage For="() => _requestForm.HunterCount" class="text-danger small mt-1 d-block" />
+                        <small class="text-muted">Aantal jagters wat aan die jag sal deelneem (1 - 10)</small>
+                    </div>
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label d-flex justify-content-between">
+                            <span>Nie-jagters / Waarnemers</span>
+                            <span class="text-gold fw-bold">Vanaf @Money.Format(_selectedPackageForRequest.PricePerObserver, Money.PackageCurrency)</span>
+                        </label>
+                        <InputNumber @bind-Value="_requestForm.ObserverCount" class="mp-form-control" />
+                        <ValidationMessage For="() => _requestForm.ObserverCount" class="text-danger small mt-1 d-block" />
+                        <small class="text-muted">Gaste wat nie jag nie (verblyf, etes, wildritte) (0 - 10)</small>
+                    </div>
+                </div>
+
+                <!-- Estimated Vanaf Starting Calculation -->
+                <div class="p-2 px-3 rounded mb-3 small d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: rgba(217, 119, 6, 0.12); border: 1px solid var(--accent-gold);">
+                    <div>
+                        <span class="text-white fw-bold">Geraamde Vanaf-Totaal</span>
+                        <span class="text-muted ms-1">(@_requestForm.HunterCount Jagter(s) + @_requestForm.ObserverCount Nie-jagter(s)):</span>
+                    </div>
+                    <strong class="text-gold fs-6">
+                        Vanaf @Money.Format((_requestForm.HunterCount * _selectedPackageForRequest.PricePerHunter) + (_requestForm.ObserverCount * _selectedPackageForRequest.PricePerObserver), Money.PackageCurrency)
+                        @if (!Money.IsZar(Money.PackageCurrency)) { <span class="text-muted small">(@Money.ZarHint((_requestForm.HunterCount * _selectedPackageForRequest.PricePerHunter) + (_requestForm.ObserverCount * _selectedPackageForRequest.PricePerObserver), Money.PackageCurrency, _usdToZar); PayFast vra die bedrag in rand)</span> }
+                    </strong>
+                </div>
+
+                <!-- Section 4: Videographer (VG) Request -->
+                <div class="mp-card p-3 mb-3" style="background: rgba(21, 128, 61, 0.06); border: 1px solid rgba(21, 128, 61, 0.25);">
+                    <div class="form-check form-switch d-flex align-items-center gap-2">
+                        <input class="form-check-input" type="checkbox" id="videographerSwitch" @bind="_requestForm.WantsVideographer" style="cursor: pointer; width: 40px; height: 20px;" />
+                        <label class="form-check-label fw-bold" for="videographerSwitch" style="cursor: pointer;">
+                            Versoek 'n Professionele Videograaf (VG) vir hierdie ekspedisie
+                        </label>
+                    </div>
+                    <div class="small text-muted mt-2 ps-4">
+                        Sluit professionele 4K kamera- en hommeltuig-verfilming in. Die Uitruster sal 'n beskikbare VG uit hul span toewys.
+                    </div>
+                </div>
+
+                <!-- Section 5: Firearm & Ammunition Arrangements -->
+                <div class="mp-form-group mb-3">
+                    <label class="mp-form-label">Vuurwapen &amp; Ammunisie Reëlings</label>
+                    <InputSelect @bind-Value="_requestForm.FirearmOption" class="mp-form-control">
+                        <option value="Importing">Ek voer my eie vuurwapens in na Suid-Afrika (SAPS 520 tydelike invoerpermit benodig)</option>
+                        <option value="Rental">Ek wil die PH se vuurwapens en ammunisie ter plaatse huur / gebruik</option>
+                    </InputSelect>
+                    <small class="text-muted mt-1 d-block">
+                        @if (_requestForm.FirearmOption == "Importing")
+                        {
+                            <span>U sal MikPunt se digitale SAPS 520 generator kan gebruik om u doeanepapiere outomaties af te laai.</span>
+                        }
+                        else
+                        {
+                            <span>Die Uitruster en PH sal toepaslike jagkalibers en ammunisie op die plaas gereed hê.</span>
+                        }
+                    </small>
+                </div>
+
+                <!-- Section 6: Special Notes, Target Species & Requirements -->
+                <div class="mp-form-group mb-4">
+                    <label class="mp-form-label">Spesifieke Wildspesies Wat U Wil Jag, Notas of Dieetvereistes</label>
+                    <InputTextArea @bind-Value="_requestForm.SpecialNotes" class="mp-form-control" rows="3" placeholder="Meld watter beskikbare wildspesies u veral in belangstel, kalibers, lughawe-optel versoeke of dieetvereistes hier..." />
+                </div>
+
+                <!-- Section 7: PJ Quote & Team Assignment Process Notice -->
+                <div class="mp-card p-3 mb-4" style="background: rgba(43, 24, 12, 0.25); border: 1px solid var(--accent-gold);">
+                    <div class="small text-muted" style="line-height: 1.5;">
+                        <strong class="text-gold">Kwotasie &amp; Spantoewysing:</strong> Geen betaling word nou vereis nie. U versoek word direk aan die Uitruster (PJ) gestuur. Die Uitruster sal u gekose ekspedisiedatums hersien, 'n beskikbare PH gids en Videograaf uit hul span toewys, en die finale prys vir u goedkeuring voorlê voordat betaling versoek word.
+                    </div>
+                </div>
+
+                <!-- Modal Actions -->
+                <div class="d-flex justify-content-between align-items-center">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="BackToDetailModal">Terug na Besonderhede</button>
+                    <button type="submit" class="mp-btn mp-btn-primary" disabled="@_isSubmitting">
+                        @if (_isSubmitting)
+                        {
+                            <span>Dien tans in...</span>
+                        }
+                        else
+                        {
+                            <span>Dien Versoek In</span>
+                        }
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>1-based current page, bound to the ?page= query string.</summary>
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public int Page { get; set; } = 1;
+
+    /// <summary>
+    /// ?pageSize= from the address. A query-bound parameter is reset to its default (0 for an int) when the
+    /// address doesn't have it, which used to make the marketplace show 1 package per page.
+    /// </summary>
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "pageSize")]
+    public int? PageSizeQuery { get; set; }
+
+    /// <summary>Packages per page: the address's value when sensible, else 9 (a 3x3 grid).</summary>
+    private int PageSize => PageSizeQuery is > 0 and <= 60 ? PageSizeQuery.Value : 9;
+
+    private List<HuntingPackageModel>? _packages;
+    private List<FarmModel> _farms = new();
+
+    private HuntingPackageModel? _selectedPackageForDetail;
+    private HuntingPackageModel? _selectedPackageForRequest;
+    private bool _showRequestFormModal = false;
+    private PackageRequestFormModel _requestForm = new();
+    private bool _isSubmitting = false;
+    private string? _requestError;
+
+    // _totalCount was previously a field that nothing ever assigned, so _totalPages
+    // stayed 0 forever, the pagination UI could never render, and every matching
+    // package was always shown on one page regardless of PageSize/Page in the URL.
+    // Pagination is applied client-side over the already-filtered list rather than
+    // re-fetching from a paginated endpoint, since search/province/species filtering
+    // here is itself entirely client-side over the full fetched _packages list.
+    private int _totalCount => FilteredPackages.Count();
+    private int _totalPages => (int)Math.Ceiling((double)_totalCount / Math.Max(1, PageSize));
+    private IEnumerable<HuntingPackageModel> PagedPackages =>
+        FilteredPackages.Skip((Math.Max(1, Page) - 1) * Math.Max(1, PageSize)).Take(Math.Max(1, PageSize));
+
+    private decimal _usdToZar = 18m;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _usdToZar = (await Api.GetPublicSettingsAsync()).UsdToZarRate;
+        Api.OnPackagesChanged += HandlePackagesChanged;
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        _farms = await Api.GetFarmsAsync();
+        _packages = await Api.GetPackagesAsync();
+    }
+
+    /// <summary>Blazor re-invokes this on every query-string change (e.g. page navigation), so packages are refetched to keep the list current across page changes.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        _packages = await Api.GetPackagesAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandlePackagesChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            _packages = await Api.GetPackagesAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Api.OnPackagesChanged -= HandlePackagesChanged;
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>Navigates to a clamped page number via the query string (Blazor re-renders through OnParametersSetAsync, not local state).</summary>
+    private void ChangePage(int newPage)
+    {
+        if (newPage < 1) newPage = 1;
+        if (newPage > _totalPages) newPage = _totalPages;
+        Nav.NavigateTo($"/markplein?page={newPage}&pageSize={PageSize}");
+    }
+
+    /// <summary>Species available for a package: the host farm's real GameInventory when known, else a hardcoded generic fallback list (used when FarmId isn't set or the farm has no inventory recorded).</summary>
+    private List<string> GetPackageSpecies(HuntingPackageModel pkg)
+    {
+        if (pkg.FarmId > 0)
+        {
+            var farm = _farms.FirstOrDefault(f => f.Id == pkg.FarmId);
+            if (farm != null && farm.GameInventory != null && farm.GameInventory.Count > 0)
+            {
+                return farm.GameInventory.Select(g => g.SpeciesName).ToList();
+            }
+        }
+
+        // Fallback default species
+        return new List<string> { "Koedoe", "Rooibok", "Vlakvark", "Gemsbok" };
+    }
+
+    private readonly PackageFilterState _filter = new();
+
+    private PackageFilterFields<HuntingPackageModel> FilterFields => new()
+    {
+        Id = p => p.Id,
+        Title = p => p.Title,
+        Price = p => p.PricePerHunter,
+        Days = p => p.DurationDays,
+        Text = p => new[] { p.Title, p.Description, p.OrganiserName, p.FarmName, p.Province, p.NearestTown, p.Location }.Concat(GetPackageSpecies(p)),
+        Region = p => new[] { PackageProvince(p) },
+        Species = GetPackageSpecies,
+    };
+
+    private static string PackageProvince(HuntingPackageModel p) => !string.IsNullOrWhiteSpace(p.Province) ? p.Province : "Limpopo";
+
+    private IEnumerable<HuntingPackageModel> PublishedPackages => (_packages ?? new List<HuntingPackageModel>()).Where(p => p.IsPublished);
+
+    /// <summary>Published packages after search/filters/sort - what PagedPackages slices for display.</summary>
+    private IEnumerable<HuntingPackageModel> FilteredPackages => _filter.Apply(PublishedPackages, FilterFields);
+
+    private List<string> AvailableProvinces => PackageFilterState.Options(PublishedPackages.Select(PackageProvince));
+    private List<string> AvailableSpecies => PackageFilterState.Options(PublishedPackages.SelectMany(GetPackageSpecies));
+
+    /// <summary>Any filter change goes back to page 1 (the page number lives in the address).</summary>
+    private void OnFilterChanged()
+    {
+        if (Page > 1)
+            Nav.NavigateTo($"/markplein?page=1&pageSize={PageSize}");
+    }
+
+    private void NavigateToLogin()
+    {
+        Nav.NavigateTo("/teken-in?returnUrl=/markplein");
+    }
+
+    private void NavigateToRegisterRole()
+    {
+        Nav.NavigateTo("/profiel");
+    }
+
+    private void OpenDetailModal(HuntingPackageModel pkg)
+    {
+        _selectedPackageForDetail = pkg;
+        _showRequestFormModal = false;
+    }
+
+    private void CloseDetailModal()
+    {
+        _selectedPackageForDetail = null;
+        _showRequestFormModal = false;
+    }
+
+    /// <summary>Switches from the detail modal to the request form modal, seeding a fresh PackageRequestFormModel with sensible defaults (a 14-day-out, 5-day expedition).</summary>
+    private void TransitionToRequestForm(HuntingPackageModel pkg)
+    {
+        _selectedPackageForRequest = pkg;
+        _requestForm = new PackageRequestFormModel
+        {
+            StartDate = DateTime.Today.AddDays(14),
+            EndDate = DateTime.Today.AddDays(19),
+            HunterCount = 1,
+            ObserverCount = 0,
+            WantsVideographer = false,
+            FirearmOption = "Importing",
+            SpecialNotes = string.Empty
+        };
+        _showRequestFormModal = true;
+    }
+
+    private void BackToDetailModal()
+    {
+        _showRequestFormModal = false;
+    }
+
+    private void CloseRequestFormModal()
+    {
+        _showRequestFormModal = false;
+        _selectedPackageForRequest = null;
+        _selectedPackageForDetail = null;
+    }
+
+    /// <summary>Expedition length in days for the "X Dae Ekspedisie" badge; clamps to 1 while the end date hasn't been pushed past the start date yet.</summary>
+    private int CustomDurationDays
+    {
+        get
+        {
+            if (_requestForm.EndDate <= _requestForm.StartDate)
+                return 1;
+            return (_requestForm.EndDate - _requestForm.StartDate).Days;
+        }
+    }
+
+    /// <summary>
+    /// Builds a Pending BookingModel from the request form and the selected package,
+    /// and submits it via Api.RequestPackageAsync - this is the actual "book a package"
+    /// action; no payment is taken here, the PJ later quotes a final price. initialTotal
+    /// falls back to a single hunter's price if the computed total is somehow zero (e.g.
+    /// a form edge case), so the booking never shows $0.
+    /// </summary>
+    private async Task SubmitPackageRequest()
+    {
+        if (_selectedPackageForRequest == null || _isSubmitting) return;
+
+        // Ensure valid date range
+        if (_requestForm.EndDate <= _requestForm.StartDate)
+        {
+            _requestForm.EndDate = _requestForm.StartDate.AddDays(1);
+        }
+
+        _isSubmitting = true;
+        _requestError = null;
+
+        var currentUser = Auth.CurrentUser;
+        decimal initialTotal = (_requestForm.HunterCount * _selectedPackageForRequest.PricePerHunter) +
+                               (_requestForm.ObserverCount * _selectedPackageForRequest.PricePerObserver);
+        if (initialTotal <= 0 && _selectedPackageForRequest.PricePerHunter > 0)
+        {
+            initialTotal = _selectedPackageForRequest.PricePerHunter;
+        }
+
+        var newBooking = new BookingModel
+        {
+            HunterUserId = currentUser?.UserId ?? 0,
+            HunterName = currentUser?.FullName ?? "Jagter",
+            HunterEmail = currentUser?.Email ?? string.Empty,
+            HunterPhone = currentUser?.Phone ?? string.Empty,
+            PjUserId = _selectedPackageForRequest.OrganiserUserId,
+            PjName = _selectedPackageForRequest.OrganiserName,
+            FarmId = _selectedPackageForRequest.FarmId,
+            FarmName = _selectedPackageForRequest.FarmName,
+            PackageId = _selectedPackageForRequest.Id,
+            PackageTitle = _selectedPackageForRequest.Title,
+            StartDate = _requestForm.StartDate,
+            EndDate = _requestForm.EndDate,
+            HunterCount = _requestForm.HunterCount,
+            ObserverCount = _requestForm.ObserverCount,
+            WantsVideographer = _requestForm.WantsVideographer,
+            FirearmOption = _requestForm.FirearmOption,
+            SpecialNotes = _requestForm.SpecialNotes,
+            TotalPrice = initialTotal,
+            DepositPaid = 0,
+            Status = "Pending",
+            BookedSpecies = new List<string>(GetPackageSpecies(_selectedPackageForRequest)),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var (ok, _, message) = await Api.RequestPackageAsync(newBooking);
+
+        _isSubmitting = false;
+        if (!ok)
+        {
+            // Stay on the form with the server's reason - never pretend it was sent.
+            _requestError = message;
+            return;
+        }
+        _showRequestFormModal = false;
+        _selectedPackageForRequest = null;
+        _selectedPackageForDetail = null;
+
+        // Redirect to /jagter/bookings
+        Nav.NavigateTo("/jagter/besprekings");
+    }
+
+    /// <summary>Backing model for the request-form modal's EditForm - DataAnnotations handle field-level checks, Validate() adds the cross-field date rules.</summary>
+    public class PackageRequestFormModel : IValidatableObject
+    {
+        [Required(ErrorMessage = "Begindatum is verpligtend.")]
+        public DateTime StartDate { get; set; } = DateTime.Today.AddDays(14);
+
+        [Required(ErrorMessage = "Einddatum is verpligtend.")]
+        public DateTime EndDate { get; set; } = DateTime.Today.AddDays(19);
+
+        [Range(1, 10, ErrorMessage = "Aantal aktiewe jagters moet tussen 1 en 10 wees.")]
+        public int HunterCount { get; set; } = 1;
+
+        [Range(0, 10, ErrorMessage = "Aantal nie-jagters / waarnemers moet tussen 0 en 10 wees.")]
+        public int ObserverCount { get; set; } = 0;
+
+        public bool WantsVideographer { get; set; } = false;
+
+        [Required(ErrorMessage = "Kies asseblief 'n vuurwapen-opsie.")]
+        public string FirearmOption { get; set; } = "Importing";
+
+        public string SpecialNotes { get; set; } = string.Empty;
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (StartDate.Date < DateTime.Today)
+            {
+                yield return new ValidationResult("Begindatum kan nie in die verlede wees nie.", new[] { nameof(StartDate) });
+            }
+
+            if (EndDate.Date <= StartDate.Date)
+            {
+                yield return new ValidationResult("Einddatum moet na die begindatum wees.", new[] { nameof(EndDate) });
+            }
+            else if ((EndDate.Date - StartDate.Date).Days > 30)
+            {
+                yield return new ValidationResult("Maksimum ekspedisieduur is 30 dae.", new[] { nameof(EndDate) });
+            }
+        }
+    }
+}

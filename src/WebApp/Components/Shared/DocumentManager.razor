@@ -1,0 +1,295 @@
+@* Reusable credential-document panel embedded in the role dashboards (BoerDashboard,
+   PhDashboard, PjDashboard, VgDashboard). For the given UserRoleId/RoleCode it lists
+   every roleDocumentRequirements row for that role, lets the user upload/replace a
+   file for each (base64 data-URL upload, capped at 5MB, PDF/PNG/JPEG only), shows the
+   Pending/Approved/Rejected status set server-side by AdminController's document
+   verification workflow, and can reveal the full audit trail. Required documents can
+   only be replaced, never deleted, so a verified role can never regress below its
+   minimum requirements without going through re-verification. *@
+@inject MikpuntApiService Api
+@inject IJSRuntime JS
+
+<div class="mp-card p-4 mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h3 class="brand-font text-gold mb-0">Dokumente &amp; Sertifisering</h3>
+        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="ToggleAuditTrail">
+            @(_showAuditTrail ? "Verberg Geskiedenis" : "Sien Geskiedenis")
+        </button>
+    </div>
+    <p class="text-muted small mb-3">
+        Verpligte dokumente kan vervang word, maar nooit geskrap word nie - u profiel moet altyd aan die minimum vereistes voldoen.
+        Elke oplaai, vervanging of skrapping word permanent in die oudit-geskiedenis aangeteken.
+    </p>
+
+    @if (!string.IsNullOrEmpty(_toastMsg))
+    {
+        <div class="alert @(_toastSuccess ? "alert-success" : "alert-danger") py-2 px-3 small mb-3 d-flex justify-content-between align-items-center">
+            <span>@_toastMsg</span>
+            <button type="button" class="btn-close" @onclick='() => _toastMsg = ""'></button>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="text-center py-4 text-muted">
+            <div class="spinner-border spinner-border-sm text-gold mb-2" role="status"></div>
+            <div class="small">Laai dokumente...</div>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex flex-column gap-3">
+            @foreach (var req in _requirements)
+            {
+                var doc = _documents.FirstOrDefault(d => d.DocumentTypeId == req.DocumentTypeId);
+                <div class="p-3 rounded border @(doc != null ? "border-secondary" : "border-warning")" style="background: rgba(255,255,255,0.02);">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <div class="d-flex align-items-center gap-2">
+                                <strong class="text-gold">@req.DocumentTypeName</strong>
+                                @if (req.IsRequired)
+                                {
+                                    <span class="mp-badge mp-badge-warning" style="font-size: 10px;">Verpligtend</span>
+                                }
+                                else
+                                {
+                                    <span class="mp-badge mp-badge-secondary" style="font-size: 10px;">Opsioneel</span>
+                                }
+                                @if (doc != null)
+                                {
+                                    <span class="mp-badge @(doc.Status == "Approved" ? "mp-badge-success" : doc.Status == "Rejected" ? "mp-badge-danger" : "mp-badge-warning")" style="font-size: 10px;">
+                                        @StatusLabels.DocumentVerification(doc.Status)
+                                    </span>
+                                }
+                            </div>
+                            @if (doc != null)
+                            {
+                                <div class="small text-muted mt-1">
+                                    @doc.FileName &bull; Opgelaai @doc.UploadedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                                    @(string.IsNullOrWhiteSpace(doc.UploadedByName) ? "" : $"deur {doc.UploadedByName}")
+                                </div>
+                                @if (doc.Status == "Rejected" && !string.IsNullOrWhiteSpace(doc.RejectionReason))
+                                {
+                                    <div class="small text-danger mt-1">Rede: @doc.RejectionReason</div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="small text-warning mt-1">Nog nie opgelaai nie</div>
+                            }
+                        </div>
+
+                        <div class="d-flex gap-2 align-items-center">
+                            @if (doc != null)
+                            {
+                                <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => ViewDocument(doc)">Bekyk</button>
+                            }
+                            <label class="mp-btn mp-btn-primary mp-btn-sm mb-0 @(_uploadingTypeId.HasValue ? "disabled" : "")" style="cursor: pointer;">
+                                @(doc != null ? "Vervang" : "Laai Op")
+                                <InputFile OnChange="e => HandleFileSelected(e, req, doc)" accept=".pdf,.png,.jpg,.jpeg" style="display: none;" disabled="@_uploadingTypeId.HasValue" />
+                            </label>
+                            @if (doc != null && !req.IsRequired)
+                            {
+                                <button class="mp-btn mp-btn-danger mp-btn-sm" disabled="@(_uploadingTypeId.HasValue || _deletingDocId.HasValue)" @onclick="() => DeleteDocument(doc)">Skrap</button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (_uploadingTypeId == req.DocumentTypeId)
+                    {
+                        <div class="small text-muted mt-2"><span class="spinner-border spinner-border-sm me-1"></span> Laai tans op...</div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (_showAuditTrail)
+        {
+            <h5 class="brand-font text-gold mb-2 mt-4">Oudit-Geskiedenis</h5>
+            @if (_auditTrail.Count == 0)
+            {
+                <div class="text-muted small">Geen dokument-aktiwiteit tot dusver nie.</div>
+            }
+            else
+            {
+                <div class="d-flex flex-column gap-2" style="font-size: 12px;">
+                    @foreach (var entry in _auditTrail)
+                    {
+                        <div class="p-2 rounded border border-secondary d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <strong class="text-gold">@GetActionLabel(entry.ActionType)</strong> - @entry.DocumentTypeName
+                                @if (!string.IsNullOrWhiteSpace(entry.FileName))
+                                {
+                                    <span class="text-muted">(@entry.FileName)</span>
+                                }
+                                <div class="text-muted">deur @entry.ActorName</div>
+                                @if (!string.IsNullOrWhiteSpace(entry.Notes))
+                                {
+                                    <div class="text-muted">Rede: @entry.Notes</div>
+                                }
+                            </div>
+                            <div class="text-muted" style="font-size: 11px;">@entry.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    /// <summary>The userRole row this document set belongs to (drives which uploads/audit entries are fetched).</summary>
+    [Parameter, EditorRequired] public int UserRoleId { get; set; }
+    /// <summary>Role code (e.g. "PH", "PJ", "VG", "Boer") used to look up that role's document requirements.</summary>
+    [Parameter, EditorRequired] public string RoleCode { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private List<DocumentRequirementModel> _requirements = new();
+    private List<UserDocumentModel> _documents = new();
+    private List<DocumentAuditEntryModel> _auditTrail = new();
+    private bool _showAuditTrail = false;
+    private int? _uploadingTypeId;
+    private int? _deletingDocId;
+    private string _toastMsg = string.Empty;
+    private bool _toastSuccess = true;
+
+    private const long MaxFileSizeBytes = 5 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf", "image/png", "image/jpeg"
+    };
+
+    /// <summary>Re-fetches requirements/documents whenever the caller changes UserRoleId/RoleCode (e.g. a dashboard switching between roles).</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (UserRoleId > 0 && !string.IsNullOrWhiteSpace(RoleCode))
+        {
+            await LoadAsync();
+        }
+    }
+
+    /// <summary>Loads the role's document requirements and the user's current uploads in parallel-ish sequence for rendering the requirement/document pairing above.</summary>
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _requirements = await Api.GetDocumentRequirementsAsync(RoleCode);
+        _documents = await Api.GetUserDocumentsAsync(UserRoleId);
+        _loading = false;
+    }
+
+    /// <summary>Opens the document's data URL via a JS interop helper (mikpuntViewFile) rather than a plain link, since the file lives as a base64 blob, not a server URL.</summary>
+    private async Task ViewDocument(UserDocumentModel doc)
+    {
+        await JS.InvokeVoidAsync("mikpuntViewFile", doc.FileDataUrl);
+    }
+
+    /// <summary>Toggles the audit-history section, lazily fetching it only the first time it's opened.</summary>
+    private async Task ToggleAuditTrail()
+    {
+        _showAuditTrail = !_showAuditTrail;
+        if (_showAuditTrail && _auditTrail.Count == 0)
+        {
+            _auditTrail = await Api.GetDocumentAuditTrailAsync(UserRoleId);
+        }
+    }
+
+    /// <summary>
+    /// Validates size/type client-side (server also enforces this independently via
+    /// UserDocumentsController), then reads the file into memory and base64-encodes it
+    /// as a data URL for upload - there's no separate binary-upload endpoint, documents
+    /// travel as data URLs end-to-end (stored that way server-side too).
+    /// </summary>
+    private async Task HandleFileSelected(InputFileChangeEventArgs e, DocumentRequirementModel req, UserDocumentModel? existing)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        if (file.Size > MaxFileSizeBytes)
+        {
+            ShowToast($"'{file.Name}' is te groot. Maksimum lêergrootte is 5MB.", false);
+            return;
+        }
+        if (!AllowedMimeTypes.Contains(file.ContentType))
+        {
+            ShowToast("Slegs PDF-, PNG- of JPEG-lêers word aanvaar.", false);
+            return;
+        }
+
+        _uploadingTypeId = req.DocumentTypeId;
+        StateHasChanged();
+
+        try
+        {
+            using var stream = file.OpenReadStream(MaxFileSizeBytes);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            string base64 = Convert.ToBase64String(ms.ToArray());
+            string dataUrl = $"data:{file.ContentType};base64,{base64}";
+
+            (bool success, string message) result = existing != null
+                ? await Api.ReplaceDocumentAsync(existing.Id, file.Name, dataUrl)
+                : await Api.UploadDocumentAsync(UserRoleId, req.DocumentTypeId, file.Name, dataUrl);
+
+            ShowToast(result.message, result.success);
+            if (result.success)
+            {
+                await LoadAsync();
+                if (_showAuditTrail)
+                {
+                    _auditTrail = await Api.GetDocumentAuditTrailAsync(UserRoleId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Kon nie lêer verwerk nie: {ex.Message}", false);
+        }
+        finally
+        {
+            _uploadingTypeId = null;
+        }
+    }
+
+    /// <summary>Deletes an optional (non-required) document - the delete button is only ever rendered for !req.IsRequired, but the server-side check is the real enforcement.</summary>
+    private async Task DeleteDocument(UserDocumentModel doc)
+    {
+        _deletingDocId = doc.Id;
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await Api.DeleteDocumentAsync(doc.Id);
+            ShowToast(message, success);
+            if (success)
+            {
+                await LoadAsync();
+                if (_showAuditTrail)
+                {
+                    _auditTrail = await Api.GetDocumentAuditTrailAsync(UserRoleId);
+                }
+            }
+        }
+        finally
+        {
+            _deletingDocId = null;
+        }
+    }
+
+    /// <summary>Sets the dismissible inline alert shown after an upload/delete attempt.</summary>
+    private void ShowToast(string message, bool success)
+    {
+        _toastMsg = message;
+        _toastSuccess = success;
+    }
+
+    /// <summary>Afrikaans label for an audit-trail entry's action type.</summary>
+    private static string GetActionLabel(string actionType) => actionType switch
+    {
+        "Created" => "Opgelaai",
+        "Replaced" => "Vervang",
+        "Deleted" => "Geskrap",
+        "Approved" => "Goedgekeur deur Admin",
+        "Rejected" => "Van Hand Gewys deur Admin",
+        _ => actionType
+    };
+}

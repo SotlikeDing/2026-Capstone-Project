@@ -1,0 +1,136 @@
+@* Public contact-us form (route: /contact), no auth required. Subject/Message can be
+   pre-filled via query string (e.g. a "Report this listing" link elsewhere in the app
+   linking to /contact?subject=...&message=...). Submits to ContactController via
+   ApiService.SendContactFormAsync. *@
+@page "/kontak"
+@page "/contact"
+@using WebApp.Models
+@using WebApp.Services
+@inject MikpuntApiService ApiService
+
+<PageTitle>Kontak Ons | MikPunt</PageTitle>
+
+<div class="row g-4">
+    <div class="col-md-7">
+        <div class="mp-card">
+            <h2 class="brand-font text-gold mb-3">Kontak Ons Span</h2>
+            <p class="text-muted mb-4">Het jy vrae oor besprekings, plaaslystings, of rolverifikasies? Stuur vir ons 'n boodskap.</p>
+
+            @if (_sent)
+            {
+                <div class="alert alert-success">
+                    Baie dankie! Jou boodskap is suksesvol gestuur. Ons sal so gou moontlik met jou in verbinding tree.
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger">
+                    @_errorMessage
+                </div>
+            }
+
+            <EditForm Model="_contact" OnValidSubmit="HandleSubmit">
+                <div class="row">
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label">Naam</label>
+                        <InputText @bind-Value="_contact.Name" class="mp-form-control" placeholder="Piet Retief" required />
+                    </div>
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label">E-posadres</label>
+                        <InputText @bind-Value="_contact.Email" class="mp-form-control" placeholder="piet@voorbeeld.co.za" required />
+                    </div>
+                </div>
+
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Onderwerp</label>
+                    <InputText @bind-Value="_contact.Subject" class="mp-form-control" placeholder="Navraag oor Plaas Bespreking" required />
+                </div>
+
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Boodskap</label>
+                    <InputTextArea @bind-Value="_contact.Message" class="mp-form-control" rows="5" placeholder="Skryf jou boodskap hier..." required />
+                </div>
+
+                <button type="submit" class="mp-btn mp-btn-primary" disabled="@_isSubmitting">
+                    @if (_isSubmitting)
+                    {
+                        <span>Besig om te stuur...</span>
+                    }
+                    else
+                    {
+                        <span>Stuur Boodskap</span>
+                    }
+                </button>
+            </EditForm>
+        </div>
+    </div>
+
+    <div class="col-md-5">
+        <div class="mp-card">
+            <h3 class="brand-font text-gold mb-3">Kontak Besonderhede</h3>
+
+            <div class="mb-3">
+                <strong>E-pos Ondersteuning:</strong><br />
+                <a href="mailto:support@mikpunt.co.za">support@mikpunt.co.za</a>
+            </div>
+
+            <div class="mb-3">
+                <strong>Telefoon:</strong><br />
+                +27 (0)12 555 0199
+            </div>
+
+            <div class="mb-3">
+                <strong>Hoofkantoor:</strong><br />
+                Pretoria Oos Bushveld Kantoor Park,<br />
+                Gauteng, Suid-Afrika
+            </div>
+
+            <div class="mb-3">
+                <strong>Kantoorure:</strong><br />
+                Maandag – Vrydag: 08:00 – 17:00<br />
+                Saterdag: 08:00 – 13:00
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "subject")]
+    private string? SubjectFromQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "message")]
+    private string? MessageFromQuery { get; set; }
+
+    private ContactRequestModel _contact = new();
+    private bool _sent = false;
+    private bool _isSubmitting = false;
+    private string? _errorMessage;
+
+    /// <summary>Pre-fills subject/message from query-string params, letting other pages deep-link into a pre-populated contact form (e.g. JagterBookings.razor's "report an issue" link).</summary>
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrWhiteSpace(SubjectFromQuery)) _contact.Subject = SubjectFromQuery;
+        if (!string.IsNullOrWhiteSpace(MessageFromQuery)) _contact.Message = MessageFromQuery;
+    }
+
+    private async Task HandleSubmit()
+    {
+        _isSubmitting = true;
+        _errorMessage = null;
+        _sent = false;
+
+        var success = await ApiService.SendContactFormAsync(_contact);
+        if (success)
+        {
+            _sent = true;
+            _contact = new();
+        }
+        else
+        {
+            _errorMessage = "Kon nie die boodskap stuur nie. Kontroleer asseblief jou netwerkverbinding of probeer later weer.";
+        }
+
+        _isSubmitting = false;
+    }
+}

@@ -1,0 +1,715 @@
+@* PH (professional hunter/guide) portal at /ph/dashboard: pending team-invite banner,
+   monthly advertising-subscription status/toggle, daily-rate quick-edit modal, stat cards,
+   a "respond to new PJ assignment" action list (accept/decline with optional reason), and
+   previews of recent bookings and published PH service packages. Gated on Auth.HasRole("PH")
+   or "Admin". Embeds &lt;DocumentManager&gt; for PH credential/document verification status. *@
+@page "/ph/paneelbord"
+@page "/ph/dashboard"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>PH-portaal &amp; Gidsskedule | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans PH toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die Professionele Jagter (PH) Portaal is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/ph/paneelbord" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PH") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Professionele Jagter (PH) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Professionele Jagter (PH)</strong> nie. U kan u PH-lisensie op u profiel registreer om spanaansoeke en gidsdienste te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PH Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="no-print">
+        <!-- Header Section -->
+        <div class="d-flex justify-content-between align-items-center mb-4 gap-3 flex-wrap">
+            <div class="me-3">
+                <h1 class="brand-font text-gold mb-1">Professionele Jagter (PH) Portaal</h1>
+                <p class="text-muted mb-0 small">Bestuur u gidsdienste, aanvaar uitnodigings van Uitrusters (PJ) en moniteer u toegewese safari-ekspedisies.</p>
+                <AiHelperLinks RoleCode="PH" />
+            </div>
+
+            <div class="d-flex gap-2 flex-shrink-0 align-items-center flex-wrap">
+                <a href="/soek-span" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                    Netwerk &amp; Werwing ↗
+                </a>
+                <a href="/uitnodigings" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap position-relative">
+                    Spanaansoeke 📩
+                    @if (PendingInvitesCount > 0)
+                    {
+                        <span class="badge bg-danger ms-1">@PendingInvitesCount</span>
+                    }
+                </a>
+                <a href="/ph/besprekings" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                    📅 Gidsskedule
+                </a>
+                <a href="/ph/pakkette" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    + Voeg Gidspakket By
+                </a>
+            </div>
+        </div>
+
+        @if (_myUserRoleId > 0)
+        {
+            <DocumentManager UserRoleId="_myUserRoleId" RoleCode="PH" />
+        }
+
+        @if (!string.IsNullOrEmpty(_notificationMsg))
+        {
+            <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+                <div>@_notificationMsg</div>
+                <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+            </div>
+        }
+
+        <!-- Pending Invites Alert Banner -->
+        @if (PendingInvitesCount > 0)
+        {
+            <div class="alert alert-warning p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2"
+                 style="background: rgba(217, 119, 6, 0.18); border: 1.5px solid #f59e0b; color: #fef3c7; border-radius: 8px;">
+                <div class="d-flex align-items-center gap-3">
+                    <div style="font-size: 24px;">⚠️</div>
+                    <div>
+                        <strong class="d-block" style="color: #ffffff; font-size: 15px;">
+                            Kennisgewing: @PendingInvitesCount @(PendingInvitesCount == 1 ? "span-uitnodiging wag" : "span-uitnodigings wag") op u reaksie!
+                        </strong>
+                        <div class="small" style="color: #e5e7eb;">
+                            Uitrusters (PJ) het u genooi om as amptelike Professionele Jagter (PH) op hul ekspedisies te dien.
+                        </div>
+                    </div>
+                </div>
+                <a href="/uitnodigings" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    Bekyk Uitnodigings Nou &rarr;
+                </a>
+            </div>
+        }
+
+        <!-- Quality & Compliance Banner -->
+        <div class="p-3 rounded mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3 mp-pricing-banner"
+             style="background: rgba(35, 20, 10, 0.88); border: 1.5px solid #d97706; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <div class="d-flex align-items-center gap-3">
+                <div style="color: #f59e0b;">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                </div>
+                <div>
+                    <strong class="d-block text-white fw-bold" style="font-size: 16px; color: #ffffff !important;">MikPunt PH Ekspedisie Standaard: Veiligheid &amp; Etiese Jag</strong>
+                    <div class="small" style="color: #e5e7eb;">
+                        As gekwalifiseerde Professionele Jagter lewer u etiese leiding, geweerveiligheid en ekspedisie-toesig vir internasionale en plaaslike jagters.
+                    </div>
+                </div>
+            </div>
+            <a href="/profiel" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">Opdateer PH Profiel &rarr;</a>
+        </div>
+
+        <!-- Monthly Advertising Subscription Status Banner (Dashboard Management) -->
+        <div class="alert p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2"
+             style="background: @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "rgba(16, 185, 129, 0.14)" : (_subscription.HasPaidActivePeriod ? "rgba(245, 158, 11, 0.14)" : "rgba(107, 114, 128, 0.14)")); border: 1.5px solid @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "#10b981" : (_subscription.HasPaidActivePeriod ? "#f59e0b" : "#6b7280")); color: #ffffff; border-radius: 8px;">
+            <div class="d-flex align-items-center gap-3">
+                <div style="font-size: 24px;">⭐</div>
+                <div>
+                    <strong class="d-block" style="color: #ffffff; font-size: 15px;">
+                        @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                        {
+                            <span>Maandelikse PH Advertensie: <strong class="text-success">Aktief op /browse ⭐</strong></span>
+                        }
+                        else if (_subscription.HasPaidActivePeriod)
+                        {
+                            <span>Maandelikse PH Advertensie: <strong class="text-warning">Tydelik Gedeaktiveer (Betaalde Tydperk Geldig)</strong></span>
+                        }
+                        else
+                        {
+                            <span>Maandelikse PH Advertensie: <strong class="text-muted">Geen Aktiewe Intekening</strong></span>
+                        }
+                    </strong>
+                    <div class="small" style="color: #e5e7eb;">
+                        @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                        {
+                            <span>U PH profiel en dagtariewe is gereklameer op <code>/browse</code>. Geldig tot <strong>@_subscription.ExpiryDate.ToString("dd MMM yyyy")</strong> (@_subscription.DaysRemaining dae oor).</span>
+                        }
+                        else if (_subscription.HasPaidActivePeriod)
+                        {
+                            <span>U betaalde tydperk is nog geldig tot <strong>@_subscription.ExpiryDate.ToString("dd MMM yyyy")</strong> (@_subscription.DaysRemaining dae oor). Klik "Heraktiveer Advertensie" om weer te vertoon sonder betaling.</span>
+                        }
+                        else
+                        {
+                            <span>U profiel is tans nie gereklameer nie. Klik "Aktiveer Advertensie" om u verlangde tydperk op die betalingsbladsy te kies.</span>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                @if (_subscription.HasPaidActivePeriod)
+                {
+                    <a href="/betaling?type=subscription&role=PH" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                        ➕ Verleng Advertensie
+                    </a>
+                }
+                <button class="mp-btn @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "mp-btn-secondary" : "mp-btn-primary") mp-btn-sm text-nowrap" @onclick="HandleSubscriptionAction">
+                    @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                    {
+                        <span>Deaktiveer Advertensie ⏸️</span>
+                    }
+                    else if (_subscription.HasPaidActivePeriod)
+                    {
+                        <span>Heraktiveer Advertensie ▶️</span>
+                    }
+                    else
+                    {
+                        <span>Aktiveer Advertensie 💳</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        <!-- Stat Metrics Row 1: 4 Cards -->
+        <div class="mp-grid-4 mb-3">
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_phPackages.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Aktiewe Gidspakkette</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Gepubliseer op markplein</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@TotalAssignedExpeditions</div>
+                <div class="small text-muted text-uppercase fw-bold">Toegewese Ekspedisies</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">
+                    <span class="text-success">@_phBookings.Count Besprekings</span> | <span class="text-gold">@AcceptedInvitesCount Spanne</span>
+                </div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@(_ratingStats.RatingCount > 0 ? $"{_ratingStats.AverageStars:0.0} / 5" : "Geen nog")</div>
+                <div class="small text-muted text-uppercase fw-bold">PH Kliënte Gradering</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">@(_ratingStats.RatingCount > 0 ? $"Gebaseer op {_ratingStats.RatingCount} gradering(s)" : "Nog geen graderings ontvang nie")</div>
+            </div>
+            <div class="mp-card text-center border-warning">
+                @if (_dailyRates.StandardDailyRate == null && _dailyRates.DangerousGameDailyRate == null)
+                {
+                    <div class="fs-6 text-warning font-bold">⚠️ Tariewe nog nie gestel nie</div>
+                    <div class="small text-muted text-uppercase fw-bold">Stel dit hieronder om bespreek te kan word</div>
+                }
+                else
+                {
+                    <div class="fs-4 text-success font-bold text-nowrap">@(_dailyRates.StandardDailyRate.HasValue ? $"R {_dailyRates.StandardDailyRate.Value:N0}" : "Nie gestel nie")</div>
+                    <div class="small text-muted text-uppercase fw-bold">🌿 Vlaktewild Dagtarief</div>
+                    <div class="small text-gold font-bold mt-1 text-nowrap">@(_dailyRates.DangerousGameDailyRate.HasValue ? $"🦁 R {_dailyRates.DangerousGameDailyRate.Value:N0} / dag DG" : "🦁 Nie gestel nie")</div>
+                }
+                <button class="mp-btn mp-btn-secondary mp-btn-sm w-100 mt-2 py-0" style="font-size: 11px;" @onclick="OpenRatesModal">
+                    Wysig Dagtariewe ✏️
+                </button>
+            </div>
+        </div>
+
+        <!-- Stat Metrics Row 2: Centralized 3 Cards -->
+        <div class="d-flex justify-content-center gap-3 flex-wrap mb-4">
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-warning font-bold">@PendingInvitesCount</div>
+                <div class="small text-muted text-uppercase fw-bold">Afwagtende Uitnodigings</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Van Uitrusters (PJ)</div>
+            </div>
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-gold font-bold">@AcceptedInvitesCount</div>
+                <div class="small text-muted text-uppercase fw-bold">Aanvaarde Spanplasings</div>
+                <div class="small text-success mt-1" style="font-size: 11px;">Aktiewe PJ Vennootskappe</div>
+            </div>
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-success font-bold text-nowrap">100%</div>
+                <div class="small text-muted text-uppercase fw-bold">Gids Nakomingskoers</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Wetlik Gelisensieer ⭐</div>
+            </div>
+        </div>
+
+        <!-- Quick Action Navigation Cards -->
+        <div class="mp-grid mb-4">
+            <a href="/ph/pakkette" class="mp-card text-decoration-none h-100" style="border: 2px solid var(--accent-gold); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Bestuur PH Pakkette</h3>
+                    <span class="badge bg-warning text-dark">@_phPackages.Count Pakkette</span>
+                </div>
+                <p class="text-muted small mb-0">Stel u dagtarief, streek, provinsie en inbegrepe gidsdienste in vir die markplein.</p>
+            </a>
+
+            <a href="/ph/besprekings" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Gidsskedule &amp; Besprekings</h3>
+                    <span class="badge bg-secondary text-light">@_phBookings.Count Ekspedisies</span>
+                </div>
+                <p class="text-muted small mb-0">Hersien toegewese kliënt-jagte, kontroleer ekspedisie-bewyse en bestuur beskikbaarheid.</p>
+            </a>
+
+            <a href="/uitnodigings" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Spanaansoeke</h3>
+                    @if (PendingInvitesCount > 0)
+                    {
+                        <span class="badge bg-danger">@PendingInvitesCount Nuut</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary text-light">@_invites.Count Uitnodigings</span>
+                    }
+                </div>
+                <p class="text-muted small mb-0">Bekyk, aanvaar of wys van die hand enige span-uitnodigings deur Uitrusters (PJ).</p>
+            </a>
+
+            <a href="/soek-span" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Netwerk &amp; Uitrusters</h3>
+                    <span class="badge bg-secondary text-light">Netwerk ↗</span>
+                </div>
+                <p class="text-muted small mb-0">Verbind met geregistreerde Uitrusters (PJ), Videograwe (VG) en Wildsplase.</p>
+            </a>
+        </div>
+
+        <!-- Aksie Nodig: PH toewysings wat nog aanvaar/geweier moet word -->
+        @if (PendingAssignments.Any())
+        {
+            <div class="mp-card mb-4 border-warning" style="border-width: 2px;">
+                <h3 class="brand-font text-gold mb-1">⚠️ Aksie Nodig: Nuwe Toewysings</h3>
+                <p class="text-muted small mb-3">'n Uitruster (PJ) het u aan die volgende ekspedisie(s) toegewys. Aanvaar of wys van die hand.</p>
+                <div class="d-flex flex-column gap-2">
+                    @foreach (var b in PendingAssignments)
+                    {
+                        <div class="p-3 rounded" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                                <div>
+                                    <strong class="text-gold">@(string.IsNullOrWhiteSpace(b.PackageTitle) ? "Jagekspedisie" : b.PackageTitle)</strong>
+                                    <div class="small text-muted">
+                                        Jagter: @b.HunterName &bull; @b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy") &bull; Uitruster: @(string.IsNullOrWhiteSpace(b.PjName) ? "Uitruster" : b.PjName)
+                                    </div>
+                                </div>
+                                @if (_decliningBookingId != b.Id)
+                                {
+                                    <div class="d-flex gap-2">
+                                        <button class="mp-btn mp-btn-success mp-btn-sm" @onclick="() => RespondToAssignment(b, true)">
+                                            Aanvaar 🤝
+                                        </button>
+                                        <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => StartDecline(b.Id)">
+                                            Wys van hand ✕
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                            @if (_decliningBookingId == b.Id)
+                            {
+                                <div class="mt-2 pt-2 border-top border-secondary">
+                                    <label class="small text-muted mb-1 d-block">Rede (opsioneel):</label>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <input type="text" class="form-control form-control-sm" style="max-width: 320px;" placeholder="Bv. Nie beskikbaar op hierdie datums nie..." @bind="_declineReasonDraft" />
+                                        <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => RespondToAssignment(b, false)">
+                                            Bevestig Weiering
+                                        </button>
+                                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="CancelDecline">
+                                            Kanselleer
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Recent Assigned Expeditions Preview Table -->
+        <div class="mp-card mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h3 class="brand-font text-gold mb-1">Onlangse Toegewese Ekspedisies</h3>
+                    <p class="text-muted small mb-0">Die mees onlangse ekspedisies waar u as amptelike PH Gids toegewys is.</p>
+                </div>
+                <a href="/ph/besprekings" class="mp-btn mp-btn-secondary mp-btn-sm">Bekyk Volledige Skedule &rarr;</a>
+            </div>
+
+            @if (_phBookings.Count == 0 && AcceptedInvitesCount == 0)
+            {
+                <div class="text-center p-4 text-muted">
+                    <p class="mb-2">Geen aktiewe ekspedisies tans toegewys nie.</p>
+                    <p class="small">Sodra u 'n span-uitnodiging van 'n Uitruster (PJ) aanvaar of aan 'n bespreking gekoppel word, sal dit hier verskyn.</p>
+                    <a href="/uitnodigings" class="mp-btn mp-btn-primary mp-btn-sm">Bekyk Span-Uitnodigings</a>
+                </div>
+            }
+            else if (_phBookings.Count > 0)
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Ekspedisie / Pakket</th>
+                                <th>Jagter</th>
+                                <th>Datums</th>
+                                <th>Organiseerder (PJ)</th>
+                                <th>Status</th>
+                                <th>Aksies</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in _phBookings.Take(5))
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@(string.IsNullOrWhiteSpace(b.PackageTitle) ? "Jagekspedisie" : b.PackageTitle)</strong>
+                                    </td>
+                                    <td>
+                                        <strong>@b.HunterName</strong>
+                                        <div class="small text-muted">@b.HunterCount Jagters</div>
+                                    </td>
+                                    <td class="small">
+                                        @b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")
+                                    </td>
+                                    <td class="small text-muted">
+                                        @(string.IsNullOrWhiteSpace(b.PjName) ? "Uitruster" : b.PjName)
+                                    </td>
+                                    <td>
+                                        @if (string.Equals(b.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <span class="mp-badge mp-badge-success">Bevestig</span>
+                                        }
+                                        else if (string.Equals(b.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <span class="mp-badge mp-badge-info">Voltooi</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mp-badge mp-badge-warning">@StatusLabels.Booking(b.Status)</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="d-flex gap-1">
+                                            <button class="mp-btn mp-btn-outline-gold mp-btn-sm text-nowrap" @onclick='() => StartChat(b.HunterName, b.HunterUserId)'>
+                                                <i class="bi bi-chat-dots-fill text-gold me-1"></i> Klets
+                                            </button>
+                                            <a href="/ph/besprekings" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                                                Skedule 📅
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Uitruster (PJ)</th>
+                                <th>U Rol</th>
+                                <th>Datum Ontvang</th>
+                                <th>Status</th>
+                                <th>Aksies</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var inv in _invites.Where(i => string.Equals(i.Status, "Accepted", StringComparison.OrdinalIgnoreCase)).Take(5))
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@inv.PjName @inv.PjSurname</strong>
+                                        <div class="small text-muted">@inv.PjEmail</div>
+                                    </td>
+                                    <td>
+                                        <span class="mp-badge mp-badge-warning">
+                                            @(string.IsNullOrWhiteSpace(inv.TargetRoleCode) ? "PH Gids" : inv.TargetRoleCode)
+                                        </span>
+                                    </td>
+                                    <td class="small text-muted">@inv.InviteDate.ToString("dd MMM yyyy")</td>
+                                    <td>
+                                        <span class="mp-badge mp-badge-success">Aanvaar &#10003;</span>
+                                    </td>
+                                    <td>
+                                        <button class="mp-btn mp-btn-outline-gold mp-btn-sm text-nowrap" @onclick='() => StartChat($"{inv.PjName} {inv.PjSurname}", inv.PjUserId)'>
+                                            <i class="bi bi-chat-dots-fill text-gold me-1"></i> Klets
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        <!-- PH Service Packages Table Section -->
+        <div class="mp-card">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h3 class="brand-font text-gold mb-1">U Gidspakkette op Die Markplein</h3>
+                    <p class="text-muted small mb-0">U aktiewe gidsdienste, dagtariewe en spesiale aanbiedings.</p>
+                </div>
+                <a href="/ph/pakkette" class="mp-btn mp-btn-secondary mp-btn-sm">Bestuur Alle Pakkette &rarr;</a>
+            </div>
+
+            @if (_phPackages.Count == 0)
+            {
+                <div class="text-center p-4 text-muted">
+                    U het tans geen gidspakkette opgestel nie. Klik op "+ Voeg Gidspakket By" om u dagtarief te publiseer.
+                </div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Titel / Beskrywing</th>
+                                <th>Streek</th>
+                                <th>Dagtarief</th>
+                                <th>Dienste Inbegrepe</th>
+                                <th>Status</th>
+                                <th>Aksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pkg in _phPackages.Take(5))
+                            {
+                                <tr>
+                                    <td><strong>@pkg.Title</strong></td>
+                                    <td class="small text-muted">@pkg.RegionCovered</td>
+                                    <td><strong class="text-success">R @pkg.DailyRate.ToString("N0") / dag</strong></td>
+                                    <td class="small text-muted">@(pkg.ServicesIncluded.Count > 0 ? string.Join(", ", pkg.ServicesIncluded) : "Gids & Veldversorging")</td>
+                                    <td>
+                                        <span class="mp-badge mp-badge-success">Aktief</span>
+                                    </td>
+                                    <td>
+                                        <a href="/ph/pakkette" class="mp-btn mp-btn-secondary mp-btn-sm">Wysig</a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Quick Edit PH Daily Rates Modal -->
+@if (_showRatesModal)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="mp-card" style="width: 500px; max-width: 90%; border: 1.5px solid var(--accent-gold);">
+            <h3 class="brand-font text-gold mb-1">Opdateer PH Dagtariewe</h3>
+            <p class="text-muted small mb-3">Verander u dagtariewe vir Vlaktewild en Gevaarlike Wild direk vanaf die dashboard.</p>
+
+            <div class="mp-form-group mb-3">
+                <label class="mp-form-label fw-bold">🌿 Standaard Dagtarief (Vlaktewild - ZAR)</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text mp-input-group-text text-gold">R</span>
+                    <input type="number" class="mp-form-control" @bind="_editStandardRate" />
+                    <span class="input-group-text mp-input-group-text text-muted">/ dag</span>
+                </div>
+            </div>
+
+            <div class="mp-form-group mb-3">
+                <label class="mp-form-label fw-bold">🦁 Gevaarlike Wild Dagtarief (ZAR)</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text mp-input-group-text text-gold">R</span>
+                    <input type="number" class="mp-form-control" @bind="_editDangerousRate" />
+                    <span class="input-group-text mp-input-group-text text-muted">/ dag</span>
+                </div>
+            </div>
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="dgDashCheck" @bind="_editHasDg" />
+                <label class="form-check-label small text-gold ms-1" for="dgDashCheck">
+                    Gevaarlike Wild Akkreditasie (Gesertifiseer)
+                </label>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showRatesModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="SaveDailyRatesFromDashboard">Stoor Dagtariewe &rarr;</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ServicePackageModel> _phPackages = new();
+    private List<TeamInviteResponse> _invites = new();
+    private List<BookingModel> _phBookings = new();
+    private PhDailyRatesModel _dailyRates = new();
+    private RatingProfileStatsModel _ratingStats = new();
+    private int _myUserRoleId = 0;
+    private RoleSubscriptionModel _subscription = new();
+    private string _notificationMsg = string.Empty;
+
+    private bool _showRatesModal = false;
+    private decimal _editStandardRate = 0m;
+    private decimal _editDangerousRate = 0m;
+    private bool _editHasDg = true;
+
+    private int PendingInvitesCount => _invites.Count(i => string.Equals(i.Status, "Pending", StringComparison.OrdinalIgnoreCase));
+    private int AcceptedInvitesCount => _invites.Count(i => string.Equals(i.Status, "Accepted", StringComparison.OrdinalIgnoreCase));
+    private int TotalAssignedExpeditions => _phBookings.Count + AcceptedInvitesCount;
+    /// <summary>Bookings this PH has been assigned to but hasn't yet accepted/declined - drives the "Action Needed" banner.</summary>
+    private IEnumerable<BookingModel> PendingAssignments => _phBookings.Where(b => string.Equals(b.PhAssignmentStatus, "Pending", StringComparison.OrdinalIgnoreCase));
+
+    private int _decliningBookingId = 0;
+    private string _declineReasonDraft = string.Empty;
+
+    /// <summary>Switches a pending-assignment row into its inline decline-reason input state.</summary>
+    private void StartDecline(int bookingId)
+    {
+        _decliningBookingId = bookingId;
+        _declineReasonDraft = string.Empty;
+    }
+
+    private void CancelDecline()
+    {
+        _decliningBookingId = 0;
+        _declineReasonDraft = string.Empty;
+    }
+
+    /// <summary>Accepts or declines a PJ's staff assignment for this booking; on success reloads dashboard data so the assignment moves out of PendingAssignments.</summary>
+    private async Task RespondToAssignment(BookingModel b, bool accept)
+    {
+        var (success, _, message) = await Api.RespondToStaffAssignmentAsync(b.Id, "PH", accept, accept ? null : _declineReasonDraft);
+        _notificationMsg = message;
+        _decliningBookingId = 0;
+        _declineReasonDraft = string.Empty;
+        if (success)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        Api.OnNotificationsChanged += HandleNotificationsUpdated;
+        await LoadDataAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Refreshes dashboard data when a global notification event fires (e.g. another tab/action changed this PH's invites or bookings), keeping counts/banners in sync without a manual refresh.</summary>
+    private void HandleNotificationsUpdated()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Loads every dashboard section's data (packages, invites, bookings, daily rates,
+    /// ad subscription, rating stats, and the PH userRoleId needed by DocumentManager) in
+    /// sequence. Only runs once the PH role/Admin is confirmed, since it's also invoked from
+    /// auth-change and notification-change callbacks that can fire before the role check
+    /// has settled.
+    /// </summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("PH") || Auth.HasRole("Admin")))
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _phPackages = await Api.GetPhPackagesAsync();
+            _invites = await Api.GetInvitesForUserAsync(myUserId);
+            _phBookings = await Api.GetPhBookingsAsync(myUserId);
+            _dailyRates = await Api.GetPhDailyRatesAsync(myUserId);
+            _subscription = await Api.GetRoleSubscriptionAsync(myUserId, "PH");
+            _ratingStats = await Api.GetRatingProfileStatsAsync(myUserId, "PH");
+
+            var profileResult = await Api.GetProfileAsync(myUserId);
+            _myUserRoleId = profileResult.Data?.Roles.FirstOrDefault(r => r.RoleCode == "PH")?.Id ?? 0;
+        }
+    }
+
+    /// <summary>
+    /// Three-way subscription toggle: deactivate an active ad (keeping the paid period
+    /// intact), reactivate one whose paid period is still valid (no re-payment needed), or
+    /// - if there's no valid paid period at all - redirect to the payment page to buy one.
+    /// </summary>
+    private async Task HandleSubscriptionAction()
+    {
+        if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+        {
+            _subscription.IsActive = false;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(_subscription);
+            if (!saved) _subscription.IsActive = !_subscription.IsActive;
+            _notificationMsg = saved ? $"U PH advertensie is tydelik gedeaktiveer. U betaalde tydperk bly nog geldig tot {_subscription.ExpiryDate:dd MMM yyyy}." : (saveError ?? "Kon nie die advertensie opdateer nie.");
+        }
+        else if (_subscription.HasPaidActivePeriod)
+        {
+            // Scenario 3: Reactivate without payment because paid period is still valid!
+            _subscription.IsActive = true;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(_subscription);
+            if (!saved) _subscription.IsActive = !_subscription.IsActive;
+            _notificationMsg = saved ? $"U PH advertensie is suksesvol her-geaktiveer! Geen addisionele betaling was nodig nie (Geldig tot {_subscription.ExpiryDate:dd MMM yyyy})." : (saveError ?? "Kon nie die advertensie opdateer nie.");
+        }
+        else
+        {
+            // Scenario 1 & 2: Redirect to payment page to choose duration and pay
+            Nav.NavigateTo("/betaling?type=subscription&role=PH");
+        }
+    }
+
+    /// <summary>Seeds the rate-edit modal's draft fields from the current saved rates.</summary>
+    private void OpenRatesModal()
+    {
+        _editStandardRate = _dailyRates.StandardDailyRate ?? 0m;
+        _editDangerousRate = _dailyRates.DangerousGameDailyRate ?? 0m;
+        _editHasDg = _dailyRates.HasDangerousGameAccreditation;
+        _showRatesModal = true;
+    }
+
+    /// <summary>Saves the daily-rate modal's draft values and re-fetches to reflect the persisted result.</summary>
+    private async Task SaveDailyRatesFromDashboard()
+    {
+        var myUserId = Auth.CurrentUser?.UserId ?? 0;
+        await Api.SavePhDailyRatesAsync(myUserId, _editStandardRate, _editDangerousRate, _editHasDg);
+        _dailyRates = await Api.GetPhDailyRatesAsync(myUserId);
+        _showRatesModal = false;
+        _notificationMsg = "PH dagtariewe is suksesvol opgedateer vanaf die dashboard!";
+    }
+
+    /// <summary>Navigates to Messages pre-targeted at a hunter/PJ contact; falls back to userId 1 if the target id is somehow missing/invalid.</summary>
+    private void StartChat(string? targetName, int userId)
+    {
+        var name = string.IsNullOrWhiteSpace(targetName) ? "Gebruiker" : targetName;
+        var targetId = userId > 0 ? userId : 1;
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(name)}&targetUserId={targetId}");
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+        Api.OnNotificationsChanged -= HandleNotificationsUpdated;
+    }
+}

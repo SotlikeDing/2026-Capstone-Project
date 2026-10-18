@@ -1,0 +1,168 @@
+@* Search / filter / sort bar shared by every package list (markplein, PJ, PH and VG packages).
+   It only edits the PackageFilterState; the page applies it with PackageFilterState.Apply and
+   passes back how many packages matched. Dropdowns are hidden when the page gives no options. *@
+
+<div class="mp-card mb-4 p-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-12 col-lg-4">
+            <label class="mp-form-label small mb-1" for="@($"{_id}-q")">Soek</label>
+            <div class="position-relative">
+                <i class="bi bi-search position-absolute text-muted" style="left: 12px; top: 50%; transform: translateY(-50%);"></i>
+                <input id="@($"{_id}-q")" type="search" class="mp-form-control" style="padding-left: 34px;"
+                       placeholder="@SearchPlaceholder" maxlength="@PackageFilterState.MaxSearchLength"
+                       value="@State.Search" @oninput="OnSearch" />
+            </div>
+        </div>
+
+        @if (RegionOptions?.Count > 0)
+        {
+            <div class="col-6 col-md-4 col-lg-2">
+                <label class="mp-form-label small mb-1" for="@($"{_id}-r")">@RegionLabel</label>
+                <select id="@($"{_id}-r")" class="mp-form-control" value="@State.Region" @onchange="e => Set(() => State.Region = e.Value?.ToString() ?? string.Empty)">
+                    <option value="">Alle</option>
+                    @foreach (var r in RegionOptions)
+                    {
+                        <option value="@r">@r</option>
+                    }
+                </select>
+            </div>
+        }
+
+        @if (SpeciesOptions?.Count > 0)
+        {
+            <div class="col-6 col-md-4 col-lg-2">
+                <label class="mp-form-label small mb-1" for="@($"{_id}-s")">Spesie</label>
+                <select id="@($"{_id}-s")" class="mp-form-control" value="@State.Species" @onchange="e => Set(() => State.Species = e.Value?.ToString() ?? string.Empty)">
+                    <option value="">Alle</option>
+                    @foreach (var s in SpeciesOptions)
+                    {
+                        <option value="@s">@s</option>
+                    }
+                </select>
+            </div>
+        }
+
+        @if (StatusOptions?.Count > 0)
+        {
+            <div class="col-6 col-md-4 col-lg-2">
+                <label class="mp-form-label small mb-1" for="@($"{_id}-st")">Status</label>
+                <select id="@($"{_id}-st")" class="mp-form-control" value="@State.Status" @onchange="e => Set(() => State.Status = e.Value?.ToString() ?? string.Empty)">
+                    <option value="">Alle</option>
+                    @foreach (var (value, label) in StatusOptions)
+                    {
+                        <option value="@value">@label</option>
+                    }
+                </select>
+            </div>
+        }
+
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="mp-form-label small mb-1" for="@($"{_id}-sort")">Sorteer</label>
+            <select id="@($"{_id}-sort")" class="mp-form-control" value="@State.Sort" @onchange="e => Set(() => State.Sort = e.Value?.ToString() ?? PackageFilterState.SortNewest)">
+                <option value="@PackageFilterState.SortNewest">Nuutste eerste</option>
+                <option value="@PackageFilterState.SortPriceAsc">Prys: laag na hoog</option>
+                <option value="@PackageFilterState.SortPriceDesc">Prys: hoog na laag</option>
+                @if (ShowDays)
+                {
+                    <option value="@PackageFilterState.SortDaysAsc">Kortste eerste</option>
+                }
+                <option value="@PackageFilterState.SortTitle">Naam (A-Z)</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="row g-2 align-items-end mt-1">
+        <div class="col-6 col-md-3 col-lg-2">
+            <label class="mp-form-label small mb-1" for="@($"{_id}-min")">Min @PriceLabel (@CurrencySymbol)</label>
+            <input id="@($"{_id}-min")" type="number" min="0" step="100" inputmode="numeric" class="mp-form-control"
+                   value="@State.MinPrice" @onchange="e => Set(() => State.MinPrice = ParseAmount(e.Value))" />
+        </div>
+        <div class="col-6 col-md-3 col-lg-2">
+            <label class="mp-form-label small mb-1" for="@($"{_id}-max")">Maks @PriceLabel (@CurrencySymbol)</label>
+            <input id="@($"{_id}-max")" type="number" min="0" step="100" inputmode="numeric" class="mp-form-control"
+                   value="@State.MaxPrice" @onchange="e => Set(() => State.MaxPrice = ParseAmount(e.Value))" />
+        </div>
+        @if (ShowDays)
+        {
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="mp-form-label small mb-1" for="@($"{_id}-d")">Maks dae</label>
+                <select id="@($"{_id}-d")" class="mp-form-control" value="@(State.MaxDays?.ToString() ?? "")" @onchange="e => Set(() => State.MaxDays = int.TryParse(e.Value?.ToString(), out var d) ? d : null)">
+                    <option value="">Enige</option>
+                    @foreach (var d in new[] { 2, 3, 4, 5, 7, 10, 14 })
+                    {
+                        <option value="@d">@d dae of minder</option>
+                    }
+                </select>
+            </div>
+        }
+        <div class="col d-flex align-items-center justify-content-end gap-3 flex-wrap">
+            <span class="small text-muted" aria-live="polite">
+                @if (State.IsActive)
+                {
+                    <text>@Shown van @Total pakkette</text>
+                }
+                else
+                {
+                    <text>@Total pakkette</text>
+                }
+            </span>
+            @if (State.IsActive || State.Sort != PackageFilterState.SortNewest)
+            {
+                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="ClearAll">Maak filters skoon</button>
+            }
+        </div>
+    </div>
+
+    @if (State.PriceRangeInvalid)
+    {
+        <div class="small text-danger mt-2">Die minimum prys is groter as die maksimum - die prysfilter word geïgnoreer totdat dit reggestel is.</div>
+    }
+</div>
+
+@if (State.IsActive && Shown == 0 && Total > 0)
+{
+    <div class="mp-card text-center p-4 mb-4">
+        <p class="mb-2">Geen pakkette pas by u soektog of filters nie.</p>
+        <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="ClearAll">Maak filters skoon</button>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public PackageFilterState State { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public List<string>? RegionOptions { get; set; }
+    [Parameter] public string RegionLabel { get; set; } = "Provinsie";
+    [Parameter] public List<string>? SpeciesOptions { get; set; }
+    [Parameter] public List<(string Value, string Label)>? StatusOptions { get; set; }
+    [Parameter] public bool ShowDays { get; set; }
+    [Parameter] public string PriceLabel { get; set; } = "prys";
+    [Parameter] public string CurrencySymbol { get; set; } = "R";
+    [Parameter] public string SearchPlaceholder { get; set; } = "Soek op naam, beskrywing, plek...";
+    [Parameter] public int Total { get; set; }
+    [Parameter] public int Shown { get; set; }
+
+    private readonly string _id = "pf" + Guid.NewGuid().ToString("N")[..8];
+
+    private Task OnSearch(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? string.Empty;
+        State.Search = text.Length > PackageFilterState.MaxSearchLength ? text[..PackageFilterState.MaxSearchLength] : text;
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task Set(Action change)
+    {
+        change();
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task ClearAll()
+    {
+        State.Clear();
+        return OnChanged.InvokeAsync();
+    }
+
+    /// <summary>Blank, non-numbers and negatives mean "no limit" rather than an error.</summary>
+    private static decimal? ParseAmount(object? value)
+        => decimal.TryParse(value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var d) && d >= 0 ? d : null;
+}

@@ -1,0 +1,530 @@
+@* Professional Hunter (PH) schedule at /ph/bookings. Requires the "PH" or "Admin" role.
+   Lists expeditions the PH has been assigned to guide (by tab: all/confirmed/pending),
+   a calendar view of confirmed dates, accepted PJ team partnerships, and an official
+   printable/on-screen "expedition guide voucher" modal per booking. *@
+@page "/ph/besprekings"
+@page "/ph/bookings"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>PH Skedule &amp; Gids Besprekings | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans skedule...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde Professionele Jagters (PH).</p>
+        <a href="/teken-in?returnUrl=/ph/besprekings" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PH") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Professionele Jagter (PH) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Professionele Jagter (PH)</strong> nie. U kan hierdie rol op u profiel aktiveer om u gidsskedule te bekyk.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PH Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="no-print">
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+            <div>
+                <h1 class="brand-font text-gold mb-1">PH Skedule &amp; Gids Besprekings</h1>
+                <p class="text-muted mb-0">Toegewese gidsopdragte vir ekspedisies en regstreekse kliënt besprekings.</p>
+            </div>
+
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="/ph/paneelbord" class="mp-btn mp-btn-secondary mp-btn-sm">
+                    &larr; Terug na Paneelbord
+                </a>
+                <a href="/uitnodigings" class="mp-btn mp-btn-secondary mp-btn-sm">
+                    Spanaansoeke 📩
+                </a>
+                <a href="/ph/pakkette" class="mp-btn mp-btn-primary mp-btn-sm">
+                    + Voeg Gidspakket By
+                </a>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_notificationMsg))
+        {
+            <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+                <div>@_notificationMsg</div>
+                <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+            </div>
+        }
+
+        <!-- Summary KPI Row -->
+        <div class="mp-grid-4 mb-4">
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_phBookings.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Besprekings Toegewys</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Direkte PH-toewysings</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-success font-bold">@ConfirmedCount</div>
+                <div class="small text-muted text-uppercase fw-bold">Bevestigde Ekspedisies</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Gereed vir safari</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-warning font-bold">@PendingCount</div>
+                <div class="small text-muted text-uppercase fw-bold">Afwagtend</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Wag vir deposito / afmerking</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@AcceptedTeamInvitesCount</div>
+                <div class="small text-muted text-uppercase fw-bold">Aanvaarde PJ Spanne</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Aktiewe vennootskappe</div>
+            </div>
+        </div>
+
+        <!-- Filter Nav Tabs -->
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div class="btn-group role-tab-container" role="group">
+                <button type="button" class="mp-btn mp-btn-sm @(_activeTab == "all" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => SetTab("all")'>
+                    Alle Ekspedisies (@_phBookings.Count)
+                </button>
+                <button type="button" class="mp-btn mp-btn-sm @(_activeTab == "confirmed" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => SetTab("confirmed")'>
+                    Bevestig (@ConfirmedCount)
+                </button>
+                <button type="button" class="mp-btn mp-btn-sm @(_activeTab == "pending" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => SetTab("pending")'>
+                    Afwagtend (@PendingCount)
+                </button>
+                <button type="button" class="mp-btn mp-btn-sm @(_activeTab == "teams" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => SetTab("teams")'>
+                    Uitruster Spanne (@AcceptedTeamInvitesCount)
+                </button>
+                <button type="button" class="mp-btn mp-btn-sm @(_activeTab == "calendar" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => SetTab("calendar")'>
+                    📅 My Kalender
+                </button>
+            </div>
+        </div>
+
+        <!-- Calendar View: My Booked Dates -->
+        @if (_activeTab == "calendar")
+        {
+            <div class="mp-card mb-4 p-4">
+                <h5 class="brand-font text-gold mb-3">📅 My Gids Skedule Kalender</h5>
+                @{
+                    var calBookings = _phBookings
+                        .Where(b => b.Status == "Approved" || b.Status == "Paid")
+                        .OrderBy(b => b.StartDate)
+                        .ToList();
+                }
+                @if (!calBookings.Any())
+                {
+                    <p class="text-muted">Geen bevestigde ekspedisies om te vertoon nie.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Ekspedisie</th>
+                                    <th>Plaas</th>
+                                    <th>Aankoms</th>
+                                    <th>Vertrek</th>
+                                    <th>Dae</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var b in calBookings)
+                                {
+                                    <tr>
+                                        <td>@(b.PackageTitle ?? b.FarmName ?? "Bespreking")</td>
+                                        <td>@(b.FarmName ?? "—")</td>
+                                        <td class="text-gold fw-bold">@b.StartDate.ToString("dd MMM yyyy")</td>
+                                        <td class="text-gold fw-bold">@b.EndDate.ToString("dd MMM yyyy")</td>
+                                        <td>@(Math.Max(1,(b.EndDate-b.StartDate).Days))</td>
+                                        <td><span class="mp-badge @(b.Status == "Paid" ? "mp-badge-success" : "mp-badge-warning")">@StatusLabels.Booking(b.Status)</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Assigned Expeditions Table -->
+        <div class="mp-card mb-4">
+            @if (_loading)
+            {
+                <div class="text-center p-5 text-muted">
+                    <div class="spinner-border text-gold spinner-border-sm me-2"></div> Laai toegewese gidsskedule...
+                </div>
+            }
+            else if (_activeTab != "teams")
+            {
+                var filtered = FilteredBookings.ToList();
+                if (filtered.Count == 0)
+                {
+                    <div class="text-center p-5 text-muted">
+                        <p class="mb-2 fs-5">Geen ekspedisie-besprekings gevind vir die gekose filter nie.</p>
+                        <p class="small mb-3">Sodra 'n Uitruster (PJ) u as PH Gids op 'n ekspedisie toewys, sal u skedule hier bygewerk word.</p>
+                        <a href="/uitnodigings" class="mp-btn mp-btn-primary mp-btn-sm">Bekyk Span-Uitnodigings</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="mp-table-responsive">
+                        <table class="mp-table">
+                            <thead>
+                                <tr>
+                                    <th>Ekspedisie / Pakket</th>
+                                    <th>Jagter &amp; Kontak</th>
+                                    <th>Datums &amp; Ligging</th>
+                                    <th>Organiseerder (PJ)</th>
+                                    <th>Vrygestelde Gewere</th>
+                                    <th>Status</th>
+                                    <th>Aksies</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var b in filtered)
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong class="d-block text-gold">@(string.IsNullOrWhiteSpace(b.PackageTitle) ? "Jagekspedisie" : b.PackageTitle)</strong>
+                                            <div class="small text-muted">Ref: @(string.IsNullOrWhiteSpace(b.PaymentReference) ? $"MP-EXP-{b.Id:D6}" : b.PaymentReference)</div>
+                                        </td>
+                                        <td>
+                                            <strong>@b.HunterName</strong>
+                                            <div class="small text-muted">@b.HunterCount Jagters | @b.ObserverCount Waarnemers</div>
+                                            @if (!string.IsNullOrWhiteSpace(b.HunterPhone))
+                                            {
+                                                <div class="small text-muted">📞 @b.HunterPhone</div>
+                                            }
+                                        </td>
+                                        <td>
+                                            <div class="fw-bold">@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</div>
+                                            <div class="small text-muted">📍 @(string.IsNullOrWhiteSpace(b.FarmName) ? "Plaas nog nie bekend nie" : b.FarmName)</div>
+                                        </td>
+                                        <td class="small">
+                                            <div><strong>@(string.IsNullOrWhiteSpace(b.PjName) ? "Uitruster" : b.PjName)</strong></div>
+                                            <button type="button" class="mp-btn mp-btn-outline-gold mp-btn-xs py-1 px-2 mt-1 text-nowrap d-inline-flex align-items-center gap-1 shadow-sm" style="font-size: 11px;" @onclick='() => StartChat(b.PjName, b.PjUserId)'>
+                                                <i class="bi bi-chat-dots-fill text-gold"></i>
+                                                <span>Klets Uitruster</span>
+                                            </button>
+                                        </td>
+                                        <td class="small">
+                                            @if (string.Equals(b.FirearmOption, "Rental", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="badge bg-secondary">Huur PH Geweer 🎯</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-info text-dark">SAPS 520 Invoer 📄</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (string.Equals(b.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-success">Bevestig &#10003;</span>
+                                            }
+                                            else if (string.Equals(b.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-info">Voltooi</span>
+                                            }
+                                            else if (string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-warning">Afwagtend</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="mp-badge mp-badge-danger">Van Hand Gewys</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <div class="d-flex gap-1 flex-wrap">
+                                                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm d-inline-flex align-items-center gap-1" @onclick='() => StartChat(b.HunterName, b.HunterUserId)'>
+                                                    <i class="bi bi-chat-text-fill text-gold"></i>
+                                                    <span>Klets Jagter</span>
+                                                </button>
+                                                <button type="button" class="mp-btn mp-btn-primary mp-btn-sm" @onclick='() => OpenVoucherModal(b)'>
+                                                    Bewys 📜
+                                                </button>
+                                                @if (TripLifecycle.IsFinished(b))
+                                                {
+                                                    <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick='() => _ratingBooking = b'>
+                                                        Gradeer ⭐
+                                                    </button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else
+            {
+                <!-- Accepted Team Invites View -->
+                if (_teamInvites.Count(i => string.Equals(i.Status, "Accepted", StringComparison.OrdinalIgnoreCase)) == 0)
+                {
+                    <div class="text-center p-5 text-muted">
+                        <p class="mb-2 fs-5">Geen aktiewe Uitruster (PJ) span-vennootskappe nie.</p>
+                        <a href="/uitnodigings" class="mp-btn mp-btn-primary mp-btn-sm">Sien Inkomende Uitnodigings</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="mp-table-responsive">
+                        <table class="mp-table">
+                            <thead>
+                                <tr>
+                                    <th>Uitruster (Organiseerder)</th>
+                                    <th>U Gidsrol</th>
+                                    <th>Datum Aanvaar</th>
+                                    <th>Status</th>
+                                    <th>Aksie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var inv in _teamInvites.Where(i => string.Equals(i.Status, "Accepted", StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@inv.PjName @inv.PjSurname</strong>
+                                            <div class="small text-muted">@inv.PjEmail</div>
+                                        </td>
+                                        <td>
+                                            <span class="mp-badge mp-badge-warning">
+                                                @(string.IsNullOrWhiteSpace(inv.TargetRoleCode) ? "Hoof PH Gids" : inv.TargetRoleCode)
+                                            </span>
+                                        </td>
+                                        <td class="small text-muted">@inv.InviteDate.ToString("dd MMM yyyy")</td>
+                                        <td>
+                                            <span class="mp-badge mp-badge-success">Aktiewe Vennoot &#10003;</span>
+                                        </td>
+                                        <td>
+                                            <button type="button" class="mp-btn mp-btn-outline-gold mp-btn-xs py-1 px-2 text-nowrap d-inline-flex align-items-center gap-1 shadow-sm" style="font-size: 11px;" @onclick='() => StartChat($"{inv.PjName} {inv.PjSurname}", inv.PjUserId)'>
+                                                <i class="bi bi-chat-dots-fill text-gold"></i>
+                                                <span>Klets Uitruster</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+<!-- Post-trip team rating modal -->
+@if (_ratingBooking != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75); z-index: 1050;">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content mp-card shadow-lg" style="border: 1.5px solid var(--accent-gold); border-radius: 12px;">
+                <div class="modal-header border-bottom border-secondary p-3">
+                    <h5 class="modal-title brand-font text-gold">⭐ Gradeer die span — @(_ratingBooking.PackageTitle ?? $"Bespreking #{_ratingBooking.Id}")</h5>
+                    <button type="button" class="btn-close text-reset" aria-label="Maak toe" @onclick="() => _ratingBooking = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <BookingTeamRatingPanel BookingId="_ratingBooking.Id" />
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Expedition Voucher Modal -->
+@if (_activeVoucherBooking != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.75); z-index: 1050;">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content mp-card shadow-lg" style="border: 1.5px solid var(--accent-gold); border-radius: 12px;">
+                <div class="modal-header border-bottom border-secondary p-3" style="background: var(--bg-card-subtle, rgba(212, 175, 55, 0.05));">
+                    <h5 class="modal-title brand-font text-gold d-flex align-items-center gap-2">
+                        📜 Amptelike PH Ekspedisie Gidsbewys
+                    </h5>
+                    <button type="button" class="btn-close text-reset" @onclick="CloseVoucherModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="p-3 mb-4 rounded border border-warning" style="background: rgba(217, 119, 6, 0.1);">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <h4 class="brand-font text-gold mb-1">@_activeVoucherBooking.PackageTitle</h4>
+                                <div class="small text-muted">Verwysing: @_activeVoucherBooking.PaymentReference</div>
+                            </div>
+                            <span class="mp-badge mp-badge-success fs-6">Bevestigde Ekspedisie</span>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <div class="p-3 rounded mp-card border border-secondary h-100">
+                                <h6 class="text-gold fw-bold mb-2">🎯 Jagter Inligting</h6>
+                                <div><strong>@_activeVoucherBooking.HunterName</strong></div>
+                                <div class="small text-muted">Aantal jagters: @_activeVoucherBooking.HunterCount</div>
+                                <div class="small text-muted">Waarnemers: @_activeVoucherBooking.ObserverCount</div>
+                                @if (!string.IsNullOrWhiteSpace(_activeVoucherBooking.HunterPhone))
+                                {
+                                    <div class="small text-muted mt-1">📞 @_activeVoucherBooking.HunterPhone</div>
+                                }
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-3 rounded mp-card border border-secondary h-100">
+                                <h6 class="text-gold fw-bold mb-2">📍 Ekspedisie Datums &amp; Plaas</h6>
+                                <div><strong>@_activeVoucherBooking.StartDate.ToString("dd MMM yyyy") – @_activeVoucherBooking.EndDate.ToString("dd MMM yyyy")</strong></div>
+                                <div class="small text-muted">Plaas: @(string.IsNullOrWhiteSpace(_activeVoucherBooking.FarmName) ? "Plaas nog nie bekend nie" : _activeVoucherBooking.FarmName)</div>
+                                <div class="small text-muted mt-1">Uitruster (PJ): @_activeVoucherBooking.PjName</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded mp-card border border-secondary mb-4">
+                        <h6 class="text-gold fw-bold mb-2">🛡️ PH Verantwoordelikheid &amp; Veldinstruksies</h6>
+                        <ul class="small text-muted mb-0 ps-3">
+                            <li>Verifieer jagter se SAPS 520 vuurwapeninvoer of verskaf goedgekeurde PH rugsteungeweer.</li>
+                            <li>Toesig oor etiese jag, veldvoorbereiding van trofeë en veiligheidsreëls.</li>
+                            <li>Sorg vir spoorsnyers en trofee-afslagters op die terrein.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer border-top border-secondary p-3 d-flex justify-content-between">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseVoucherModal">Sluit</button>
+                    <button type="button" class="mp-btn mp-btn-primary d-inline-flex align-items-center gap-1" @onclick='() => StartChat(_activeVoucherBooking.HunterName, _activeVoucherBooking.HunterUserId)'>
+                        <i class="bi bi-chat-text-fill me-1"></i> Klets met Jagter
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<BookingModel> _phBookings = new();
+    private List<TeamInviteResponse> _teamInvites = new();
+    private bool _loading = true;
+    private string _activeTab = "all";
+    private string _notificationMsg = string.Empty;
+    private BookingModel? _activeVoucherBooking;
+    /// <summary>Finished booking whose "rate your team" modal is open, or null.</summary>
+    private BookingModel? _ratingBooking;
+
+    private int ConfirmedCount => _phBookings.Count(b => b.Status != null && (string.Equals(b.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Paid", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Completed", StringComparison.OrdinalIgnoreCase)));
+    private int PendingCount => _phBookings.Count(b => b.Status != null && string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase));
+    private int AcceptedTeamInvitesCount => _teamInvites.Count(i => string.Equals(i.Status, "Accepted", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Bookings for the currently selected tab ("all"/"confirmed"/"pending" - "teams" and "calendar" are rendered from other fields directly, not this list).</summary>
+    private IEnumerable<BookingModel> FilteredBookings => _activeTab switch
+    {
+        "confirmed" => _phBookings.Where(b => b.Status != null && (string.Equals(b.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Paid", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Completed", StringComparison.OrdinalIgnoreCase))),
+        "pending" => _phBookings.Where(b => b.Status != null && string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+        _ => _phBookings
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        Api.OnNotificationsChanged += HandleNotificationsUpdated;
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-fetches PH bookings/invites when auth state changes (e.g. login completes after this page already rendered its "please sign in" state).</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Refreshes bookings/invites when the app-wide notification stream signals a change (e.g. a new PJ team invite arrived) so this page stays live without a manual refresh.</summary>
+    private void HandleNotificationsUpdated()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Loads this PH's assigned bookings and team invites. Known bug: falls back to
+    /// hardcoded UserId 1 if Auth.CurrentUser is somehow null despite
+    /// Auth.IsAuthenticated being true - a leftover dev/testing default that would
+    /// silently show user 1's data rather than failing loudly.
+    /// </summary>
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        try
+        {
+            if (Auth.IsAuthenticated && (Auth.HasRole("PH") || Auth.HasRole("Admin")))
+            {
+                var myUserId = Auth.CurrentUser?.UserId ?? 0;
+                _phBookings = await Api.GetPhBookingsAsync(myUserId);
+                _teamInvites = await Api.GetInvitesForUserAsync(myUserId);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>Switches the active filter tab (all/confirmed/pending/teams/calendar).</summary>
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
+    }
+
+    /// <summary>
+    /// Navigates to the Messages page pre-filled with a target user. Known bug: falls
+    /// back to hardcoded targetUserId 1 when userId is 0/negative instead of e.g.
+    /// disabling the chat button, which could open a chat with the wrong (id-1) user.
+    /// </summary>
+    private void StartChat(string? targetName, int userId)
+    {
+        var name = string.IsNullOrWhiteSpace(targetName) ? "Gebruiker" : targetName;
+        int effectiveUserId = userId > 0 ? userId : 1;
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(name)}&targetUserId={effectiveUserId}");
+    }
+
+    /// <summary>Opens the printable expedition guide voucher modal for a confirmed booking.</summary>
+    private void OpenVoucherModal(BookingModel b)
+    {
+        _activeVoucherBooking = b;
+    }
+
+    /// <summary>Closes the voucher modal.</summary>
+    private void CloseVoucherModal()
+    {
+        _activeVoucherBooking = null;
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+        Api.OnNotificationsChanged -= HandleNotificationsUpdated;
+    }
+}

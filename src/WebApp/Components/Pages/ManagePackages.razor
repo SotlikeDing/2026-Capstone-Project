@@ -1,0 +1,765 @@
+@* PJ (expedition organiser) package-builder console at /pj/packages. Lets a PJ create/edit/
+   publish/unpublish/delete hunting packages against a farm belonging to a partner farmer in
+   their team (species list is pulled automatically from the farm, not hand-picked). Gated on
+   Auth.HasRole("PJ") or "Admin"; farms are restricted below to ones whose farmer is a current
+   team member, via a mix of exact-id matching and a fuzzy name-matching fallback (see LoadData). *@
+@page "/pj/pakkette"
+@page "/pj/packages"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject AiDraftHandoff Handoff
+@implements IDisposable
+
+<PageTitle>Pakket-Bouer &amp; Bestuur | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Pakketbestuur is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/pj/pakkette" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PJ") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Uitruster (PJ) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Uitruster (PJ)</strong> nie. U kan hierdie rol op u profiel aktiveer om pasgemaakte ekspedisies te bou en te publiseer.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PJ Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Pakket-Bouer &amp; Bestuur</h1>
+            <p class="text-muted mb-0">Skep en publiseer jagekspedisies op die markplein. Gidse (PH) en videograwe (VG) word later aan spesifieke jagter-besprekings toegewys.</p>
+        </div>
+
+        <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="ToggleCreateForm">
+            @(_showCreate ? "Sien Pakkette" : "+ Bou Nuwe Pakket")
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_errorMessage) && !_showCreate)
+    {
+        <div id="package-general-error-alert" class="alert alert-danger alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center" role="alert" style="background: rgba(220, 38, 38, 0.15); border: 1.5px solid #ef4444; color: #fee2e2; border-radius: 8px;">
+            <div>
+                <strong class="d-block" style="font-size: 14px;">⚠️ Fout:</strong>
+                <div class="small mt-1">@_errorMessage</div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" @onclick='() => _errorMessage = ""'></button>
+        </div>
+    }
+
+    @if (_showCreate)
+    {
+        <div class="mp-card p-4 mb-4" style="border: 2px solid var(--accent-gold);">
+            <h3 class="brand-font text-gold mb-3">@(_pkg.Id == 0 ? $"Bou Pasgemaakte Pakket ({Money.PackageCurrencySymbol})" : $"Wysig Pakket: {_pkg.Title}")</h3>
+            <p class="text-muted small mb-3">
+                Stel 'n ekspedisie saam met 'n vennoot-wildsplaas uit u span. <em>Let wel: Alle pakketpryse is <strong>vanaf-pryse</strong> in @(Money.IsZar(Money.PackageCurrency) ? "rand (R)" : "Amerikaanse dollar (US$)"). Wildspesies op die plaas word outomaties ingesluit. Die ekspedisieduur word deur die jagter bepaal met bespreking.</em>
+            </p>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div id="package-error-alert" class="alert alert-danger alert-dismissible fade show mb-3 d-flex justify-content-between align-items-center" role="alert" style="background: rgba(220, 38, 38, 0.15); border: 1.5px solid #ef4444; color: #fee2e2; border-radius: 8px;">
+                    <div>
+                        <strong class="d-block" style="font-size: 14px;">⚠️ Validatiefout voor Publikasie:</strong>
+                        <div class="small mt-1">@_errorMessage</div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick='() => _errorMessage = ""'></button>
+                </div>
+            }
+
+            @if (_farms.Count == 0)
+            {
+                <div class="alert alert-warning p-3 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: rgba(217, 119, 6, 0.15); border: 1.5px solid #f59e0b; border-radius: 8px;">
+                    <div>
+                        <strong class="d-block text-gold mb-1">⚠️ Geen Vennoot-Wildsplase in u Span Gevind Nie</strong>
+                        <div class="small" style="color: #e5e7eb;">
+                            Kragtens MikPunt-reëls kan pakkette slegs geskep word vir plase van boere wat amptelik deel van u ekspedisie-span is. Nooi eers 'n boer uit na u span om hul plaas beskikbaar te stel.
+                        </div>
+                    </div>
+                    <a href="/soek-span" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">Soek Boere op Netwerk &rarr;</a>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_aiNotice))
+            {
+                <div class="alert alert-info py-2 small mb-3">✨ @_aiNotice</div>
+            }
+            <EditForm Model="_pkg" OnValidSubmit="SavePackage">
+                <div class="row g-3">
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label">Pakket Titel *</label>
+                        <InputText @bind-Value="_pkg.Title" class="mp-form-control" placeholder="bv. Waterberg Trofee Koedoe & Rooibok Safari" required />
+                    </div>
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label">Kies Vennoot Plaas (Uit U Span) *</label>
+                        @if (_farms.Count > 0)
+                        {
+                            <select class="mp-form-control" value="@_pkg.FarmId" @onchange="OnFarmChanged" required>
+                                @foreach (var f in _farms)
+                                {
+                                    <option value="@f.Id">@f.Name (@f.NearestTown, @f.Province)</option>
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            <select class="mp-form-control" disabled>
+                                <option>-- Geen boer in span nie --</option>
+                            </select>
+                        }
+                    </div>
+                </div>
+
+                <div class="mp-form-group mt-3">
+                    <label class="mp-form-label">Beskrywing &amp; Besonderhede *</label>
+                    <InputTextArea @bind-Value="_pkg.Description" class="mp-form-control" rows="5" placeholder="Beskryf verblyf, terrein, fasiliteite en jagomstandighede..." required />
+                </div>
+
+                <!-- What the price does and does not cover: shown side by side on the marketplace -->
+                <div class="row g-3 mt-1">
+                    <div class="col-md-6">
+                        <label class="mp-form-label" for="pkgInclusions">Ingesluit in die prys * <span class="text-muted small">(een item per reël)</span></label>
+                        <textarea id="pkgInclusions" class="mp-form-control" rows="6" @bind="_inclusionsText"
+                                  placeholder="bv. Professionele jagter (PH) vir die hele jag"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="mp-form-label" for="pkgExclusions">Nie ingesluit nie <span class="text-muted small">(een item per reël)</span></label>
+                        <textarea id="pkgExclusions" class="mp-form-control" rows="6" @bind="_exclusionsText"
+                                  placeholder="bv. Trofeefooie per geskiete dier"></textarea>
+                    </div>
+                </div>
+
+                <!-- Hunting vs Non-Hunting Vanaf Pricing -->
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4 mp-form-group">
+                        <label class="mp-form-label">Vanaf Prys per Jagter (@Money.PackageCurrencySymbol) *</label>
+                        <InputNumber @bind-Value="_pkg.PricePerHunter" class="mp-form-control" min="100" placeholder="@($"{Money.PackageCurrencySymbol} 2 500")" required />
+                        <div class="small text-muted mt-1">Vanaf-tarief vir aktiewe jagters (begeleiding &amp; velddienste).</div>
+                    </div>
+                    <div class="col-md-4 mp-form-group">
+                        <label class="mp-form-label">Vanaf Prys per Nie-jagter (@Money.PackageCurrencySymbol) *</label>
+                        <InputNumber @bind-Value="_pkg.PricePerObserver" class="mp-form-control" min="50" placeholder="@($"{Money.PackageCurrencySymbol} 1 200")" required />
+                        <div class="small text-muted mt-1">Vanaf-tarief vir waarnemers/metgeselle wat nie jag nie.</div>
+                    </div>
+                    <div class="col-md-4 mp-form-group">
+                        <label class="mp-form-label">Beskikbare Jagter Slots *</label>
+                        <InputNumber @bind-Value="_pkg.AvailableSlots" class="mp-form-control" min="1" max="20" required />
+                        <div class="small text-muted mt-1">Maksimum aantal jagters wat gelyktydig kan deelneem.</div>
+                    </div>
+                </div>
+
+                <div class="p-2 px-3 rounded mt-3 small" style="background: rgba(217, 119, 6, 0.08); border-left: 3px solid var(--accent-gold);">
+                    <strong class="text-gold">Vanaf-Pryse &amp; Duur Kennisgewing:</strong> Alle pryse is <em>vanaf-pryse</em> en kan styg op grond van finale trofeefooie, addisionele wild, of ekstra dae. Die ekspedisieduur word vrylik deur die jagter bepaal met bespreking.
+                </div>
+
+                <!-- Auto-Included Species on Selected Farm (No manual selection needed) -->
+                <div class="mp-form-group mt-3">
+                    <label class="mp-form-label d-flex justify-content-between align-items-center">
+                        <span class="text-gold fw-bold">Wildspesies op Plaas (Outomaties Ingesluit by Pakket):</span>
+                        <span class="small text-success fw-bold">&#10003; Alle plaasspesies outomaties ingesluit</span>
+                    </label>
+
+                    @if (_availableFarmSpecies.Count > 0)
+                    {
+                        <div class="d-flex flex-wrap gap-2 p-3 rounded" style="background: var(--bg-card); border: 1px solid var(--border-color);">
+                            @foreach (var sp in _availableFarmSpecies)
+                            {
+                                <span class="mp-badge mp-badge-success d-flex align-items-center gap-1" style="font-size: 12px; padding: 5px 12px;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    @sp
+                                </span>
+                            }
+                        </div>
+                        <div class="small text-muted mt-1">
+                            * Alle wild wat tans op hierdie wildsplaas voorkom, is outomaties by die pakket ingesluit. Die jagter kies tydens die jag watter spesies hulle wil benut.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-muted small">Geen spesifieke dierelys gevind vir hierdie plaas nie. Standaard wildsoorte sal ingesluit word.</div>
+                    }
+                </div>
+
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="CancelEdit">Kanselleer</button>
+                    <button type="submit" class="mp-btn mp-btn-primary">
+                        @(_pkg.Id == 0 ? "Publiseer na Markplein" : "Stoor Wysigings")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <!-- Package Grid -->
+    @if (_packages.Count == 0)
+    {
+        <div class="mp-card text-center p-5">
+            <h3 class="brand-font text-gold mb-2">Nog Geen Pakkette Nie</h3>
+            <p class="text-muted mb-3">U het nog geen ekspedisie-pakkette geskep nie. Klik op "+ Bou Nuwe Pakket" om u eerste pakket te bou.</p>
+            <button class="mp-btn mp-btn-primary" @onclick="() => _showCreate = true">+ Bou Eerste Pakket</button>
+        </div>
+    }
+    else
+    {
+        <PackageFilterBar State="_filter" OnChanged="StateHasChanged" RegionOptions="PackageRegions" SpeciesOptions="PackageSpecies"
+                          StatusOptions="StatusOptions" ShowDays="true" PriceLabel="prys / jagter" CurrencySymbol="@Money.PackageCurrencySymbol"
+                          SearchPlaceholder="Soek op pakket, plaas, dorp of spesie..."
+                          Total="_packages.Count" Shown="FilteredPackages.Count" />
+
+        <div class="mp-grid">
+            @foreach (var p in FilteredPackages)
+            {
+                <div class="mp-card d-flex flex-column h-100 position-relative">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h3 class="brand-font text-gold mb-0">@p.Title</h3>
+                        @if (!p.IsMarketplaceVisible)
+                        {
+                            <span class="mp-badge mp-badge-warning">Wag op goedkeuring</span>
+                        }
+                        else if (p.IsPublished && p.AvailableSlots > 0)
+                        {
+                            <span class="mp-badge mp-badge-success">Aktief op Mark</span>
+                        }
+                        else if (p.AvailableSlots <= 0)
+                        {
+                            <span class="mp-badge mp-badge-danger">Vol Bespreek</span>
+                        }
+                        else
+                        {
+                            <span class="mp-badge mp-badge-warning">Onaktief</span>
+                        }
+                    </div>
+
+                    @if (!p.IsMarketplaceVisible)
+                        {
+                            <div class="alert alert-warning small py-2 px-3 mb-2">
+                                <strong>Nog nie op die markplein sigbaar nie:</strong>
+                                @(!p.OrganiserDocumentsApproved && !p.FarmerDocumentsApproved ? "jou dokumente en die boer se dokumente wag op goedkeuring."
+                                  : !p.OrganiserDocumentsApproved ? "jou dokumente wag op goedkeuring deur die administrateur."
+                                  : "die boer se dokumente vir hierdie plaas wag op goedkeuring.")
+                                @if (!p.OrganiserDocumentsApproved) { <a href="/profiel" class="ms-1">Bekyk jou dokumente</a> }
+                            </div>
+                        }
+
+                    <div class="small text-muted mb-2">
+                        <strong>Plaas:</strong> @p.FarmName (@p.Location)
+                    </div>
+
+                    <div class="d-flex gap-3 mb-2 flex-wrap">
+                        <span class="small text-gold fw-bold">Duur: Deur jagter bepaal</span>
+                        <span class="small text-muted">|</span>
+                        <span class="small text-gold fw-bold">Vanaf @Money.Format(p.PricePerHunter, Money.PackageCurrency) (Jagter)</span>
+                        <span class="small text-muted">|</span>
+                        <span class="small text-gold fw-bold">Vanaf @Money.Format(p.PricePerObserver, Money.PackageCurrency) (Nie-jagter)</span>
+                        <span class="small text-muted">|</span>
+                        <span class="small text-info fw-bold">@p.AvailableSlots slots beskikbaar</span>
+                    </div>
+
+                    <p class="text-muted fs-6 mb-3 flex-grow-1" style="line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                        @p.Description
+                    </p>
+
+                    <!-- Species Badges -->
+                    @if (p.AvailableFarmSpecies != null && p.AvailableFarmSpecies.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <div class="small text-muted fw-bold mb-1">Ingeslote Wild:</div>
+                            <div class="d-flex flex-wrap gap-1">
+                                @foreach (var sp in p.AvailableFarmSpecies.Take(5))
+                                {
+                                    <span class="mp-badge" style="font-size: 10.5px;">@sp</span>
+                                }
+                                @if (p.AvailableFarmSpecies.Count > 5)
+                                {
+                                    <span class="mp-badge" style="font-size: 10.5px;">+@(p.AvailableFarmSpecies.Count - 5) meer</span>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <div class="d-flex gap-2 mt-auto pt-2 border-top border-secondary flex-wrap">
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm flex-grow-1" @onclick="() => TogglePublish(p)">
+                            @(p.IsPublished ? "Maak Onaktief" : "Aktiveer")
+                        </button>
+                        <a class="mp-btn mp-btn-secondary mp-btn-sm" href="/ki-helper?role=PJ&packageId=@p.Id" title="Optimeer hierdie pakket met die AI-Helper">✨ AI</a>
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => EditPackage(p)">
+                            Wysig
+                        </button>
+                        <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => PromptDeletePackage(p)">
+                            Skrap
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@if (_showDeleteModal && _packageToDelete != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2100;">
+        <div class="mp-card border-danger" style="width: 500px; max-width: 98%;">
+            <div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom border-secondary">
+                <h3 class="brand-font text-danger mb-0">Skrap Pakket Bevestiging</h3>
+                <button type="button" class="btn-close btn-close-white" @onclick="() => _showDeleteModal = false"></button>
+            </div>
+            <p class="mb-3">
+                Is u seker u wil die pakket <strong>@_packageToDelete.Title</strong> skrap?
+            </p>
+            <div class="alert alert-warning small mb-3">
+                <strong>Let wel:</strong> Hierdie aksie sal die pakket permanent verwyder of deaktiveer. Bestaande besprekings sal behoue bly, maar nuwe jagters sal nie meer kan bespreek nie.
+            </div>
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showDeleteModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-danger" @onclick="ConfirmDeletePackage">Ja, Skrap Pakket</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<HuntingPackageModel> _packages = new();
+    private readonly PackageFilterState _filter = new();
+
+    private static readonly List<(string Value, string Label)> StatusOptions = new()
+    {
+        ("active", "Aktief op Mark"), ("pending", "Wag op goedkeuring"), ("full", "Vol Bespreek"), ("inactive", "Onaktief"),
+    };
+
+    /// <summary>Same order as the badge on each card, so the Status filter matches what the card shows.</summary>
+    private static string PackageStatus(HuntingPackageModel p) =>
+        !p.IsMarketplaceVisible ? "pending" : p.IsPublished && p.AvailableSlots > 0 ? "active" : p.AvailableSlots <= 0 ? "full" : "inactive";
+
+    private static readonly PackageFilterFields<HuntingPackageModel> FilterFields = new()
+    {
+        Id = p => p.Id,
+        Title = p => p.Title,
+        Price = p => p.PricePerHunter,
+        Days = p => p.DurationDays,
+        Text = p => new[] { p.Title, p.Description, p.FarmName, p.FarmerName, p.Province, p.NearestTown, p.Location }.Concat(p.IncludedSpecies),
+        Region = p => new[] { p.Province },
+        Species = p => p.IncludedSpecies,
+        Status = PackageStatus,
+    };
+
+    private List<HuntingPackageModel> FilteredPackages => _filter.Apply(_packages, FilterFields).ToList();
+    private List<string> PackageRegions => PackageFilterState.Options(_packages.Select(p => p.Province));
+    private List<string> PackageSpecies => PackageFilterState.Options(_packages.SelectMany(p => p.IncludedSpecies));
+    private List<FarmModel> _farms = new();
+    private List<string> _availableFarmSpecies = new();
+    private bool _showCreate = false;
+    private string _notificationMsg = string.Empty;
+    private string _errorMessage = string.Empty;
+    private HuntingPackageModel _pkg = new();
+    // "Ingesluit" / "Nie ingesluit nie" are edited as text, one item per line.
+    private string _inclusionsText = string.Empty;
+    private string _exclusionsText = string.Empty;
+
+    private static readonly string DefaultInclusions = string.Join("\n",
+        "Professionele jagter (PH) en spoorsnyer vir die hele jag",
+        "Verblyf in die lodge met drie etes per dag",
+        "Veldvoertuig en vervoer op die plaas",
+        "Afslag, soutkamer en verkoeling van karkasse",
+        "Jaglisensie- en permitadministrasie");
+
+    private static readonly string DefaultExclusions = string.Join("\n",
+        "Trofeefooie per geskiete dier (volgens die plaas se pryslys)",
+        "Taksidermie, verpakking en uitvoer van trofeë",
+        "Vlugte en vervoer na en van die plaas",
+        "Alkoholiese drank en fooitjies",
+        "Vuurwapen-invoerpermit (SAPS 520) vir buitelandse jagters");
+
+    private static List<string> SplitLines(string text) =>
+        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private bool _showDeleteModal = false;
+    private HuntingPackageModel? _packageToDelete;
+    private string _aiNotice = string.Empty;
+
+    /// <summary>Subscribes to auth-state changes and loads packages/farms immediately if already authenticated with the right role.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            await LoadData();
+        }
+    }
+
+    /// <summary>AuthService login/logout callback - reloads data as the session changes within the same tab.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+            {
+                await LoadData();
+            }
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Re-fetches on every parameter-set pass (in addition to OnInitializedAsync) so returning to this page via client-side routing picks up any packages created/changed elsewhere in the session.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            await LoadData();
+        }
+    }
+
+    /// <summary>
+    /// Loads this PJ's own packages (Admins see everyone's) and the set of farms they're
+    /// allowed to build a package against. Farm eligibility uses several fallback matching
+    /// strategies chained with OR: farmer user-id, farmer's team-member-role-id (in case
+    /// FarmerUserId on the farm record actually stores a userRoleId in some paths), the
+    /// viewer's own farms if they're a Boer themselves, and finally fuzzy first/last-name
+    /// string matching against the team roster. The name-matching fallback is a heuristic
+    /// safety net for farm records that don't cleanly carry a matching id - it can both
+    /// under- and over-match on shared surnames, but errs toward inclusion since the
+    /// downstream real safeguard is the required-documents verification gate on booking,
+    /// not this list.
+    /// </summary>
+    private async Task LoadData()
+    {
+        var myUserId = Auth.CurrentUser?.UserId ?? 0;
+        // A PJ's own list must include packages the marketplace still hides (documents pending).
+        _packages = Auth.HasRole("Admin") ? await Api.GetPackagesAsync() : await Api.GetMyPackagesAsync();
+
+        // Enforce: Only farms from farmers in the specific PJ's team may be used
+        var team = await Api.GetPjTeamMembersAsync(myUserId);
+        var farmerMembers = team.Where(m =>
+            string.Equals(m.Role, "Boer", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(m.Role, "Farmer", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var farmerUserIds = farmerMembers.Select(m => m.UserId).ToHashSet();
+        var farmerRoleIds = farmerMembers.Select(m => m.MemberUserRoleId).ToHashSet();
+
+        var allFarms = await Api.GetFarmsAsync();
+        _farms = allFarms.Where(f =>
+            farmerUserIds.Contains(f.FarmerUserId) ||
+            farmerRoleIds.Contains(f.FarmerUserId) ||
+            (Auth.HasRole("Boer") && f.FarmerUserId == myUserId) ||
+            farmerMembers.Any(fm =>
+                string.Equals(fm.Name, f.FarmerName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals($"{fm.Name} {fm.Surname}".Trim(), f.FarmerName?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(fm.Surname) && (f.FarmerName ?? "").Contains(fm.Surname, StringComparison.OrdinalIgnoreCase)))
+        ).ToList();
+
+        if (_farms.Count > 0 && _pkg.FarmId == 0)
+        {
+            SelectFarm(_farms.First());
+        }
+        ApplyAiDraft();
+    }
+
+    /// <summary>Opens the form pre-filled with an offer built in the AI Helper (/ki-helper -> "Maak oop in redigeerder"), once. Nothing is saved until the PJ clicks save.</summary>
+    private void ApplyAiDraft()
+    {
+        var d = Handoff.Take("PJ");
+        if (d == null) return;
+        var existing = d.TargetId > 0 ? _packages.FirstOrDefault(p => p.Id == d.TargetId) : null;
+        if (existing != null) EditPackage(existing);
+        else { InitNewPackage(); _showCreate = true; }
+        if (!string.IsNullOrWhiteSpace(d.Title)) _pkg.Title = d.Title;
+        if (!string.IsNullOrWhiteSpace(d.Description)) _pkg.Description = d.Description;
+        if (d.Price is > 0) _pkg.PricePerHunter = d.Price.Value;
+        if (d.ObserverPrice is > 0) _pkg.PricePerObserver = d.ObserverPrice.Value;
+        if (d.DurationDays is > 0) _pkg.DurationDays = d.DurationDays.Value;
+        _aiNotice = "Ingevul deur die AI-Helper - kontroleer alles en klik dan stoor.";
+    }
+
+    /// <summary>Toggles between the package list and the create form, pre-filling a new package's defaults when opening the form for the first time.</summary>
+    private void ToggleCreateForm()
+    {
+        _showCreate = !_showCreate;
+        _errorMessage = string.Empty;
+        _aiNotice = string.Empty;
+        if (_showCreate && _pkg.Id == 0 && _farms.Count > 0)
+        {
+            InitNewPackage();
+        }
+    }
+
+    /// <summary>Builds a fresh package with sensible defaults (4 slots, $2500/$1200 vanaf-prices) and auto-selects the first eligible farm, if any.</summary>
+    private void InitNewPackage()
+    {
+        _pkg = new HuntingPackageModel
+        {
+            OrganiserUserId = Auth.CurrentUser?.UserId ?? 0,
+            OrganiserName = Auth.CurrentUser?.FullName ?? "Uitruster (PJ)",
+            DurationDays = 0,
+            AvailableSlots = 4,
+            PricePerHunter = 2500,
+            PricePerObserver = 1200,
+            IsPublished = true,
+            ImageUrl = "images/savanna_sunrise.jpg"
+        };
+        _inclusionsText = DefaultInclusions;
+        _exclusionsText = DefaultExclusions;
+        if (_farms.Count > 0)
+        {
+            SelectFarm(_farms.First());
+        }
+    }
+
+    /// <summary>Populates the package form's farm-derived fields and auto-includes every species on the farm (falls back to a fixed generic species list if the farm has none recorded) - species aren't hand-picked per package.</summary>
+    private void SelectFarm(FarmModel farm)
+    {
+        _pkg.FarmId = farm.Id;
+        _pkg.FarmName = farm.Name;
+        _pkg.Province = farm.Province;
+        _pkg.NearestTown = farm.NearestTown;
+        _pkg.Location = $"{farm.NearestTown}, {farm.Province}";
+
+        if (farm.AvailableSpecies != null && farm.AvailableSpecies.Count > 0)
+        {
+            _availableFarmSpecies = new List<string>(farm.AvailableSpecies);
+        }
+        else
+        {
+            _availableFarmSpecies = new List<string> { "Koedoe", "Rooibok", "Vlakvark", "Blesbok", "Gemsbok", "Blouwildebees", "Sebra" };
+        }
+
+        // Auto-include ALL animals on the farm in the package (no selection needed)
+        _pkg.AvailableFarmSpecies = new List<string>(_availableFarmSpecies);
+    }
+
+    /// <summary>Bound to the farm &lt;select&gt;'s onchange since it's a plain select with a custom value/onchange pair rather than InputSelect - resolves the chosen farm id and re-runs SelectFarm.</summary>
+    private void OnFarmChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int fid))
+        {
+            var farm = _farms.FirstOrDefault(f => f.Id == fid);
+            if (farm != null)
+            {
+                SelectFarm(farm);
+            }
+        }
+    }
+
+    /// <summary>Clones the selected package into the edit form's model (rather than editing the list item in place) so a cancelled edit leaves the original untouched.</summary>
+    private void EditPackage(HuntingPackageModel p)
+    {
+        _errorMessage = string.Empty;
+        _pkg = new HuntingPackageModel
+        {
+            Id = p.Id,
+            Title = p.Title,
+            Description = p.Description,
+            FarmId = p.FarmId,
+            FarmName = p.FarmName,
+            Province = p.Province,
+            Location = p.Location,
+            DurationDays = p.DurationDays,
+            PricePerHunter = p.PricePerHunter,
+            PricePerObserver = p.PricePerObserver > 0 ? p.PricePerObserver : 1200,
+            AvailableSlots = p.AvailableSlots,
+            IsPublished = p.IsPublished,
+            OrganiserUserId = p.OrganiserUserId,
+            OrganiserName = p.OrganiserName,
+            ImageUrl = p.ImageUrl,
+            AvailableFarmSpecies = new List<string>(p.AvailableFarmSpecies ?? new List<string>())
+        };
+        _inclusionsText = string.Join("\n", p.IncludedServices);
+        _exclusionsText = string.Join("\n", p.ExcludedServices);
+
+        var farm = _farms.FirstOrDefault(f => f.Id == p.FarmId);
+        if (farm != null && farm.AvailableSpecies != null && farm.AvailableSpecies.Count > 0)
+        {
+            _availableFarmSpecies = new List<string>(farm.AvailableSpecies);
+        }
+        else
+        {
+            _availableFarmSpecies = new List<string> { "Koedoe", "Rooibok", "Vlakvark", "Blesbok", "Gemsbok", "Blouwildebees", "Sebra" };
+        }
+
+        // Auto-include ALL animals on the farm
+        _pkg.AvailableFarmSpecies = new List<string>(_availableFarmSpecies);
+        _showCreate = true;
+    }
+
+    private void CancelEdit()
+    {
+        _aiNotice = string.Empty;
+        _showCreate = false;
+        _errorMessage = string.Empty;
+        _pkg = new();
+    }
+
+    /// <summary>
+    /// Sets the error message, forces a render, then waits 50ms before invoking JS to
+    /// scroll the (now-rendered) error alert into view - the delay gives Blazor's diff/
+    /// render cycle time to actually paint the element before the DOM query runs.
+    /// Uses `eval` rather than a dedicated JS interop function/module; harmless here since
+    /// the script is a fixed literal with no user input concatenated into it, but `eval`
+    /// is normally avoidable via IJSObjectReference-based interop.
+    /// </summary>
+    private async Task SetErrorAndScroll(string msg)
+    {
+        _errorMessage = msg;
+        StateHasChanged();
+        await Task.Delay(50);
+        try
+        {
+            await JS.InvokeVoidAsync("eval", @"
+                var el = document.getElementById('package-error-alert') || document.getElementById('package-general-error-alert');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            ");
+        }
+        catch { }
+    }
+
+    /// <summary>Client-side validation pass (farm availability, required fields) before saving; DurationDays is always forced to 0 since duration is negotiated per-booking, not fixed on the package.</summary>
+    private async Task SavePackage()
+    {
+        _errorMessage = string.Empty;
+
+        // Requirement: Show error if no farms to add
+        if (_farms.Count == 0)
+        {
+            await SetErrorAndScroll("Daar is geen vennoot-wildsplase in u span beskikbaar nie. Nooi eers 'n boer uit na u span voor u 'n pakket kan publiseer.");
+            return;
+        }
+
+        // Requirement: Show error if not all fields are entered
+        var missing = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(_pkg.Title))
+            missing.Add("Pakket Titel");
+
+        if (_pkg.FarmId <= 0)
+            missing.Add("Vennoot Plaas");
+
+        if (string.IsNullOrWhiteSpace(_pkg.Description))
+            missing.Add("Beskrywing & Besonderhede");
+
+        if (_pkg.PricePerHunter <= 0)
+            missing.Add("Vanaf Prys per Jagter");
+
+        if (_pkg.PricePerObserver <= 0)
+            missing.Add("Vanaf Prys per Nie-jagter (Waarnemer)");
+
+        if (_pkg.AvailableSlots <= 0)
+            missing.Add("Beskikbare Jagter Slots");
+
+        if (SplitLines(_inclusionsText).Count == 0)
+            missing.Add("Ingesluit in die prys");
+
+        if (missing.Count > 0)
+        {
+            await SetErrorAndScroll($"Vul asseblief alle vereiste velde in voor publikasie: {string.Join(", ", missing)}.");
+            return;
+        }
+
+        _pkg.IncludedServices = SplitLines(_inclusionsText);
+        _pkg.ExcludedServices = SplitLines(_exclusionsText);
+
+        // Auto-include all animals on the farm
+        _pkg.AvailableFarmSpecies = new List<string>(_availableFarmSpecies);
+        _pkg.OrganiserUserId = Auth.CurrentUser?.UserId ?? 0;
+        _pkg.OrganiserName = Auth.CurrentUser?.FullName ?? "Uitruster (PJ)";
+        _pkg.DurationDays = 0; // Duur word vrylik deur die jagter bepaal met bespreking
+        
+        bool isNew = _pkg.Id == 0;
+        bool ok = await Api.SavePackageAsync(_pkg);
+        if (ok)
+        {
+            _notificationMsg = isNew 
+                ? $"Pakket '{_pkg.Title}' is suksesvol gepubliseer na die markplein!"
+                : $"Pakket '{_pkg.Title}' is suksesvol opgedateer!";
+            _showCreate = false;
+            _errorMessage = string.Empty;
+            _pkg = new();
+            await LoadData();
+        }
+        else
+        {
+            await SetErrorAndScroll("Kon nie die pakket stoor nie. Gaan asseblief u netwerkverbinding na en probeer weer.");
+        }
+    }
+
+    /// <summary>Optimistically flips IsPublished on the in-memory item, saves, and reverts the flip locally if the save fails.</summary>
+    private async Task TogglePublish(HuntingPackageModel p)
+    {
+        p.IsPublished = !p.IsPublished;
+        bool ok = await Api.SavePackageAsync(p);
+        if (ok)
+        {
+            _notificationMsg = p.IsPublished
+                ? $"Pakket '{p.Title}' is nou aktief op die markplein."
+                : $"Pakket '{p.Title}' is nou gedeaktiveer.";
+            await LoadData();
+        }
+        else
+        {
+            p.IsPublished = !p.IsPublished;
+            await SetErrorAndScroll("Kon nie die pakketstatus opdateer nie. Probeer asseblief weer.");
+        }
+    }
+
+    private void PromptDeletePackage(HuntingPackageModel pkg)
+    {
+        _packageToDelete = pkg;
+        _showDeleteModal = true;
+    }
+
+    /// <summary>Deletes the confirmed package via the API. Existing bookings against a deleted package are preserved server-side (per the delete-confirmation copy shown to the user) - this call only removes/deactivates the package listing itself.</summary>
+    private async Task ConfirmDeletePackage()
+    {
+        if (_packageToDelete == null) return;
+        var pkg = _packageToDelete;
+        _showDeleteModal = false;
+        _packageToDelete = null;
+
+        var (ok, deactivated) = await Api.DeletePackageAsync(pkg.Id);
+        if (ok)
+        {
+            _notificationMsg = deactivated
+                ? $"Pakket '{pkg.Title}' het besprekings, dus is dit gedeaktiveer (nie geskrap nie) sodat die besprekingsgeskiedenis bewaar bly."
+                : $"Pakket '{pkg.Title}' is suksesvol verwyder.";
+            await LoadData();
+        }
+        else
+        {
+            await SetErrorAndScroll("Kon nie die pakket skrap nie. Probeer asseblief weer.");
+        }
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}
+

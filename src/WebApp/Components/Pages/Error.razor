@@ -1,0 +1,44 @@
+@* Generic error page (route: /Error), shown by the framework's default exception handler
+   in production (see Program.cs's UseExceptionHandler) when an unhandled exception
+   escapes a request. No role restriction - reachable by anyone. *@
+@page "/fout"
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Fout | MikPunt</PageTitle>
+
+<div class="row justify-content-center">
+    <div class="col-md-7 text-center">
+        <div class="mp-card p-5">
+            <h1 class="brand-font text-gold mb-3">Oeps! 'n Fout het voorgekom</h1>
+            <p class="text-muted mb-3">
+                Ons ondervind tans 'n onverwagte probleem. Ons tegniese span is in kennis gestel.
+            </p>
+
+            @if (ShowRequestId)
+            {
+                <div class="alert alert-secondary text-start mb-4 bg-dark border-secondary">
+                    <small class="text-muted d-block uppercase fw-bold">Navraag Verwysing ID:</small>
+                    <code>@RequestId</code>
+                </div>
+            }
+
+            <div class="d-flex justify-content-center gap-3">
+                <a href="/" class="mp-btn mp-btn-primary">&larr; Terug na Tuisblad</a>
+                <button class="mp-btn mp-btn-secondary" onclick="window.location.reload()">Herlaai Bladsy</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    /// <summary>Prefers the current Activity's trace id (distributed tracing) over the raw HttpContext trace identifier, falling back to the latter if tracing isn't active.</summary>
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

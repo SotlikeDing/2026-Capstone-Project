@@ -1,0 +1,380 @@
+@* /profile/{UserId} - read-only public profile view aggregating role-specific content
+   (VG packages, PH rates, Boer farms, ratings/reviews, required-document upload status) for
+   whichever roles the target user has active. Anyone can view any profile; only the owner
+   (IsOwnProfile) sees the "dispute this rating" action on their own reviews. *@
+@page "/profiel/{UserId:int}"
+@page "/profile/{UserId:int}"
+@inject MikpuntApiService Api
+@inject NavigationManager Nav
+@inject AuthService Auth
+
+<PageTitle>Publieke Profiel | MikPunt</PageTitle>
+
+@if (_loading)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Laai profiel...</div>
+    </div>
+}
+else if (_profile == null)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Profiel Nie Gevind Nie</h3>
+        <p class="text-muted mb-4">Die versoekte profiel kon nie gevind word nie.</p>
+        <a href="@(!string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/pj/soek-span")" class="mp-btn mp-btn-primary">&larr; Terug</a>
+    </div>
+}
+else
+{
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="mp-card p-4">
+                <div class="d-flex justify-content-between align-items-start mb-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="mp-brand-logo" style="width: 60px; height: 60px;">
+                            @if (!string.IsNullOrEmpty(_profile.ProfilePictureUrl))
+                            {
+                                <img src="@_profile.ProfilePictureUrl" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />
+                            }
+                            else
+                            {
+                                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            }
+                        </div>
+                        <div>
+                            <h1 class="brand-font text-gold mb-1">@_profile.Name @_profile.Surname</h1>
+                            <div class="d-flex gap-2 mt-2 flex-wrap">
+                                @foreach (var r in _profile.Roles)
+                                {
+                                    <span class="mp-badge mp-badge-warning">@r.RoleCode Profiel</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <a href="/boodskappe?targetUser=@Uri.EscapeDataString(_profile.Name + " " + _profile.Surname)&targetUserId=@UserId" class="mp-btn mp-btn-primary">
+                        Stuur Boodskap
+                    </a>
+                </div>
+
+                <div class="p-3 border border-secondary rounded mb-4 bg-dark">
+                    <div class="row text-center">
+                        <div class="col-4 border-end border-secondary">
+                            <div class="fs-4 text-gold fw-bold">@(_ratingStats.RatingCount > 0 ? $"{_ratingStats.AverageStars:0.0} / 5" : "Geen graderings nie")</div>
+                            <div class="small text-muted">@(_ratingStats.RatingCount > 0 ? $"Gradering ({_ratingStats.RatingCount})" : "Gradering")</div>
+                        </div>
+                        <div class="col-4 border-end border-secondary">
+                            <div class="fs-4 text-gold fw-bold">@_ratingStats.CompletedTrips</div>
+                            <div class="small text-muted">Voltooide Jagte</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="fs-4 text-gold fw-bold">Aktief</div>
+                            <div class="small text-muted">Status</div>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_recentRatings != null && _recentRatings.Any())
+                {
+                    <h3 class="brand-font text-gold mb-3 mt-5">Resensies</h3>
+                    <div class="d-flex flex-column gap-2 mb-4">
+                        @foreach (var rating in _recentRatings)
+                        {
+                            <div class="p-3 rounded border border-secondary" style="background: var(--bg-dark);">
+                                <div class="d-flex justify-content-between align-items-start mb-1">
+                                    <strong class="text-gold">@rating.RaterName</strong>
+                                    <span class="small text-warning" title="@rating.Stars / 5">@string.Concat(Enumerable.Repeat("★", rating.Stars))@string.Concat(Enumerable.Repeat("☆", 5 - rating.Stars))</span>
+                                </div>
+                                <div class="small text-muted mb-1">@rating.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")</div>
+                                @if (!string.IsNullOrWhiteSpace(rating.Comment))
+                                {
+                                    <p class="mb-2 small">@rating.Comment</p>
+                                }
+                                @if (IsOwnProfile)
+                                {
+                                    <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" style="font-size: 11px;" @onclick="() => OpenDisputeModal(rating)">
+                                        Betwis Hierdie Gradering
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (_vgPackages != null && _vgPackages.Any())
+                {
+                    <h3 class="brand-font text-gold mb-3 mt-5">Videograaf (VG) Pakkette</h3>
+                    <div class="row g-3 mb-4">
+                        @foreach (var pkg in _vgPackages)
+                        {
+                            <div class="col-md-6">
+                                <div class="p-3 rounded border border-secondary h-100 d-flex flex-column" style="background: var(--bg-dark);">
+                                    <div class="d-flex justify-content-between mb-2">
+                                        <h5 class="text-gold mb-0">@(string.IsNullOrWhiteSpace(pkg.Title) ? "Video Pakket" : pkg.Title)</h5>
+                                        <span class="text-success fw-bold">R @pkg.DailyRate.ToString("N0")</span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(pkg.RegionCovered))
+                                    {
+                                        <div class="small text-muted mb-1"><strong>Streek:</strong> @pkg.RegionCovered</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(pkg.EquipmentProvided))
+                                    {
+                                        <div class="small text-muted mb-2"><strong>Toerusting:</strong> @pkg.EquipmentProvided</div>
+                                    }
+                                    <p class="text-muted small mt-2 mb-0 flex-grow-1">@pkg.Description</p>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (_phRates != null)
+                {
+                    <h3 class="brand-font text-gold mb-3 mt-5">Professionele Jagter (PH) Tariewe</h3>
+                    @if (_phRates.StandardDailyRate == null && _phRates.DangerousGameDailyRate == null)
+                    {
+                        <div class="p-3 rounded border border-secondary mb-4 text-muted small" style="background: rgba(255,255,255,0.03);">
+                            Hierdie PH het nog nie hul dagtariewe gestel nie.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-3 rounded border border-warning mb-4" style="background: rgba(217, 119, 6, 0.08);">
+                            <div class="d-flex justify-content-between mb-2 pb-2 border-bottom border-secondary">
+                                <div>🌿 <strong>Standaard Dagtarief (Gewone Wild):</strong></div>
+                                <div class="text-success fw-bold">@(_phRates.StandardDailyRate.HasValue ? $"{_phRates.Currency} {_phRates.StandardDailyRate.Value:N0} / dag" : "Nie gestel nie")</div>
+                            </div>
+                            <div class="d-flex justify-content-between pt-2">
+                                <div>🦁 <strong>Gevaarlike Wild Dagtarief:</strong></div>
+                                <div class="text-gold fw-bold">@(_phRates.DangerousGameDailyRate.HasValue ? $"{_phRates.Currency} {_phRates.DangerousGameDailyRate.Value:N0} / dag" : "Nie gestel nie")</div>
+                            </div>
+                            @if (_phRates.HasDangerousGameAccreditation)
+                            {
+                                <div class="mt-3 text-success small">&#10003; Gevaarlike Wild Akkreditasie Bevestig</div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_documentSummaries.Count > 0)
+                {
+                    <h3 class="brand-font text-gold mb-3 mt-5">Geloofsbriewe &amp; Dokumentasie</h3>
+                    <p class="text-muted small mb-3">
+                        Vertoon watter verpligte dokumente hierdie gebruiker opgelaai het - die dokumente self is privaat en slegs vir die eienaar en administrateurs sigbaar.
+                    </p>
+                    <div class="row g-3 mb-4">
+                        @foreach (var group in _documentSummaries)
+                        {
+                            <div class="col-md-6">
+                                <div class="p-3 rounded border border-secondary h-100" style="background: var(--bg-dark);">
+                                    <h5 class="text-gold mb-2">@GetRoleDisplayLabel(group.Key)</h5>
+                                    <div class="d-flex flex-column gap-2">
+                                        @foreach (var doc in group.Value)
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center small">
+                                                <span>
+                                                    @doc.DocumentTypeName
+                                                    @if (doc.IsRequired)
+                                                    {
+                                                        <span class="text-muted" style="font-size: 10px;"> (verpligtend)</span>
+                                                    }
+                                                </span>
+                                                @if (doc.IsUploaded)
+                                                {
+                                                    <span class="mp-badge mp-badge-success" style="font-size: 10px;">&#10003; Opgelaai</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="mp-badge mp-badge-danger" style="font-size: 10px;">Nie Opgelaai Nie</span>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (_farms != null && _farms.Any())
+                {
+                    <h3 class="brand-font text-gold mb-3 mt-5">Boer Plase</h3>
+                    <div class="row g-3 mb-4">
+                        @foreach (var farm in _farms)
+                        {
+                            <div class="col-md-6">
+                                <div class="p-3 rounded border border-secondary h-100 d-flex flex-column" style="background: var(--bg-dark);">
+                                    <div class="d-flex justify-content-between mb-2">
+                                        <h5 class="text-gold mb-0">@farm.Name</h5>
+                                    </div>
+                                    <div class="small text-muted mb-1"><strong>Provinsie:</strong> @farm.Province</div>
+                                    <div class="small text-muted mb-2"><strong>Dorp:</strong> @farm.NearestTown</div>
+                                    <div class="small text-gold mb-2"><strong>Jagter Tarief:</strong> R @farm.DailyRateHunter.ToString("N0") / dag</div>
+                                    <p class="text-muted small mt-2 mb-0 flex-grow-1">@farm.Description</p>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="d-flex gap-2 mt-5">
+                    <button class="mp-btn mp-btn-secondary" @onclick="GoBack">&larr; Terug</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_showDisputeModal && _disputingRating != null)
+    {
+        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.8); z-index: 2000;">
+            <div class="mp-card" style="width: 500px; max-width: 90%;">
+                <h3 class="brand-font text-gold mb-2">Betwis Gradering</h3>
+                <p class="text-muted small mb-3">
+                    U betwis die @_disputingRating.Stars-ster gradering van <strong>@_disputingRating.RaterName</strong>.
+                    'n Admin sal u rede hersien; indien u dispuut gehandhaaf word, tel hierdie gradering nie meer in u gemiddelde nie.
+                </p>
+
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Rede vir Dispuut</label>
+                    <textarea class="mp-form-control" rows="4" @bind="_disputeReason" placeholder="Verduidelik hoekom hierdie gradering onregverdig of onakkuraat is..."></textarea>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_disputeError))
+                {
+                    <div class="alert alert-danger p-2 small mt-2">@_disputeError</div>
+                }
+
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showDisputeModal = false">Kanselleer</button>
+                    <button type="button" class="mp-btn mp-btn-primary" disabled="@_disputeSubmitting" @onclick="SubmitDispute">
+                        @(_disputeSubmitting ? "Stuur..." : "Dien Dispuut In")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int UserId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private bool _loading = true;
+    private UserProfileApiResponseModel? _profile;
+    
+    private List<ServicePackageModel>? _vgPackages;
+    private PhDailyRatesModel? _phRates;
+    private List<FarmModel>? _farms;
+    private RatingProfileStatsModel _ratingStats = new();
+    private List<RecentRatingModel>? _recentRatings;
+    private Dictionary<string, List<UserDocumentSummaryModel>> _documentSummaries = new();
+
+    private static readonly string[] DocumentBackedRoles = { "PJ", "PH", "VG", "Boer", "Farmer", "FARMER" };
+
+    private bool IsOwnProfile => Auth.IsAuthenticated && Auth.CurrentUser?.UserId == UserId;
+
+    private bool _showDisputeModal = false;
+    private RecentRatingModel? _disputingRating;
+    private string _disputeReason = string.Empty;
+    private bool _disputeSubmitting = false;
+    private string _disputeError = string.Empty;
+
+    /// <summary>
+    /// Loads the target profile, then conditionally fetches each role-specific block
+    /// (VG packages, PH rates, farms, ratings, per-role document summaries) only for the
+    /// roles the profile actually has - avoids firing API calls for sections that won't render.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        var result = await Api.GetProfileAsync(UserId);
+        if (result.Success && result.Data != null)
+        {
+            _profile = result.Data;
+
+            if (_profile.Roles.Any(r => r.RoleCode == "VG"))
+            {
+                _vgPackages = await Api.GetVgPackagesAsync(UserId);
+            }
+            if (_profile.Roles.Any(r => r.RoleCode == "PH"))
+            {
+                _phRates = await Api.GetPhDailyRatesAsync(UserId);
+            }
+            if (_profile.Roles.Any(r => AuthService.SameRole(r.RoleCode, "FARMER")))
+            {
+                _farms = await Api.GetFarmsAsync(UserId);
+            }
+
+            _ratingStats = await Api.GetRatingProfileStatsAsync(UserId);
+            _recentRatings = await Api.GetRecentRatingsAsync(UserId);
+
+            foreach (var role in _profile.Roles.Where(r => DocumentBackedRoles.Contains(r.RoleCode)))
+            {
+                string apiRoleCode = NormalizeRoleCodeForDocs(role.RoleCode);
+                var summary = await Api.GetDocumentSummaryAsync(role.Id, apiRoleCode);
+                if (summary.Count > 0)
+                {
+                    _documentSummaries[role.RoleCode] = summary;
+                }
+            }
+        }
+        _loading = false;
+    }
+
+    /// <summary>Maps the profile's display role code to the document-type API's role code vocabulary, where Boer/Farmer are both normalized to "FARMER".</summary>
+    private static string NormalizeRoleCodeForDocs(string roleCode) =>
+        roleCode.Equals("Boer", StringComparison.OrdinalIgnoreCase) || roleCode.Equals("Farmer", StringComparison.OrdinalIgnoreCase)
+            ? "FARMER"
+            : roleCode;
+
+    private static string GetRoleDisplayLabel(string roleCode) => roleCode switch
+    {
+        "PJ" => "Uitruster (PJ) Dokumente",
+        "PH" => "Professionele Jagter (PH) Dokumente",
+        "VG" => "Videograaf (VG) Dokumente",
+        "Boer" or "Farmer" or "FARMER" => "Boer Dokumente",
+        _ => $"{roleCode} Dokumente"
+    };
+
+    /// <summary>Returns to ReturnUrl if the page was navigated to with one (e.g. from a booking row), else falls back to the browse directory.</summary>
+    private void GoBack()
+    {
+        Nav.NavigateTo(!string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/pj/soek-span");
+    }
+
+    /// <summary>Opens the rating-dispute modal for the profile owner (only rendered when IsOwnProfile).</summary>
+    private void OpenDisputeModal(RecentRatingModel rating)
+    {
+        _disputingRating = rating;
+        _disputeReason = string.Empty;
+        _disputeError = string.Empty;
+        _showDisputeModal = true;
+    }
+
+    /// <summary>Submits the dispute; a successful submission just closes the modal (the rating itself isn't removed from the page - it awaits admin review server-side).</summary>
+    private async Task SubmitDispute()
+    {
+        if (_disputingRating == null) return;
+        if (string.IsNullOrWhiteSpace(_disputeReason))
+        {
+            _disputeError = "'n Rede is verpligtend.";
+            return;
+        }
+
+        _disputeSubmitting = true;
+        var (success, message) = await Api.SubmitRatingDisputeAsync(_disputingRating.RatingId, _disputeReason);
+        _disputeSubmitting = false;
+
+        if (success)
+        {
+            _showDisputeModal = false;
+        }
+        else
+        {
+            _disputeError = message;
+        }
+    }
+}

@@ -1,0 +1,72 @@
+@* Static Terms of Service page (route: /terms), Afrikaans-only legal copy. No @code
+   block - purely static markup, publicly reachable (no auth). *@
+@page "/bepalings"
+@page "/terms"
+
+<PageTitle>Diensvoorwaardes | MikPunt</PageTitle>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="mp-card p-4 p-md-5 rounded-4 shadow-lg border-0">
+                <div class="border-bottom border-secondary pb-3 mb-4">
+                    <span class="badge bg-gold text-dark font-monospace mb-2 px-3 py-1 text-uppercase fw-bold">Wetlik &amp; Nakoming</span>
+                    <h1 class="brand-font text-gold display-6 fw-bold">Diensvoorwaardes van MikPunt</h1>
+                    <p class="text-muted small mb-0">Laaste opgedateer: 12 Augustus 2026</p>
+                </div>
+
+                <div class="mp-policy-document">
+                    <h4 class="text-gold brand-font mt-4">1. Inleiding &amp; Aanvaarding</h4>
+                    <p>Welkom by MikPunt ("die Platform"). Deur te registreer, toegang te verkry tot, of gebruik te maak van enige van ons dienste, stem jy uitdruklik in tot hierdie Diensvoorwaardes. Indien jy nie met enige deel van hierdie voorwaardes saamstem nie, mag jy nie die Platform gebruik nie.</p>
+
+                    <h4 class="text-gold brand-font mt-4">2. Rol-omskrywings &amp; Verantwoordelikhede</h4>
+                    <p>MikPunt fasiliteer interaksie tussen verskillende belanghebbendes in die jag- en ekotoerismebedryf:</p>
+                    <ul>
+                        <li><strong>Jagter:</strong> Verantwoordelik vir die verskaffing van akkurate identifikasie, bynaam vir ranglyste, nakoming van plaasreëls en nasionale jagwetgewing.</li>
+                        <li><strong>Boer (Plaaseienaar):</strong> Verantwoordelik vir akkurate plaasinligting, streek- en grondbriefbesonderhede, tariewe, wildspesies beskikbaarheid, en toepaslike permitte.</li>
+                        <li><strong>Pakket Uitruster (PJ):</strong> Die sentrale meester-reëler van jaguitstappies, verantwoordelik vir provinsiale lisensies, CIPC/BTW registrasie en koördinering van ekspedisies.</li>
+                        <li><strong>Professionele Jagter (PH):</strong> Verantwoordelik vir gelisensieerde gidsdienste in die veld, PHASA/CHASA lidmaatskap, gevaarlike wild endossemente, eerstehulp en vuurwapenbevoegdheid.</li>
+                        <li><strong>Videograaf (VG):</strong> Verantwoordelik vir professionele mediakwaliteit, SACAA hommeltuig-lisensies (RPL/ROC) en nakoming van privaatheid ten opsigte van verfilming.</li>
+                        <li><strong>Adverteerder (AP):</strong> Onafhanklike kommersiële adverteerder wie se adverteringsinhoud en BTW/belastingbesonderhede aan alle bemarkingswette moet voldoen.</li>
+                    </ul>
+
+                    <h4 class="text-gold brand-font mt-4">3. Wetlike Vuurwapen &amp; SAPS 520 Nakoming</h4>
+                    <p>Alle vuurwapeninvoer en permitgenerering op die Platform (insluitend SAPS 520 vorms) is slegs vir leiding en fasilitering. Die gebruiker bly ten volle verantwoordelik vir die akkuraatheid van hul vuurwapenbesonderhede en nakoming van die Wet op Beheer van Vuurwapens (Wet 60 van 2000).</p>
+
+                    <h4 class="text-gold brand-font mt-4">4. Kansellasies &amp; Betalings</h4>
+                    <p>Betalings en deposito's wat via MikPunt gemaak word, is unterhewig aan die spesifieke kansellasiebeleid van die betrokke Boer of Uitruster (PJ). MikPunt eis 'n diensfooi vir betalingsfasilitering wat nie-terugbetaalbaar is nie.</p>
+
+                    <h4 class="text-gold brand-font mt-4">5. Beperking van Aanspreeklikheid</h4>
+                    <p>MikPunt aanvaar geen aanspreeklikheid vir enige beserings, verliese, skade aan eiendom, of wetlike oortredings wat plaasvind tydens enige jaguitstappie of op enige geregistreerde plaas nie.</p>
+
+                    <h4 class="text-gold brand-font mt-4">6. Kontaminasie &amp; Kansellasie van Profiele</h4>
+                    <p>MikPunt behou die reg voor om enige profiel op te skort of te beëindig indien daar valse inligting of vals kwalifikasies verskaf word, of indien die gebruiker enige wetlike jagregulasies oortree.</p>
+                </div>
+
+                <div class="mt-5 pt-3 border-top border-secondary text-center">
+                    <a href="/registreer" class="mp-btn mp-btn-primary px-4 py-2 fw-bold text-decoration-none">Terug na Registrasie</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Responsive theme text color for Terms & Conditions: White in Dark Mode, Black in Light Mode */
+    .mp-policy-document {
+        color: #111111;
+        line-height: 1.7;
+    }
+    .mp-policy-document p, 
+    .mp-policy-document li {
+        color: inherit;
+    }
+    [data-theme="dark"] .mp-policy-document,
+    .dark-theme .mp-policy-document {
+        color: #ffffff !important;
+    }
+    [data-theme="dark"] .mp-policy-document p,
+    [data-theme="dark"] .mp-policy-document li {
+        color: #ffffff !important;
+    }
+</style>

@@ -1,0 +1,220 @@
+{
+  "modelVersion": "2026.09.21-bootstrap",
+  "currency": "USD",
+  "kinds": {
+    "PJ_PACKAGE": {
+      "n_synthetic": 6000,
+      "n_real": 0,
+      "real_share": 0.0,
+      "band_source": "validation-mixed",
+      "bandLog": {
+        "lo": -0.1792,
+        "hi": 0.2043
+      },
+      "metrics": {
+        "val_mape_all": 0.1268,
+        "val_band_coverage": 0.8,
+        "val_rows": 1200
+      },
+      "prior_error_on_real": null,
+      "evidence": "published",
+      "onnxVsSklearnMaxDiff": 7.767516301271371e-07
+    },
+    "PH_RATE": {
+      "n_synthetic": 6000,
+      "n_real": 0,
+      "real_share": 0.0,
+      "band_source": "validation-mixed",
+      "bandLog": {
+        "lo": -0.2342,
+        "hi": 0.2377
+      },
+      "metrics": {
+        "val_mape_all": 0.1515,
+        "val_band_coverage": 0.8,
+        "val_rows": 1200
+      },
+      "prior_error_on_real": null,
+      "evidence": "assumed",
+      "onnxVsSklearnMaxDiff": 4.1487600910272704e-07
+    },
+    "VG_PACKAGE": {
+      "n_synthetic": 6000,
+      "n_real": 0,
+      "real_share": 0.0,
+      "band_source": "validation-mixed",
+      "bandLog": {
+        "lo": -0.1886,
+        "hi": 0.2053
+      },
+      "metrics": {
+        "val_mape_all": 0.1272,
+        "val_band_coverage": 0.8,
+        "val_rows": 1200
+      },
+      "prior_error_on_real": null,
+      "evidence": "published",
+      "onnxVsSklearnMaxDiff": 7.30080254918164e-07
+    },
+    "FARM_DAILY_RATE": {
+      "n_synthetic": 6000,
+      "n_real": 0,
+      "real_share": 0.0,
+      "band_source": "validation-mixed",
+      "bandLog": {
+        "lo": -0.2062,
+        "hi": 0.2149
+      },
+      "metrics": {
+        "val_mape_all": 0.1344,
+        "val_band_coverage": 0.8,
+        "val_rows": 1200
+      },
+      "prior_error_on_real": null,
+      "evidence": "published",
+      "onnxVsSklearnMaxDiff": 5.805444169837415e-07
+    },
+    "SPECIES_FEE": {
+      "n_synthetic": 6000,
+      "n_real": 0,
+      "real_share": 0.0,
+      "band_source": "validation-mixed",
+      "bandLog": {
+        "lo": -0.2291,
+        "hi": 0.2281
+      },
+      "metrics": {
+        "val_mape_all": 0.1524,
+        "val_band_coverage": 0.8,
+        "val_rows": 1200
+      },
+      "prior_error_on_real": null,
+      "evidence": "published",
+      "onnxVsSklearnMaxDiff": 1.0813678752441547e-06
+    }
+  },
+  "sanityChecks": [
+    {
+      "kind": "PJ_PACKAGE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "duration_days": 7,
+        "hunters_per_ph": 1
+      },
+      "predictedUsd": 3236.07,
+      "expectedLow": 2660,
+      "expectedHigh": 3500,
+      "basis": "7 days x published 1x1 rate 380-500",
+      "pass": true
+    },
+    {
+      "kind": "PJ_PACKAGE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "duration_days": 5,
+        "hunters_per_ph": 2
+      },
+      "predictedUsd": 1931.24,
+      "expectedLow": 1675,
+      "expectedHigh": 2000,
+      "basis": "5 days x published 2x1 rate 335-400",
+      "pass": true
+    },
+    {
+      "kind": "FARM_DAILY_RATE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "hunters_per_ph": 1,
+        "guide_included": true,
+        "catering": true
+      },
+      "predictedUsd": 478.59,
+      "expectedLow": 380,
+      "expectedHigh": 520,
+      "basis": "published all-in 1x1 daily rate 380-500",
+      "pass": true
+    },
+    {
+      "kind": "SPECIES_FEE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "species": "kudu",
+        "tier": "trophy"
+      },
+      "predictedUsd": 3814.3,
+      "expectedLow": 3000,
+      "expectedHigh": 4500,
+      "basis": "published kudu fee 3,100-4,250",
+      "pass": true
+    },
+    {
+      "kind": "SPECIES_FEE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "species": "impala",
+        "tier": "trophy"
+      },
+      "predictedUsd": 555.33,
+      "expectedLow": 450,
+      "expectedHigh": 650,
+      "basis": "published impala fee 525-550",
+      "pass": true
+    },
+    {
+      "kind": "SPECIES_FEE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "species": "buffalo",
+        "tier": "trophy"
+      },
+      "predictedUsd": 12512.42,
+      "expectedLow": 10500,
+      "expectedHigh": 14500,
+      "basis": "published buffalo bull fee 12,000-13,500",
+      "pass": true
+    },
+    {
+      "kind": "VG_PACKAGE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "days_covered": 8,
+        "tier": "standard"
+      },
+      "predictedUsd": 3214.76,
+      "expectedLow": 2300,
+      "expectedHigh": 3500,
+      "basis": "published 8-day filming package 2,800",
+      "pass": true
+    },
+    {
+      "kind": "FARM_DAILY_RATE",
+      "raw": {
+        "province": "limpopo",
+        "month": 7,
+        "market": "domestic",
+        "hunters_per_ph": 1,
+        "guide_included": false,
+        "catering": true
+      },
+      "predictedUsd": 45.87,
+      "expectedLow": 40,
+      "expectedHigh": 95,
+      "basis": "domestic ~R1,000 pppn incl. meals (R720-R1,700 at 18 ZAR/USD)",
+      "pass": true
+    }
+  ],
+  "dataProvenance": {
+    "synthetic": "Generated by generate_synthetic.py from published 2026/27 SA outfitter prices (data/market_facts.json, data/species_catalog.json) plus labelled assumptions.",
+    "assumedOnlyKinds": [
+      "PH_RATE"
+    ],
+    "real": "none yet - bootstrap model"
+  }
+}

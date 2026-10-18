@@ -1,0 +1,365 @@
+@* /rolle - static educational page explaining MikPunt's multi-role ecosystem (Jagter, Boer,
+   PJ, PH, VG, AP) and how they interact through the booking value chain. No @code block -
+   entirely static content plus an inline Auth.IsAuthenticated check for the CTA banner. *@
+@page "/rolle"
+@inject AuthService Auth
+@inject NavigationManager Nav
+
+<PageTitle>MikPunt Rolle &amp; Ekosisteem Gids | MikPunt</PageTitle>
+
+<!-- Hero & Educational Overview -->
+<div class="mp-card p-5 mb-5 rounded-4 text-center">
+    <div class="mb-3">
+        <span class="px-3 py-2 text-uppercase fw-bold rounded-pill d-inline-block" style="font-size: 12px; letter-spacing: 1.2px; color: #ffffff !important; background: linear-gradient(135deg, #d97706, #b45309); border: 1.5px solid rgba(255, 255, 255, 0.6); box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
+            MikPunt Multi-Rol Ekosisteem
+        </span>
+    </div>
+    <h1 class="brand-font text-gold display-5 fw-bold mb-3">Die MikPunt Rol- &amp; Ekosisteem Gids</h1>
+    <p class="lead max-w-700 mx-auto mb-4" style="line-height: 1.6; max-width: 800px; color: var(--text-primary); opacity: 0.95;">
+        MikPunt verbind alle sleutelrolspelers in die Suid-Afrikaanse jag- en ekotoerismesektor in een geïntegreerde, veilige stelsel. Ons stelsel gebruik 'n <strong>multi-rol model</strong>: enige gebruiker kan een of meer rolle gelyktydig op hul profiel aktief hê.
+    </p>
+
+    <div class="d-flex justify-content-center gap-3 flex-wrap">
+        @if (Auth.IsAuthenticated)
+        {
+            <a href="/profiel" class="mp-btn mp-btn-primary">Gaan na My Profiel om 'n Rol te Aktiveer &rarr;</a>
+        }
+        else
+        {
+            <a href="/registreer" class="mp-btn mp-btn-primary">Sluit Aan &amp; Kies Jou Rolle &rarr;</a>
+            <a href="/teken-in" class="mp-btn mp-btn-secondary">Teken In</a>
+        }
+    </div>
+</div>
+
+<!-- SECTION 1: How the Ecosystem Flows Together (Die Saamvloei van Rolle) -->
+<div class="mp-card mb-5 p-4 p-md-5" style="border: 1px solid var(--accent-gold); box-shadow: var(--card-shadow);">
+    <div class="text-center mb-4">
+        <span class="text-gold fw-bold text-uppercase small" style="letter-spacing: 1.5px;">Die Waardeketting</span>
+        <h2 class="brand-font text-gold mb-2">Hoe die Rolle Saamvloei in die Stelsel</h2>
+        <p style="max-width: 750px; margin: 0 auto; color: var(--text-primary); font-size: 15px; line-height: 1.6; opacity: 0.95;">
+            Elke rol vervul 'n kritieke skakel in die jagekspedisie-proses. Hier is hoe die verskillende rolle saamwerk van plaaslysting tot die finale trofee:
+        </p>
+    </div>
+
+    <div class="row g-3 text-start">
+        <!-- Step 1 -->
+        <div class="col-md-4">
+            <div class="p-3 rounded h-100 d-flex flex-column" style="background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-bold rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px; min-width: 32px; font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4); border: 2px solid #ffffff;">
+                        1
+                    </span>
+                    <strong class="text-gold" style="font-size: 16px;">Plaas &amp; Wildinventaris</strong>
+                </div>
+                <p class="small mb-0" style="color: var(--text-primary); line-height: 1.6; font-size: 13.5px; opacity: 0.95;">
+                    Die <strong style="color: var(--text-bright);">Boer (Grondeienaar)</strong> lys hul jagplaas, beskryf die lodge-geriewe, en stel die beskikbare wildspesies en kwotas op die stelsel beskikbaar.
+                </p>
+            </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="col-md-4">
+            <div class="p-3 rounded h-100 d-flex flex-column" style="background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-bold rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px; min-width: 32px; font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4); border: 2px solid #ffffff;">
+                        2
+                    </span>
+                    <strong class="text-gold" style="font-size: 16px;">Pakket &amp; Spanbou</strong>
+                </div>
+                <p class="small mb-0" style="color: var(--text-primary); line-height: 1.6; font-size: 13.5px; opacity: 0.95;">
+                    Die <strong style="color: var(--text-bright);">Uitruster (PJ)</strong> koppel met die boer se plaas, stel 'n all-inclusive pakket saam, en werf 'n <strong style="color: var(--text-bright);">PH Gids</strong> en <strong style="color: var(--text-bright);">Videograaf (VG)</strong> in hul span.
+                </p>
+            </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="col-md-4">
+            <div class="p-3 rounded h-100 d-flex flex-column" style="background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-bold rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px; min-width: 32px; font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4); border: 2px solid #ffffff;">
+                        3
+                    </span>
+                    <strong class="text-gold" style="font-size: 16px;">Jagter Versoek &amp; Datums</strong>
+                </div>
+                <p class="small mb-0" style="color: var(--text-primary); line-height: 1.6; font-size: 13.5px; opacity: 0.95;">
+                    Die <strong style="color: var(--text-bright);">Jagter</strong> verken die markplein, bepaal hul eie ekspedisiedatums en gaste, en dien die versoek in sonder onmiddellike betaling.
+                </p>
+            </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="col-md-4">
+            <div class="p-3 rounded h-100 d-flex flex-column" style="background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-bold rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px; min-width: 32px; font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4); border: 2px solid #ffffff;">
+                        4
+                    </span>
+                    <strong class="text-gold" style="font-size: 16px;">Spantoewysing &amp; Kwotasie</strong>
+                </div>
+                <p class="small mb-0" style="color: var(--text-primary); line-height: 1.6; font-size: 13.5px; opacity: 0.95;">
+                    Die <strong style="color: var(--text-bright);">Uitruster (PJ)</strong> ken 'n beskikbare PH en VG uit hul span toe, bevestig die finale kwotasie, en stuur die goedgekeurde bespreking na die jagter vir betaling.
+                </p>
+            </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="col-md-4">
+            <div class="p-3 rounded h-100 d-flex flex-column" style="background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-bold rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px; min-width: 32px; font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4); border: 2px solid #ffffff;">
+                        5
+                    </span>
+                    <strong class="text-gold" style="font-size: 16px;">Voldoening &amp; SAPS 520</strong>
+                </div>
+                <p class="small mb-0" style="color: var(--text-primary); line-height: 1.6; font-size: 13.5px; opacity: 0.95;">
+                    Die jagter genereer outomatiese SAPS 520 vuurwapeninvoervorms en stoor provinsiale permitte in die digitale Permitbeursie voor aankoms by die lughawe.
+                </p>
+            </div>
+        </div>
+
+        <!-- Step 6 -->
+        <div class="col-md-4">
+            <div class="p-3 rounded h-100 d-flex flex-column" style="background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="fw-bold rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px; min-width: 32px; font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4); border: 2px solid #ffffff;">
+                        6
+                    </span>
+                    <strong class="text-gold" style="font-size: 16px;">Veldjag, Media &amp; Trofeë</strong>
+                </div>
+                <p class="small mb-0" style="color: var(--text-primary); line-height: 1.6; font-size: 13.5px; opacity: 0.95;">
+                    Die <strong style="color: var(--text-bright);">PH</strong> lei die jag, die <strong style="color: var(--text-bright);">VG</strong> verfilm in 4K, die jagter gebruik GPS-opsporing, en die geoeste wild word in die <strong style="color: var(--text-bright);">Trofeekamer</strong> aangeteken.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION 2: Detailed Breakdown of the 6 Roles -->
+<h2 class="brand-font text-gold text-center mb-4">Die 6 Kernrolle in Detail</h2>
+
+<div class="row g-4 mb-5">
+    <!-- 1. Jagter -->
+    <div class="col-md-6">
+        <div class="mp-card h-100 p-4 d-flex flex-column" style="border: 1px solid var(--border-color);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 48px; height: 48px; font-size: 22px;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 20px;">1. Jagter</h3>
+                    <small class="text-muted">Plaaslike &amp; Internasionale Wildliefhebber</small>
+                </div>
+            </div>
+
+            <p class="small mb-3" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                Die Jagter is die primêre kliënt wat ekspedisies soek, aanvra en geniet. Jagters kan safari's bespreek, doeanepapiere voltooi, en hul jagervarings in die veld navigeer en dokumenteer.
+            </p>
+
+            <div class="mb-3">
+                <strong class="small text-gold fw-bold">Wat 'n Jagter kan doen:</strong>
+                <ul class="list-unstyled small mt-1 mb-0" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                    <li>&#10003; Deursoek en versoek pasgemaakte jagpakkette op geregistreerde plase.</li>
+                    <li>&#10003; Bepaal eie ekspedisiedatums, duurskedule en gastetalle.</li>
+                    <li>&#10003; Genereer amptelike SAPS 520 vuurwapeninvoervorms (PDF).</li>
+                    <li>&#10003; Bestuur provinsiale jagpermitte in die Digitale Permitbeursie.</li>
+                    <li>&#10003; Teken trofeë aan met horinglengtes en karkasgewigte op die nasionale ranglys.</li>
+                </ul>
+            </div>
+
+            <div class="mt-auto pt-3 border-top border-secondary small" style="color: var(--text-primary); opacity: 0.9;">
+                <strong>Portale Ontsluit:</strong> Jagterportaal, Besprekings, Permitbeursie, SAPS 520-opsteller, Trofeekamer.
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Boer (Jagplaaseienaar) -->
+    <div class="col-md-6">
+        <div class="mp-card h-100 p-4 d-flex flex-column" style="border: 1px solid var(--border-color);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 48px; height: 48px; font-size: 22px; background: linear-gradient(135deg, #15803d, #b45309);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 20px;">2. Boer (Grondeienaar)</h3>
+                    <small class="text-muted">Eienaar van Wild- &amp; Ekotoerisme Plaas</small>
+                </div>
+            </div>
+
+            <p class="small mb-3" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                Die Boer stel hul grond en wildbronne beskikbaar. Hulle bestuur die plaasinfrastruktuur, lodge-geriewe, wildkwotas en dagtariewe, en keur inkomende jagbesprekings goed.
+            </p>
+
+            <div class="mb-3">
+                <strong class="small text-gold fw-bold">Wat 'n Boer kan doen:</strong>
+                <ul class="list-unstyled small mt-1 mb-0" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                    <li>&#10003; Registreer en bestuur veelvuldige jagplase met oppervlaktes (ha) en liggings.</li>
+                    <li>&#10003; Lys beskikbare geriewe (safari lodge, slaggeriewe, koelkamers, WiFi, swembad).</li>
+                    <li>&#10003; Bestuur intydse wildinventaris en pryse vir manlike, vroulike en trofeewild.</li>
+                    <li>&#10003; Keur inkomende besprekingsversoeke van jagters en uitrusters goed of wys af.</li>
+                    <li>&#10003; Monitor plaasstatistieke, besettingsvlakke en inkomste.</li>
+                </ul>
+            </div>
+
+            <div class="mt-auto pt-3 border-top border-secondary small" style="color: var(--text-primary); opacity: 0.9;">
+                <strong>Portale Ontsluit:</strong> Boerportaal, Plaasbestuur, Wildinventaris, Inkomende Besprekings.
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Uitruster (PJ) -->
+    <div class="col-md-6">
+        <div class="mp-card h-100 p-4 d-flex flex-column" style="border: 1px solid var(--border-color);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 48px; height: 48px; font-size: 22px; background: linear-gradient(135deg, #d97706, #7c2d12);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 20px;">3. Uitruster (PJ)</h3>
+                    <small class="text-muted">Gids- &amp; Ekspedisie-Organiseerder (Outfitter)</small>
+                </div>
+            </div>
+
+            <p class="small mb-3" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                Die Uitruster (PJ) is die argitek van die ekspedisie. Hulle koppel plase, bou omvattende pakkette vir oorsese jagters, stel professionele spanne saam (PH's en VG's), en bestuur die kliëntediens.
+            </p>
+
+            <div class="mb-3">
+                <strong class="small text-gold fw-bold">Wat 'n Uitruster (PJ) kan doen:</strong>
+                <ul class="list-unstyled small mt-1 mb-0" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                    <li>&#10003; Skep en publiseer pasgemaakte jagekspedisie-pakkette op die markplein.</li>
+                    <li>&#10003; Soek en werf gelisensieerde PH gidse en 4K videograwe vir ekspedisiespanne.</li>
+                    <li>&#10003; Stuur formele spanuitnodigings met terme, dagtariewe en bonusse.</li>
+                    <li>&#10003; Ontvang pakketversoeke van jagters en ken beskikbare PH's en VG's toe.</li>
+                    <li>&#10003; Verskaf finale kwotasies en bestuur kliënteskakelings.</li>
+                </ul>
+            </div>
+
+            <div class="mt-auto pt-3 border-top border-secondary small" style="color: var(--text-primary); opacity: 0.9;">
+                <strong>Portale Ontsluit:</strong> PJ-portaal, Pakket-Bouer, Spanwerwer (Browse PH/VG), Spanbestuur, PJ Besprekings.
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Professionele Jagter (PH) -->
+    <div class="col-md-6">
+        <div class="mp-card h-100 p-4 d-flex flex-column" style="border: 1px solid var(--border-color);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 48px; height: 48px; font-size: 22px; background: linear-gradient(135deg, #b45309, #451a03);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 20px;">4. Professionele Jagter (PH)</h3>
+                    <small class="text-muted">Provinsiaal Gelisensieerde Veldgids</small>
+                </div>
+            </div>
+
+            <p class="small mb-3" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                Die PH is die gekwalifiseerde gids wat jagters in die veld vergesel. Hulle verseker veiligheid, etiese skote, trofeekwaliteit, en wetlike bewaringsvoldoening tydens die jag.
+            </p>
+
+            <div class="mb-3">
+                <strong class="small text-gold fw-bold">Wat 'n PH kan doen:</strong>
+                <ul class="list-unstyled small mt-1 mb-0" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                    <li>&#10003; Skep 'n geverifieerde PH gids profiel met provinsiale lisensienommers.</li>
+                    <li>&#10003; Stel daaglikse gidsfooie en spesialis-ondervinding (bv. Gevaarlike Wild) op.</li>
+                    <li>&#10003; Ontvang en aanvaar ekspedisie-uitnodigings van Uitrusters (PJ).</li>
+                    <li>&#10003; Bestuur toegewysde jagkliënte, veldskedules en spoorsnyers.</li>
+                    <li>&#10003; Verseker akkurate trofeemeting en veldvoorbereiding vir taksidermie.</li>
+                </ul>
+            </div>
+
+            <div class="mt-auto pt-3 border-top border-secondary small" style="color: var(--text-primary); opacity: 0.9;">
+                <strong>Portale Ontsluit:</strong> PH-portaal, Gidstariewe &amp; Pakkette, Uitnodigings, PH Besprekings.
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Videograaf (VG) -->
+    <div class="col-md-6">
+        <div class="mp-card h-100 p-4 d-flex flex-column" style="border: 1px solid var(--border-color);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 48px; height: 48px; font-size: 22px; background: linear-gradient(135deg, #0284c7, #0f172a);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 20px;">5. Videograaf (VG)</h3>
+                    <small class="text-muted">Kamera- &amp; Hommeltuig Media-spesialis</small>
+                </div>
+            </div>
+
+            <p class="small mb-3" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                Die Videograaf dokumenteer die safari professioneel. Hulle gebruik 4K kameras en hommeltuie om hoëgehalte herinneringe en dokumentêre video's van die jagavontuur vas te lê.
+            </p>
+
+            <div class="mb-3">
+                <strong class="small text-gold fw-bold">Wat 'n Videograaf (VG) kan doen:</strong>
+                <ul class="list-unstyled small mt-1 mb-0" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                    <li>&#10003; Skep 'n professionele media-profiel met toerusting (bv. Sony A7S, DJI Mavic Cine).</li>
+                    <li>&#10003; Dui beskikbare provinsies en verfilmingstariewe aan.</li>
+                    <li>&#10003; Ontvang en aanvaar spanuitnodigings vir ekspedisies.</li>
+                    <li>&#10003; Lewer geredigeerde 4K safari-dokumentêre video's aan kliënte.</li>
+                </ul>
+            </div>
+
+            <div class="mt-auto pt-3 border-top border-secondary small" style="color: var(--text-primary); opacity: 0.9;">
+                <strong>Portale Ontsluit:</strong> VG-portaal, Video-Pakkette, Spanuitnodigings, VG Besprekings.
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Adverteerder (AP) -->
+    <div class="col-md-6">
+        <div class="mp-card h-100 p-4 d-flex flex-column" style="border: 1px solid var(--border-color);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="mp-brand-logo" style="width: 48px; height: 48px; font-size: 22px; background: linear-gradient(135deg, #c026d3, #4a044e);">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 20px;">6. Adverteerder (AP)</h3>
+                    <small class="text-muted">Kommersiële Vennoot &amp; Jagbedryf Bemarker</small>
+                </div>
+            </div>
+
+            <p class="small mb-3" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                Die Adverteerder bemark produkte en dienste aan die jagter- en plaasgemeenskap. Dit sluit in taksidermie-ateljees, geweerwinkels, 4x4 toerusting, en buitelewe-toebehore.
+            </p>
+
+            <div class="mb-3">
+                <strong class="small text-gold fw-bold">Wat 'n Adverteerder (AP) kan doen:</strong>
+                <ul class="list-unstyled small mt-1 mb-0" style="line-height: 1.6; color: var(--text-primary); opacity: 0.95;">
+                    <li>&#10003; Skep geteikende advertensieveldtogte met beelde en skakels.</li>
+                    <li>&#10003; Kies kategorieë soos Taksidermie, Vuurwapens, Voertuie of Toerusting.</li>
+                    <li>&#10003; Monitor advertensie-indrukke, klieke en kliënte-navrae.</li>
+                </ul>
+            </div>
+
+            <div class="mt-auto pt-3 border-top border-secondary small" style="color: var(--text-primary); opacity: 0.9;">
+                <strong>Portale Ontsluit:</strong> AP-portaal, Skep Advertensie, Bestuur Advertensies.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bottom CTA Banner -->
+<div class="mp-card p-5 rounded-4 text-center" style="background: rgba(217, 119, 6, 0.12); border: 2px solid var(--accent-gold);">
+    @if (Auth.IsAuthenticated)
+    {
+        <h3 class="brand-font text-gold mb-2">Gereed om 'n nuwe rol op jou profiel te aktiveer?</h3>
+        <p class="mb-4 max-w-700 mx-auto" style="color: var(--text-primary); opacity: 0.95;">
+            Jy is tans ingeteken as <strong>@Auth.CurrentUser?.FullName</strong>. Gaan na jou profiel om enige van hierdie rolle met 'n paar kliks by jou rekening te voeg.
+        </p>
+        <a href="/profiel" class="mp-btn mp-btn-primary px-4 fw-bold">Gaan na My Profiel &rarr;</a>
+    }
+    else
+    {
+        <h3 class="brand-font text-gold mb-2">Klaar om deel te word van die MikPunt ekosisteem?</h3>
+        <p class="mb-4 max-w-700 mx-auto" style="color: var(--text-primary); opacity: 0.95;">
+            Skep vandag nog jou gratis rekening en kies die rolle wat by jou belangstellings of besigheid pas.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/registreer" class="mp-btn mp-btn-primary px-4 fw-bold">Registreer Gratis Rekening</a>
+            <a href="/teken-in" class="mp-btn mp-btn-secondary px-4">Teken In</a>
+        </div>
+    }
+</div>

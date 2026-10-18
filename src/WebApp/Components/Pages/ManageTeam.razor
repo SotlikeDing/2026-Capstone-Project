@@ -1,0 +1,624 @@
+@* PJ (expedition organiser) team-management console, routed at /manage-team and /pj/manageteam.
+   Lets a PJ (or Admin) view their pool of accepted team members (PH guides, VG videographers,
+   partner farmers), send/cancel recruitment invites, and remove a member - the removal flow
+   runs a server-side conflict check first (active vs. upcoming booking assignments) and blocks
+   or warns accordingly before the member can be detached. Gated below on Auth.HasRole("PJ")
+   or "Admin"; unauthenticated/wrong-role visitors see a placeholder instead of the page body. *@
+@page "/pj/span"
+@page "/manage-team"
+@page "/pj/manageteam"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Bestuur Span &amp; Werwing | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/pj/span" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PJ") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Uitruster (PJ) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            Slegs Uitrusters (PJ) kan ekspedisiespanne saamstel en bestuur. U kan hierdie rol op u profiel aktiveer om spanne te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PJ Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Bestuur Ekspedisie Spanne</h1>
+            <p class="text-muted mb-0">Bou en bestuur u permanente poel van PH gidse, videograwe en vennootboere vir ekspedisies.</p>
+        </div>
+
+        <a href="/pj/soek-span" class="mp-btn mp-btn-primary mp-btn-sm">+ Soek &amp; Nooi Nuwe Spanlid Uit</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert @(_notificationIsError ? "alert-danger" : "alert-success") alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    <!-- SECTION 1: Active Team Members -->
+    <div class="mp-card mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h3 class="brand-font text-gold mb-0">Aktiewe Spanlede (@_teamMembers.Count)</h3>
+                <p class="text-muted small mb-0">Hierdie lede het u uitnodiging aanvaar en kan aan inkomende jagter-besprekings toegewys word.</p>
+            </div>
+            @if (Auth.HasRole("PH"))
+            {
+                <span class="badge bg-info text-dark">U is self ook as PH geregistreer &#10003;</span>
+            }
+        </div>
+
+        @if (_loading)
+        {
+            <div class="text-center p-4 text-muted">
+                <div class="spinner-border text-warning spinner-border-sm me-2"></div> Laai spanlede...
+            </div>
+        }
+        else if (_teamMembers.Count == 0)
+        {
+            <div class="text-center p-4 text-muted">
+                U het tans nog geen spanlede nie. <a href="/pj/soek-span" class="text-gold fw-bold">Blaai deur professionele lede</a> om PH gidse, videograwe en boere na u span uit te nooi.
+            </div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Naam &amp; Van</th>
+                            <th>Rol</th>
+                            <th>Status</th>
+                            <th>Aksies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _teamMembers)
+                        {
+                            <tr>
+                                <td><strong>@m.Name @m.Surname</strong></td>
+                                <td>
+                                    <span class="mp-badge @GetRoleBadgeClass(m.Role ?? "")">@m.Role</span>
+                                </td>
+                                <td>
+                                    <span class="mp-badge mp-badge-success">Aktief in Span</span>
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-2">
+                                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => StartChat(m.Name, m.Surname, m.UserId)">
+                                            Klets 💬
+                                        </button>
+                                        <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => PromptRemoveMember(m)">
+                                            Verwyder
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <!-- SECTION 2: Sent Team Invites -->
+    <div class="mp-card">
+        <h3 class="brand-font text-gold mb-1">Uitgestuurde Uitnodigings (@_sentInvites.Count)</h3>
+        <p class="text-muted small mb-3">Kandidate wat u genooi het om by u ekspedisie-span aan te sluit.</p>
+
+        @if (_sentInvites.Count == 0)
+        {
+            <div class="text-center p-4 text-muted">Geen hangende spanaansoeke nie.</div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Genooide Persoon</th>
+                            <th>Rol</th>
+                            <th>Ekspedisie &amp; Terme</th>
+                            <th>Datum Gestuur</th>
+                            <th>Status</th>
+                            <th>Aksie</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var inv in _sentInvites)
+                        {
+                            <tr>
+                                <td><strong>@(string.IsNullOrWhiteSpace(inv.TargetName) ? $"Gebruiker #{inv.TargetUserId}" : inv.TargetName)</strong></td>
+                                <td>
+                                    <span class="mp-badge @GetRoleBadgeClass(inv.TargetRoleCode ?? "")">
+                                        @(string.IsNullOrWhiteSpace(inv.TargetRoleCode) ? "Lid" : inv.TargetRoleCode)
+                                    </span>
+                                </td>
+                                <td style="min-width: 240px;">
+                                    <strong>@(string.IsNullOrWhiteSpace(inv.ExpeditionName) ? "Jagekspedisie" : inv.ExpeditionName)</strong>
+                                    @if (!string.IsNullOrWhiteSpace(inv.Terms))
+                                    {
+                                        <div class="small text-muted mt-1">@inv.Terms</div>
+                                    }
+                                </td>
+                                <td class="small text-muted">@inv.InviteDate.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    @if (inv.Status == "Accepted")
+                                    {
+                                        <span class="mp-badge mp-badge-success">Aanvaar &#10003;</span>
+                                    }
+                                    else if (inv.Status == "Pending")
+                                    {
+                                        <span class="mp-badge mp-badge-warning">Hangende Reaksie &#9203;</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-badge mp-badge-danger">Van Hand Gewys &#10007;</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-2">
+                                        @if (inv.TargetUserId > 0)
+                                        {
+                                            <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => StartChat(inv.TargetName, null, inv.TargetUserId)">
+                                                Klets 💬
+                                            </button>
+                                        }
+                                        @if (inv.Status == "Pending")
+                                        {
+                                            <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => CancelInvite(inv.InviteId)">
+                                                Kanselleer
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <!-- MODAL: Enterprise Team Member Removal & Conflict Resolution -->
+    @if (_showRemovalModal && _memberPendingRemoval != null)
+    {
+        <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2100; overflow-y: auto;">
+            <div class="mp-card" style="width: 650px; max-width: 98%; max-height: 90vh; overflow-y: auto;">
+                <div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom border-secondary">
+                    <h3 class="brand-font text-gold mb-0">Spanlid Verwydering &amp; Oudit</h3>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseRemovalModal" disabled="@_isSubmittingRemoval"></button>
+                </div>
+
+                <p class="text-muted small mb-3">
+                    U staan op die punt om <strong>@_memberPendingRemoval.Name @_memberPendingRemoval.Surname</strong> (<span class="text-gold">@_memberPendingRemoval.Role</span>) uit u geregistreerde ekspedisiespan te verwyder.
+                </p>
+
+                @if (!string.IsNullOrEmpty(_removalError))
+                {
+                    <div class="alert alert-danger p-3 small mb-3 d-flex align-items-start gap-2">
+                        <span class="fs-5">&#9888;</span>
+                        <div>@_removalError</div>
+                    </div>
+                }
+
+                @if (_checkingConflicts)
+                {
+                    <div class="text-center py-4 text-muted">
+                        <div class="spinner-border text-gold spinner-border-sm me-2" role="status"></div>
+                        <span>Kontroleer tans besprekings en ekspedisie-afhanklikhede...</span>
+                    </div>
+                }
+                else
+                {
+                    @* 1. ACTIVE BOOKING CONFLICT (RED ALERT - DISABLE SUBMISSION) *@
+                    @if (_conflictData != null && _conflictData.HasActiveBookingConflict)
+                    {
+                        <div class="alert alert-danger p-3 mb-3" style="border-left: 4px solid #dc3545; background: rgba(220, 53, 69, 0.15); color: #ff8585;">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="fs-4">⛔</span>
+                                <strong class="fs-6 text-danger">Aktiewe Ekspedisie-Konflik Gevind (Verwydering Geblokkeer)</strong>
+                            </div>
+                            <p class="small mb-2 text-light">
+                                Hierdie lid is tans toegewys aan minstens een aktiewe jagekspedisie wat tans aan die gang is. Statutêre en operasionele reëls verbied die verwydering van 'n spanlid tydens 'n aktiewe jag.
+                            </p>
+                            @if (_conflictData.ActiveBookings != null && _conflictData.ActiveBookings.Count > 0)
+                            {
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-dark table-sm table-bordered small mb-1">
+                                        <thead>
+                                            <tr class="text-gold">
+                                                <th>Pakket</th>
+                                                <th>Jagter</th>
+                                                <th>Datums</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var b in _conflictData.ActiveBookings)
+                                            {
+                                                <tr>
+                                                    <td>@b.PackageTitle</td>
+                                                    <td>@b.HunterName</td>
+                                                    <td>@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</td>
+                                                    <td><span class="badge bg-danger">@StatusLabels.Booking(b.Status)</span></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                            <div class="small text-danger fw-bold mt-2">
+                                Aksie vereis: Wag totdat die ekspedisie voltooi is of hertoewys die bespreking handmatig voor verwydering.
+                            </div>
+                        </div>
+                    }
+
+                    @* 2. UPCOMING BOOKING CONFLICT (AMBER WARNING - REQUIRES CONFIRMATION CHECKBOX) *@
+                    @if (_conflictData != null && _conflictData.HasUpcomingBookingConflict)
+                    {
+                        <div class="alert alert-warning p-3 mb-3 text-dark" style="border-left: 4px solid #ffc107; background: #fff3cd;">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="fs-4">⚠️</span>
+                                <strong class="fs-6">Toekomstige Ekspedisies Gekoppel</strong>
+                            </div>
+                            <p class="small mb-2">
+                                Hierdie lid is toegewys aan <strong>@(_conflictData.UpcomingBookings?.Count ?? 0)</strong> toekomstige ekspedisie(s). Indien u voortgaan, sal die lid ontkoppel word en sal hierdie besprekings 'n nuwe spanlid-toewysing vereis:
+                            </p>
+                            @if (_conflictData.UpcomingBookings != null && _conflictData.UpcomingBookings.Count > 0)
+                            {
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-light table-sm table-bordered small mb-2">
+                                        <thead>
+                                            <tr>
+                                                <th>Pakket</th>
+                                                <th>Jagter</th>
+                                                <th>Datums</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var b in _conflictData.UpcomingBookings)
+                                            {
+                                                <tr>
+                                                    <td><strong>@b.PackageTitle</strong></td>
+                                                    <td>@b.HunterName</td>
+                                                    <td>@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</td>
+                                                    <td><span class="badge bg-warning text-dark">@StatusLabels.Booking(b.Status)</span></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+
+                            <div class="form-check mt-3 pt-2 border-top border-warning-subtle">
+                                <input class="form-check-input" type="checkbox" id="confirmReassignCheck" @bind="_confirmReassignment" />
+                                <label class="form-check-label fw-bold small text-dark" for="confirmReassignCheck">
+                                    Ek bevestig dat ek verstaan dat hierdie lid ontkoppel sal word en ek 'n nuwe spanlid aan die besprekings moet toewys.
+                                </label>
+                            </div>
+                        </div>
+                    }
+
+                    @* 3. REASON DROPDOWN *@
+                    <div class="mp-form-group mb-3">
+                        <label class="mp-form-label fw-bold text-gold">Rede vir Verwydering *</label>
+                        <select class="mp-form-control" @bind="_selectedReasonCode">
+                            <option value="">-- Kies 'n rede vir verwydering --</option>
+                            @foreach (var r in _removalReasons)
+                            {
+                                <option value="@r.Code">@r.Description</option>
+                            }
+                        </select>
+                    </div>
+
+                    @* 4. OPTIONAL NOTES *@
+                    <div class="mp-form-group mb-3">
+                        <label class="mp-form-label">Addisionele Notas (Opsioneel)</label>
+                        <textarea class="mp-form-control" rows="3" placeholder="Voeg relevante notas of verduideliking by vir die ouditspoor..." @bind="_removalNotes"></textarea>
+                    </div>
+
+                    @* 5. NOTIFICATION POLICY INFO BOX *@
+                    <div class="p-3 rounded mb-3 small" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #93c5fd;">
+                        <div class="d-flex align-items-start gap-2">
+                            <span style="font-size: 1.25rem;">ℹ️</span>
+                            <div>
+                                <strong>Kennisgewingsbeleid:</strong><br />
+                                By voltooiing van die verwydering sal die betrokke lid outomaties in kennis gestel word deur:
+                                <ul class="mb-0 mt-1 ps-3">
+                                    <li>'n Intydse in-toepassing stelselkennisgewing</li>
+                                    <li>'n Outomatiese direkte stelselboodskap (klets)</li>
+                                    <li>'n Amptelike bevestiging per e-pos</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    @* 6. MODAL ACTIONS *@
+                    <div class="d-flex justify-content-end gap-2 mt-4">
+                        <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseRemovalModal" disabled="@_isSubmittingRemoval">
+                            Kanselleer
+                        </button>
+                        <button type="button" class="mp-btn mp-btn-danger" @onclick="ConfirmRemovalAsync" disabled="@IsRemovalDisabled">
+                            @if (_isSubmittingRemoval)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                <span>Verwyder tans...</span>
+                            }
+                            else
+                            {
+                                <span>Bevestig Verwydering &#10005;</span>
+                            }
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<TeamMemberResponse> _teamMembers = new();
+    private List<TeamInviteResponse> _sentInvites = new();
+    private List<RemovalReasonOptionDto> _removalReasons = new();
+    private bool _loading = true;
+    private string _notificationMsg = string.Empty;
+    private bool _notificationIsError = false;
+
+    // Modal state for member removal & conflict resolution
+    private bool _showRemovalModal = false;
+    private TeamMemberResponse? _memberPendingRemoval;
+    private RemovalConflictCheckResponse? _conflictData;
+    private bool _checkingConflicts = false;
+    private bool _isSubmittingRemoval = false;
+    private string _selectedReasonCode = string.Empty;
+    private string _removalNotes = string.Empty;
+    private bool _confirmReassignment = false;
+    private string _removalError = string.Empty;
+
+    /// <summary>
+    /// Gates the removal modal's confirm button: blocked while a conflict check is still
+    /// running, while no reason is chosen, while there's an active-booking conflict
+    /// (removal is never allowed for a member currently on an in-progress hunt), or while
+    /// there's an upcoming-booking conflict the PJ hasn't explicitly acknowledged via the
+    /// "confirm reassignment" checkbox.
+    /// </summary>
+    private bool IsRemovalDisabled
+    {
+        get
+        {
+            if (_checkingConflicts || _isSubmittingRemoval) return true;
+            if (string.IsNullOrWhiteSpace(_selectedReasonCode)) return true;
+            if (_conflictData != null && _conflictData.HasActiveBookingConflict) return true;
+            if (_conflictData != null && _conflictData.HasUpcomingBookingConflict && !_confirmReassignment) return true;
+            return false;
+        }
+    }
+
+    /// <summary>Subscribes to auth-state changes and loads team data immediately if already authenticated with the right role (e.g. after a page refresh with a valid session).</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            await LoadData();
+        }
+    }
+
+    /// <summary>AuthService login/logout callback - re-loads (or clears the need to load) team data as the user's session changes, e.g. logging in from this same tab without a full reload.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+            {
+                await LoadData();
+            }
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Loads the PJ's active team roster and sent invites in parallel-ish sequence.
+    /// The `?? 1` fallback on CurrentUser?.UserId is unreachable in practice - callers only
+    /// invoke this after confirming Auth.IsAuthenticated, but it's a latent landmine if that
+    /// guard is ever bypassed (same fallback-to-user-1 pattern flagged elsewhere in this app).
+    /// </summary>
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _teamMembers = await Api.GetPjTeamMembersAsync(myUserId);
+            _sentInvites = await Api.GetSentInvitesForPjAsync(myUserId);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>Maps a role code to its badge CSS class for the roster/invite tables.</summary>
+    private string GetRoleBadgeClass(string roleCode) => roleCode switch
+    {
+        "PH" => "mp-badge-warning",
+        "VG" => "mp-badge-info",
+        "Boer" or "FARMER" => "mp-badge-success",
+        "PJ" => "mp-badge-primary",
+        _ => "mp-badge-secondary"
+    };
+
+    /// <summary>Navigates to the Messages page pre-targeted at this user, so a new chat thread opens (or the existing one focuses) without the PJ having to search for them.</summary>
+    private void StartChat(string? name, string? surname, int userId)
+    {
+        var fullName = $"{name} {surname}".Trim();
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(fullName)}&targetUserId={userId}");
+    }
+
+    /// <summary>
+    /// Opens the removal modal and immediately kicks off the server-side booking-conflict
+    /// check for this member. Falls back to a permissive "CanRemoveDirectly" stub if the
+    /// conflict-check call itself returns null, so a transient API hiccup doesn't silently
+    /// block removal forever - the reason dropdown still gates submission either way.
+    /// </summary>
+    private async Task PromptRemoveMember(TeamMemberResponse member)
+    {
+        _memberPendingRemoval = member;
+        _showRemovalModal = true;
+        _checkingConflicts = true;
+        _removalError = string.Empty;
+        _selectedReasonCode = string.Empty;
+        _removalNotes = string.Empty;
+        _confirmReassignment = false;
+        _conflictData = null;
+
+        try
+        {
+            if (_removalReasons.Count == 0)
+            {
+                _removalReasons = await Api.GetRemovalReasonsAsync();
+            }
+            if (_removalReasons.Count > 0)
+            {
+                _selectedReasonCode = _removalReasons[0].Code;
+            }
+
+            _conflictData = await Api.CheckTeamMemberRemovalConflictsAsync(member.Id);
+            if (_conflictData == null)
+            {
+                _conflictData = new RemovalConflictCheckResponse
+                {
+                    TeamId = member.Id,
+                    MemberUserId = member.UserId,
+                    MemberName = $"{member.Name} {member.Surname}".Trim(),
+                    MemberRole = member.Role ?? "",
+                    CanRemoveDirectly = true
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _removalError = $"Kon nie konflik-kontrole voltooi nie: {ex.Message}";
+        }
+        finally
+        {
+            _checkingConflicts = false;
+        }
+    }
+
+    /// <summary>Submits the removal request with reason/notes/reassignment-confirmation, refreshes the roster on success, and surfaces the server's message (or a generic fallback) on failure.</summary>
+    private async Task ConfirmRemovalAsync()
+    {
+        if (_memberPendingRemoval == null || IsRemovalDisabled) return;
+
+        _isSubmittingRemoval = true;
+        _removalError = string.Empty;
+
+        try
+        {
+            var req = new RemoveTeamMemberRequest
+            {
+                TeamId = _memberPendingRemoval.Id,
+                ReasonCode = _selectedReasonCode,
+                ReasonDescription = _removalReasons.FirstOrDefault(r => r.Code == _selectedReasonCode)?.Description ?? _selectedReasonCode,
+                Notes = _removalNotes,
+                ConfirmReassignment = _confirmReassignment
+            };
+
+            var (success, message, result) = await Api.RemoveTeamMemberWithAuditAsync(req);
+            if (success)
+            {
+                var memberName = $"{_memberPendingRemoval.Name} {_memberPendingRemoval.Surname}".Trim();
+                _notificationMsg = !string.IsNullOrWhiteSpace(message)
+                    ? message
+                    : $"{memberName} is suksesvol uit u span verwyder.";
+                _notificationIsError = false;
+
+                _showRemovalModal = false;
+                _memberPendingRemoval = null;
+                _conflictData = null;
+
+                Api.NotifyNotificationsChanged();
+                await LoadData();
+            }
+            else
+            {
+                _removalError = !string.IsNullOrWhiteSpace(message) 
+                    ? message 
+                    : "Kon nie spanlid verwyder nie. Probeer asseblief weer.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _removalError = $"Fout met verwydering: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmittingRemoval = false;
+        }
+    }
+
+    /// <summary>Dismisses the removal modal; ignored while a removal is mid-submit so the modal can't be closed out from under an in-flight request.</summary>
+    private void CloseRemovalModal()
+    {
+        if (_isSubmittingRemoval) return;
+        _showRemovalModal = false;
+        _memberPendingRemoval = null;
+        _conflictData = null;
+        _removalError = string.Empty;
+    }
+
+    /// <summary>Cancels a still-pending sent invite and refreshes the invite list.</summary>
+    private async Task CancelInvite(int inviteId)
+    {
+        bool ok = await Api.CancelTeamInviteAsync(inviteId);
+        if (ok)
+        {
+            _notificationMsg = "Uitnodiging is gekanselleer.";
+            _notificationIsError = false;
+            await LoadData();
+        }
+        else
+        {
+            _notificationMsg = "Kon nie die uitnodiging kanselleer nie. Probeer asseblief weer.";
+            _notificationIsError = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}
+

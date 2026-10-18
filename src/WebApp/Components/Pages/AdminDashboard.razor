@@ -1,0 +1,1508 @@
+@* System Admin portal - routes /admin and /admin/dashboard, restricted to the "Admin"
+   role. Tabbed single-page dashboard covering: overview/stats, the master user directory
+   (suspend/ban/activate with a mandatory audit reason), the role-verification queue
+   (drives AdminController.DecideRoleVerification), the document-verification queue
+   (drives AdminController.DecideDocumentVerification, the same PJ/PH/VG/Farmer credential
+   workflow documented server-side in UserDocuments_db), a manual booking-dispute price
+   correction tool, the immutable admin audit log (with CSV export), and a settings tab
+   bundling feature flags, live system health (SqlServerHealthCheck), pricing/security
+   system settings, and three moderation queues (flagged chat messages, flagged rating
+   comments, rating disputes). Every mutating action here requires a free-text reason,
+   which becomes part of the permanent AdminAudit_db trail. *@
+@page "/administrasie"
+@page "/admin"
+@page "/admin/dashboard"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Administrasieportaal | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die Administrasieportaal is slegs toeganklik vir gemagtigde Administrateurs.</p>
+        <a href="/teken-in?returnUrl=/administrasie" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px; background: rgba(239, 68, 68, 0.2); color: #ef4444;">
+            <i class="bi bi-shield-lock-fill"></i>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang geweier: administrateursrol benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening het nie die nodige <strong>administrateursregte</strong> om hierdie portaal te bekyk of aksies uit te voer nie.
+        </p>
+        <a href="/" class="mp-btn mp-btn-secondary">Gaan Terug Tuistoe</a>
+    </div>
+}
+else
+{
+    <!-- Admin Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <span class="mp-badge mp-badge-warning mb-1">Stelsel Administrasie Hub</span>
+            <h1 class="brand-font text-gold mb-1">Administrasieportaal</h1>
+            <p class="text-muted mb-0">Bestuur gebruikers, verifieer rolle, stel besprekingsdispute reg en bekyk die onveranderlike ouditrekord.</p>
+        </div>
+
+        @* Summary of the live health check (details under "Kenmerkvlae & Gesondheid"). *@
+        <div class="d-flex align-items-center gap-2">
+            @{
+                int healthy = _health == null ? 0 : new[] { _health.Reachable, _health.DbConnected, _health.MobileApiHealthy }.Count(x => x);
+            }
+            <span class="badge @(_health == null ? "bg-secondary" : healthy == 3 ? "bg-success" : "bg-danger") p-2" role="button" @onclick='() => SetTab("settings")'
+                  title="Webwerf-API, databasis en app-API">
+                <i class="bi bi-cpu me-1"></i>
+                @(_health == null ? "Stelsel Gesondheid: word gekontroleer..." : healthy == 3 ? "Stelsel Gesondheid: alles werk" : $"Stelsel Gesondheid: {3 - healthy} van 3 dienste het 'n probleem")
+                @if (_health?.MaintenanceMode == true) { <text> &bull; ONDERHOUD AAN</text> }
+            </span>
+        </div>
+    </div>
+
+    <!-- Toast / Notification Alert -->
+    @if (!string.IsNullOrWhiteSpace(_toastMsg))
+    {
+        <div class="alert @(_toastSuccess ? "alert-success" : "alert-danger") mb-4 d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi @(_toastSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-2"></i>
+                <strong>@_toastMsg</strong>
+            </div>
+            <button type="button" class="btn-close" @onclick="() => _toastMsg = string.Empty"></button>
+        </div>
+    }
+
+    <!-- Navigation Tabs -->
+    <div class="d-flex gap-2 mb-4 flex-wrap border-bottom border-secondary pb-3">
+        <button class="mp-btn @(_activeTab == "overview" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("overview")'>
+            Oorsig &amp; Statistieke
+        </button>
+        <button class="mp-btn @(_activeTab == "users" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("users")'>
+            Meester Gebruikersgids (@_masterUsers.Count)
+        </button>
+        <button class="mp-btn @(_activeTab == "verifications" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("verifications")'>
+            Rolverifikasie Wagtoring (@_roleVerifications.Count(r => r.Status == "Pending"))
+        </button>
+        <button class="mp-btn @(_activeTab == "documentVerifications" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("documentVerifications")'>
+            Dokumentverifikasie Wagtoring (@_pendingDocuments.Count(d => d.Status == "Pending"))
+        </button>
+        <button class="mp-btn @(_activeTab == "disputes" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("disputes")'>
+            Dispute &amp; Besprekingsregstellings
+        </button>
+        <button class="mp-btn @(_activeTab == "audit" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("audit")'>
+            Onveranderlike Ouditrekord (@_auditLogs.Count)
+        </button>
+        <button class="mp-btn @(_activeTab == "settings" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => SetTab("settings")'>
+            Kenmerkvlae &amp; Gesondheid
+        </button>
+    </div>
+
+    <!-- TAB 1: OVERVIEW & SYSTEM METRICS -->
+    @if (_activeTab == "overview")
+    {
+        <div class="mp-grid-4 mb-4">
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_masterUsers.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Totale Geregistreerde Gebruikers</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-warning font-bold">@_roleVerifications.Count(r => r.Status == "Pending")</div>
+                <div class="small text-muted text-uppercase fw-bold">Afwagtende Rolverifikasies</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-success font-bold">@_auditLogs.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Administrateursaksies aangeteken</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@(_health?.Reachable == true ? $"{_health.ResponseTimeMs} ms" : "-")</div>
+                <div class="small text-muted text-uppercase fw-bold">API Respons Tyd</div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <!-- User Distribution Breakdown -->
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-3">Gebruiker Verdeling per Rol</h4>
+                    <div class="table-responsive">
+                        <table class="mp-table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Rol Kode</th>
+                                    <th>Rol Beskrywing</th>
+                                    <th>Aantal Gebruikers</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td><span class="mp-badge">Jagter</span></td><td>Jagter</td><td>@_masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, "Jagter")))</td></tr>
+                                <tr><td><span class="mp-badge mp-badge-warning">Boer</span></td><td>Plaaseienaar / Farmer</td><td>@_masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, "Boer")))</td></tr>
+                                <tr><td><span class="mp-badge mp-badge-info">PJ</span></td><td>Pakket Uitruster / Outfitter</td><td>@_masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, "PJ")))</td></tr>
+                                <tr><td><span class="mp-badge mp-badge-success">PH</span></td><td>Professionele Jagter (Gids)</td><td>@_masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, "PH")))</td></tr>
+                                <tr><td><span class="mp-badge">VG</span></td><td>Videograaf / Veldgids</td><td>@_masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, "VG")))</td></tr>
+                                <tr><td><span class="mp-badge">AP</span></td><td>Adverteerder / Advertiser</td><td>@_masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, "AP")))</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Admin Actions Feed -->
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h4 class="brand-font text-gold mb-0">Onlangse administrateursaksies</h4>
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick='() => SetTab("audit")'>Bekyk Alles &rarr;</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="mp-table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Admin</th>
+                                    <th>Aksie</th>
+                                    <th>Rede / Detail</th>
+                                    <th>Tydstip</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var log in _auditLogs.Take(4))
+                                {
+                                    <tr>
+                                        <td class="fw-bold">@log.AdminUserName</td>
+                                        <td><span class="mp-badge mp-badge-info">@StatusLabels.AuditAction(log.Action)</span></td>
+                                        <td class="small text-muted" style="max-width: 220px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">@log.Reason</td>
+                                        <td class="small text-muted">@log.Timestamp.ToString("HH:mm - dd MMM")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lightweight charts: no JS chart library, just the theme's own palette -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-3">Administrateursaksies per dag (laaste 7 dae)</h4>
+                    @{ var dailyCounts = AdminActionsPerDay; var maxDaily = dailyCounts.Count > 0 ? Math.Max(1, dailyCounts.Max(d => d.Count)) : 1; }
+                    <div class="d-flex align-items-end gap-2" style="height: 140px;">
+                        @foreach (var day in dailyCounts)
+                        {
+                            <div class="d-flex flex-column align-items-center justify-content-end flex-fill h-100">
+                                <div class="small text-gold fw-bold mb-1">@(day.Count > 0 ? day.Count.ToString() : "")</div>
+                                <div style="width: 100%; max-width: 32px; background: linear-gradient(180deg, var(--mp-gold, #d97706), rgba(217,119,6,0.35)); border-radius: 4px 4px 0 0; height: @(Math.Max(2, day.Count * 100 / maxDaily))%;"></div>
+                                <div class="small text-muted mt-1" style="font-size: 10px;">@day.Label</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-3">Gebruikers per Rol</h4>
+                    @{ var roleCounts = UsersPerRole; var maxRole = roleCounts.Count > 0 ? Math.Max(1, roleCounts.Max(r => r.Count)) : 1; }
+                    <div class="d-flex flex-column gap-2">
+                        @foreach (var role in roleCounts)
+                        {
+                            <div>
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span class="fw-bold">@role.RoleCode</span>
+                                    <span class="text-muted">@role.Count</span>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.06); border-radius: 4px; height: 10px;">
+                                    <div style="width: @(role.Count * 100 / maxRole)%; background: var(--mp-gold, #d97706); border-radius: 4px; height: 100%;"></div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- TAB 2: MASTER USER DIRECTORY -->
+    else if (_activeTab == "users")
+    {
+        <div class="mp-card mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <h3 class="brand-font text-gold mb-0">Meester Gebruikersgids &amp; Rolbestuur</h3>
+
+                <!-- Search & Filters -->
+                <div class="d-flex gap-2 flex-wrap">
+                    <input type="text" class="mp-form-control" style="width: 240px;" placeholder="Soek naam, e-pos, ID..." @bind="_userSearchQuery" @bind:event="oninput" />
+                    <select class="mp-select" @bind="_userRoleFilter">
+                        <option value="">Alle Rolle</option>
+                        <option value="Jagter">Jagter</option>
+                        <option value="Boer">Boer</option>
+                        <option value="PJ">PJ (Uitruster)</option>
+                        <option value="PH">PH (Gids)</option>
+                        <option value="VG">VG (Videograaf)</option>
+                        <option value="AP">AP (Adverteerder)</option>
+                        <option value="Admin">Admin</option>
+                    </select>
+                    <select class="mp-select" @bind="_userStatusFilter">
+                        <option value="">Alle Statusse</option>
+                        <option value="Active">Aktief (Active)</option>
+                        <option value="Suspended">Geskors (Suspended)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Naam &amp; E-pos</th>
+                            <th>ID / Paspoort</th>
+                            <th>Toegekenne Rolle</th>
+                            <th>Status</th>
+                            <th>Registrasie Datum</th>
+                            <th>Administrateursaksie (verpligte rede)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in FilteredMasterUsers)
+                        {
+                            <tr>
+                                <td class="fw-bold">#@u.UserId</td>
+                                <td>
+                                    <strong>@u.FullName</strong>
+                                    <div class="small text-muted">@u.Email</div>
+                                    <div class="small text-muted">@u.Phone</div>
+                                </td>
+                                <td><span class="small font-monospace">@u.IdPassportNum</span></td>
+                                <td>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        @foreach (var r in u.Roles)
+                                        {
+                                            <span class="mp-badge @(r.Status == "Approved" ? "mp-badge-success" : "mp-badge-warning")">@r.RoleCode (@StatusLabels.Verification(r.Status))</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (!IsSuspended(u))
+                                    {
+                                        <span class="mp-badge mp-badge-success">Aktief</span>
+                                    }
+                                    else if (IsSuspended(u))
+                                    {
+                                        <span class="mp-badge mp-badge-warning">Geskors</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-badge">@u.AccountStatus</span>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(u.StatusReason))
+                                    {
+                                        <div class="small text-muted mt-1 fst-italic" style="font-size: 11px;">Rede: @u.StatusReason</div>
+                                    }
+                                </td>
+                                <td class="small text-muted">@u.CreatedAt.ToString("dd MMM yyyy")</td>
+                                <td>
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        @if (IsSuspended(u))
+                                        {
+                                            <button class="mp-btn mp-btn-success mp-btn-sm py-1 px-2" style="font-size: 11px;" @onclick='() => OpenUserActionModal(u, "Active")'>Aktiveer</button>
+                                        }
+                                        else if (u.UserId != (Auth.CurrentUser?.UserId ?? 0))
+                                        {
+                                            <button class="mp-btn mp-btn-secondary mp-btn-sm py-1 px-2" style="font-size: 11px;" @onclick='() => OpenUserActionModal(u, "Suspended")'>Skors</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- TAB 3: ROLE VERIFICATION QUEUE -->
+    else if (_activeTab == "verifications")
+    {
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-1">Afwagtende Rolverifikasie Wagtoring</h3>
+            <p class="text-muted small mb-4">Hersien en geverifieerde PH-lisensies, Boer-titelaktes en SACAA-hommeltuigsertifikate voor rol-aktivering.</p>
+
+            @if (_roleVerifications.Count == 0)
+            {
+                <div class="text-center p-5 text-muted">Geen afwagtende rolverifikasies gevind nie.</div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Aansoeker</th>
+                                <th>Aangevraagde Rol</th>
+                                <th>Gelaaide Dokument / Verwysing</th>
+                                <th>Datum Ingedien</th>
+                                <th>Status</th>
+                                <th>Administrateursaksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var req in _roleVerifications)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@req.UserName</strong>
+                                        <div class="small text-muted">@req.UserEmail</div>
+                                    </td>
+                                    <td><span class="mp-badge mp-badge-warning">@req.RequestedRoleName (@req.RequestedRoleCode)</span></td>
+                                    <td>
+                                        <div class="fw-bold">@req.DocumentName</div>
+                                        <div class="small text-gold font-monospace">@req.DocumentReference</div>
+                                        @if (!string.IsNullOrWhiteSpace(req.DocumentUrl))
+                                        {
+                                            <div class="mt-1">
+                                                <a href="@req.DocumentUrl" target="_blank" class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-1" style="font-size: 11px;">
+                                                    <i class="bi bi-file-earmark-text me-1"></i>Bekyk Dokument &rarr;
+                                                </a>
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="small text-muted">@req.SubmittedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                    <td>
+                                        <span class="mp-badge @(req.Status == "Approved" ? "mp-badge-success" : req.Status == "Rejected" ? "mp-badge-danger" : "mp-badge-warning")">@StatusLabels.Verification(req.Status)</span>
+                                        @if (!string.IsNullOrWhiteSpace(req.RejectionReason))
+                                        {
+                                            <div class="small text-danger mt-1">Rede: @req.RejectionReason</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (req.Status == "Pending")
+                                        {
+                                            <div class="d-flex gap-1">
+                                                <button class="mp-btn mp-btn-success mp-btn-sm" @onclick="() => OpenVerificationModal(req, true)">Keur Goed</button>
+                                                <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => OpenVerificationModal(req, false)">Wys Af</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="small text-muted">Afgehandel</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- TAB: DOCUMENT VERIFICATION QUEUE -->
+    else if (_activeTab == "documentVerifications")
+    {
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-1">Afwagtende Dokumentverifikasie Wagtoring</h3>
+            <p class="text-muted small mb-4">Hersien dokumente wat PJ-, PH-, VG- en Boer-rolle opgelaai het voordat hulle rol publiek sigbaar of bespreekbaar word.</p>
+
+            @if (_pendingDocuments.Count == 0)
+            {
+                <div class="text-center p-5 text-muted">Geen dokumente gevind nie.</div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Eienaar</th>
+                                <th>Rol</th>
+                                <th>Dokumenttipe</th>
+                                <th>Datum Opgelaai</th>
+                                <th>Status</th>
+                                <th>Administrateursaksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var doc in _pendingDocuments)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@doc.OwnerName</strong>
+                                        <div class="small text-muted">@doc.OwnerEmail</div>
+                                    </td>
+                                    <td><span class="mp-badge mp-badge-warning">@doc.RoleName (@doc.RoleCode)</span></td>
+                                    <td>
+                                        <div class="fw-bold">@doc.DocumentTypeName @(doc.IsRequired ? "" : "(Opsioneel)")</div>
+                                        <div class="mt-1">
+                                            <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-1" style="font-size: 11px;" @onclick="() => ViewQueuedDocument(doc)">
+                                                <i class="bi bi-file-earmark-text me-1"></i>Bekyk Dokument &rarr;
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td class="small text-muted">@doc.UploadedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                                    <td>
+                                        <span class="mp-badge @(doc.Status == "Approved" ? "mp-badge-success" : doc.Status == "Rejected" ? "mp-badge-danger" : "mp-badge-warning")">@StatusLabels.DocumentVerification(doc.Status)</span>
+                                        @if (!string.IsNullOrWhiteSpace(doc.RejectionReason))
+                                        {
+                                            <div class="small text-danger mt-1">Rede: @doc.RejectionReason</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (doc.Status == "Pending")
+                                        {
+                                            <div class="d-flex gap-1">
+                                                <button class="mp-btn mp-btn-success mp-btn-sm" @onclick="() => OpenDocumentVerificationModal(doc, true)">Keur Goed</button>
+                                                <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => OpenDocumentVerificationModal(doc, false)">Wys Af</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="small text-muted">Afgehandel</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- TAB 4: BOOKING DISPUTE & CORRECTION TOOL (PHASE 2 DEEP FEATURE) -->
+    else if (_activeTab == "disputes")
+    {
+        <div class="mp-card mb-4">
+            <h3 class="brand-font text-gold mb-1">Besprekingsdispute &amp; Prysregstellings</h3>
+            <p class="text-muted small mb-4">Hersien volledige itemiseerde kwotasies en stel enige foutiewe pryse of gastetellings handmatig reg.</p>
+
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Bespreking Ref / Plaas</th>
+                            <th>Jagter &amp; Uitruster</th>
+                            <th>Gaste</th>
+                            <th>Totale Prys</th>
+                            <th>Status</th>
+                            <th>Regstellingshulpmiddel</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in _bookings)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@(string.IsNullOrWhiteSpace(b.PackageTitle) ? "Ekspedisie" : b.PackageTitle)</strong>
+                                    <div class="small text-muted">@b.FarmName</div>
+                                    <div class="small text-gold font-monospace">Ref: @b.PaymentReference</div>
+                                </td>
+                                <td>
+                                    <div>Jagter: <strong>@b.HunterName</strong></div>
+                                    <div class="small text-muted">Uitruster: @b.PjName</div>
+                                </td>
+                                <td>@b.HunterCount Jagters, @b.ObserverCount Waarnemers</td>
+                                <td><strong class="text-gold">@Money.Format(b.TotalPrice, b.PriceBreakdown?.Currency ?? Money.PackageCurrency, "N2")</strong></td>
+                                <td><span class="mp-badge mp-badge-info">@StatusLabels.Booking(b.Status)</span></td>
+                                <td>
+                                    <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="() => OpenDisputeModal(b)">
+                                        Stel Reg &amp; Oudit &rarr;
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- TAB 5: IMMUTABLE ADMIN AUDIT LOG -->
+    else if (_activeTab == "audit")
+    {
+        <div class="mp-card mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h3 class="brand-font text-gold mb-0">Onveranderlike ouditrekord</h3>
+                    <p class="text-muted small mb-0">Alle wysigings, goedkeurings, skorsings en regstellings word outomaties hier vasgelê vir volkome deursigtigheid.</p>
+                </div>
+
+                <div class="d-flex gap-2 flex-wrap align-items-center">
+                    <input type="text" class="mp-form-control" style="width: 180px;" placeholder="Soek admin..." @bind="_auditAdminFilter" @bind:event="oninput" />
+                    <select class="mp-select" @bind="_auditActionFilter">
+                        <option value="">Alle Aksies</option>
+                        <option value="ApproveRoleVerification">Rolverifikasie Goedgekeur</option>
+                        <option value="RejectRoleVerification">Rolverifikasie Afgekeur</option>
+                        <option value="SuspendUser">Gebruiker Geskors</option>
+                        <option value="BanUser">Gebruiker Verban</option>
+                        <option value="CorrectBookingDispute">Besprekingsdispuut Reggestel</option>
+                        <option value="ToggleFeatureFlag">Kenmerkvlag Gewissel</option>
+                    </select>
+                    <input type="date" class="mp-form-control" style="width: 150px;" @bind="_auditStartDate" title="Van datum" />
+                    <input type="date" class="mp-form-control" style="width: 150px;" @bind="_auditEndDate" title="Tot datum" />
+                    <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="ExportAuditLogsAsync" disabled="@_exportingAuditLogs">
+                        <i class="bi bi-file-earmark-spreadsheet me-1"></i>@(_exportingAuditLogs ? "Voer uit..." : "Voer uit na CSV")
+                    </button>
+                </div>
+            </div>
+
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Admin Gebruiker</th>
+                            <th>Aksie Tipe</th>
+                            <th>Entiteit Tipe &amp; ID</th>
+                            <th>Verpligte Rede / Detail</th>
+                            <th>IP / Toestel</th>
+                            <th>Tydstip (UTC)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in FilteredAuditLogs)
+                        {
+                            <tr>
+                                <td class="fw-bold">#@log.Id</td>
+                                <td><strong>@log.AdminUserName</strong> (ID: @log.AdminUserId)</td>
+                                <td><span class="mp-badge mp-badge-info">@StatusLabels.AuditAction(log.Action)</span></td>
+                                <td>
+                                    <span class="fw-bold text-gold">@log.TargetEntityType</span>
+                                    <span class="small text-muted font-monospace">#@log.TargetEntityId</span>
+                                </td>
+                                <td class="small" style="max-width: 380px;">@log.Reason</td>
+                                <td class="small text-muted font-monospace" style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="@log.UserAgent">@log.IpAddress</td>
+                                <td class="small text-muted">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- TAB 6: FEATURE FLAGS, HEALTH & CHAT MODERATION (PHASE 3) -->
+    else if (_activeTab == "settings")
+    {
+        <div class="row g-3 mb-4">
+            <!-- Feature Flags Panel -->
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-2">Stelsel Kenmerkvlae (Feature Flags)</h4>
+                    <p class="text-muted small mb-3">Wissel stelselkenmerke intyds sonder om kode te herskryf of te herontplooi.</p>
+
+                    <div class="d-flex flex-column gap-3">
+                        @foreach (var flag in _featureFlags)
+                        {
+                            <div class="p-3 rounded d-flex justify-content-between align-items-center" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                                <div>
+                                    <strong class="text-gold d-block">@flag.Key</strong>
+                                    <div class="small text-muted">@flag.Description</div>
+                                    <div class="small text-muted" style="font-size: 11px;">Laas gewysig: @flag.LastUpdated.ToString("dd MMM HH:mm") deur @flag.UpdatedBy</div>
+                                </div>
+                                <button class="mp-btn @(flag.IsEnabled ? "mp-btn-success" : "mp-btn-secondary") mp-btn-sm" @onclick="() => OpenFlagModal(flag)">
+                                    @(flag.IsEnabled ? "AAN (Geaktiveer)" : "AF (Gedeaktiveer)")
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Health Status Panel -->
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-2">Stelsel Gesondheid &amp; Uptime Monitor</h4>
+                    <p class="text-muted small mb-3">Intydse status van databasisverbindings en API-reaksies.</p>
+
+                    <div class="d-flex justify-content-end mb-2">
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" style="font-size: 11px;" @onclick="RefreshHealthAsync" disabled="@_refreshingHealth">
+                            <i class="bi bi-arrow-clockwise me-1"></i>@(_refreshingHealth ? "Kontroleer..." : "Kontroleer nou")
+                        </button>
+                    </div>
+                    <div class="d-flex flex-column gap-2 mb-4">
+                        @HealthRow("WebAPI", _health?.Reachable == true, _health?.Reachable == true ? $"Bereikbaar ({_health.ResponseTimeMs} ms)" : "Antwoord nie")
+                        @HealthRow("SQL Server-databasis", _health?.DbConnected == true, _health == null ? "Onbekend" : $"{_health.DbStatus}{(_health.DbConnected ? $" ({_health.DbResponseTimeMs} ms)" : "")}")
+                        @HealthRow("MobileAPI (app)", _health?.MobileApiHealthy == true, _health == null ? "Onbekend" : $"{_health.MobileApiStatus}{(_health.MobileApiHealthy ? $" ({_health.MobileApiResponseMs} ms)" : "")}")
+                        <div class="p-2 rounded d-flex justify-content-between align-items-center" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                            <span class="small fw-bold">Aangemelde sessies:</span>
+                            <span class="fw-bold text-gold font-monospace small">
+                                Webwerf @(_health is { ActiveSessions: >= 0 } ? _health.ActiveSessions.ToString() : "?") &bull; App @(_health is { AppSessions: >= 0 } ? _health.AppSessions.ToString() : "?")
+                            </span>
+                        </div>
+                        <div class="p-2 rounded d-flex justify-content-between align-items-center flex-wrap gap-1" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                            <span class="small fw-bold">Aktiewe vlae:</span>
+                            <span class="small">
+                                <span class="mp-badge @(_health?.MaintenanceMode == true ? "mp-badge-danger" : "mp-badge-success")">@(_health?.MaintenanceMode == true ? "Onderhoud AAN" : "Geen onderhoud")</span>
+                                <span class="mp-badge @(_health?.RegistrationsOpen == false ? "mp-badge-warning" : "mp-badge-success")">@(_health?.RegistrationsOpen == false ? "Registrasies gesluit" : "Registrasies oop")</span>
+                                <span class="mp-badge @(_health?.PayFastSandbox == false ? "mp-badge-warning" : "mp-badge-info")">@(_health?.PayFastSandbox == false ? "PayFast LIVE" : "PayFast sandbox")</span>
+                            </span>
+                        </div>
+                        <div class="small text-muted" style="font-size: 11px;">Laas gekontroleer: @(_health?.LastHeartbeat.ToLocalTime().ToString("HH:mm:ss") ?? "-") @(string.IsNullOrEmpty(_health?.Environment) ? "" : $"• Omgewing: {_health!.Environment}")</div>
+                    </div>
+
+                    <!-- Chat Moderation Queue -->
+                    <h5 class="brand-font text-gold mb-2">Boodskap Moderering Wagtoring</h5>
+                    <div class="table-responsive">
+                        <table class="mp-table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Ander Gebruiker</th>
+                                    <th>Boodskap Teks</th>
+                                    <th>Sleutelwoorde</th>
+                                    <th>Aksie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var m in _flaggedMessages)
+                                {
+                                    <tr>
+                                        <td><strong>@m.SenderUserName</strong></td>
+                                        <td class="small" style="max-width: 180px;">"@m.MessageText"</td>
+                                        <td><span class="mp-badge mp-badge-danger">@m.FlaggedKeywords</span></td>
+                                        <td>
+                                            @if (m.Status == "PendingReview")
+                                            {
+                                                <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-1" style="font-size: 11px;" @onclick='() => ProcessChatFlag(m, "Dismissed")'>Afgehandel</button>
+                                            }
+                                            else
+                                            {
+                                                <span class="small text-muted">@StatusLabels.Moderation(m.Status)</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Rating Comment Moderation Queue -->
+                    <h5 class="brand-font text-gold mb-2 mt-4">Gradering Kommentaar Moderering Wagtoring</h5>
+                    <div class="table-responsive">
+                        <table class="mp-table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Gradeerder</th>
+                                    <th>Gegradeerde</th>
+                                    <th>Kommentaar</th>
+                                    <th>Sleutelwoorde</th>
+                                    <th>Aksie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var rc in _flaggedRatingComments)
+                                {
+                                    <tr>
+                                        <td><strong>@rc.RaterUserName</strong></td>
+                                        <td>@rc.RateeUserName</td>
+                                        <td class="small" style="max-width: 180px;">"@rc.CommentText"</td>
+                                        <td><span class="mp-badge mp-badge-danger">@rc.FlaggedKeywords</span></td>
+                                        <td>
+                                            @if (rc.Status == "PendingReview")
+                                            {
+                                                <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-1" style="font-size: 11px;" @onclick='() => ProcessRatingFlag(rc, "Dismissed")'>Afgehandel</button>
+                                            }
+                                            else
+                                            {
+                                                <span class="small text-muted">@StatusLabels.Moderation(rc.Status)</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Rating Dispute Queue -->
+                    <h5 class="brand-font text-gold mb-2 mt-4">Gradering Dispuut Wagtoring</h5>
+                    <div class="table-responsive">
+                        <table class="mp-table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Betwis Deur</th>
+                                    <th>Gradering</th>
+                                    <th>Rede vir Dispuut</th>
+                                    <th>Aksie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in _ratingDisputes)
+                                {
+                                    <tr>
+                                        <td><strong>@d.DisputedByUserName</strong></td>
+                                        <td>
+                                            <span class="small text-warning">@d.Stars★</span> deur @d.RaterUserName
+                                            @if (!string.IsNullOrWhiteSpace(d.Comment))
+                                            {
+                                                <div class="small text-muted" style="max-width: 160px;">"@d.Comment"</div>
+                                            }
+                                        </td>
+                                        <td class="small" style="max-width: 200px;">@d.Reason</td>
+                                        <td>
+                                            @if (d.Status == "PendingReview")
+                                            {
+                                                <div class="d-flex gap-1">
+                                                    <button class="mp-btn mp-btn-danger mp-btn-sm py-0 px-1" style="font-size: 11px;" @onclick='() => ResolveDispute(d, "Upheld")'>Handhaaf</button>
+                                                    <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-1" style="font-size: 11px;" @onclick='() => ResolveDispute(d, "Denied")'>Wys Af</button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="small text-muted">@StatusLabels.Moderation(d.Status)</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pricing & Operational Settings -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-2">Pryse &amp; Fooie</h4>
+                    <p class="text-muted small mb-3">Hierdie waardes word regoor die platform vertoon en bereken - wysigings neem onmiddellik effek, geen herontplooiing nodig nie.</p>
+
+                    <div class="d-flex flex-column gap-2">
+                        @foreach (var setting in _systemSettings.Where(s => s.IsPublic).OrderBy(s => s.Key))
+                        {
+                            <div class="p-3 rounded d-flex justify-content-between align-items-center" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                                <div>
+                                    <strong class="text-gold d-block">@setting.Key</strong>
+                                    <div class="small text-muted">@setting.Description</div>
+                                    <div class="small text-muted" style="font-size: 11px;">Laas gewysig: @setting.LastUpdated.ToString("dd MMM HH:mm") deur @setting.UpdatedBy</div>
+                                </div>
+                                <button class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap" @onclick="() => OpenSettingModal(setting)">
+                                    @setting.Value
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="mp-card h-100">
+                    <h4 class="brand-font text-gold mb-2">Sekuriteit &amp; Operasionele Instellings</h4>
+                    <p class="text-muted small mb-3">JWT-verval, aanmeldslot en tempoperke - wysig met omsigtigheid, dit raak elke gebruiker se sessie.</p>
+
+                    <div class="d-flex flex-column gap-2">
+                        @foreach (var setting in _systemSettings.Where(s => !s.IsPublic).OrderBy(s => s.Key))
+                        {
+                            <div class="p-3 rounded d-flex justify-content-between align-items-center" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                                <div>
+                                    <strong class="text-gold d-block">@setting.Key</strong>
+                                    <div class="small text-muted">@setting.Description</div>
+                                    <div class="small text-muted" style="font-size: 11px;">Laas gewysig: @setting.LastUpdated.ToString("dd MMM HH:mm") deur @setting.UpdatedBy</div>
+                                </div>
+                                <button class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap" @onclick="() => OpenSettingModal(setting)">
+                                    @setting.Value
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+<!-- USER ACTION MODAL (SUSPEND / BAN / APPROVE WITH REASON) -->
+@if (_showUserModal && _selectedUser != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2300;">
+        <div class="mp-card p-4" style="max-width: 500px; width: 100%;">
+            <h4 class="brand-font text-gold mb-2">Administrateursaksie op gebruiker</h4>
+            <p class="small text-muted mb-3">Gebruiker: <strong>@_selectedUser.FullName</strong> (@_selectedUser.Email)</p>
+            
+            <div class="mb-3">
+                <label class="mp-form-label fw-bold">Nuwe Status:</label>
+                <span class="mp-badge @(_modalTargetStatus == "Suspended" ? "mp-badge-warning" : "mp-badge-success") ms-2">@(_modalTargetStatus == "Suspended" ? "Geskors" : "Aktief")</span>
+                @if (_modalTargetStatus == "Suspended")
+                {
+                    <div class="small text-muted mt-2">Die gebruiker word dadelik op die webwerf en in die app afgemeld en kan nie weer aanmeld voordat jy die profiel heraktiveer nie.</div>
+                }
+            </div>
+
+            <div class="mb-4">
+                <label class="mp-form-label fw-bold text-gold">Verpligte rede *</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Tik die amptelike reden vir hierdie aksie in..." @bind="_modalReason"></textarea>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Hierdie reden word in die onveranderlike ouditlogboek aangeteken en aan die gebruiker vertoon.</div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showUserModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmUserAction">Bevestig &amp; Teken Oudit Aan</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ROLE VERIFICATION MODAL -->
+@if (_showVerificationModal && _selectedVerification != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2300;">
+        <div class="mp-card p-4" style="max-width: 520px; width: 100%;">
+            <h4 class="brand-font text-gold mb-2">Verifieer Rol Versoek</h4>
+            <p class="small text-muted mb-2">Aansoeker: <strong>@_selectedVerification.UserName</strong> (@_selectedVerification.UserEmail)</p>
+            <p class="small text-muted mb-3">Aangevraagde Rol: <strong>@_selectedVerification.RequestedRoleName</strong></p>
+
+            <div class="p-3 rounded mb-3" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color);">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="fw-bold text-gold">📄 Dokument Bewys:</div>
+                    @if (!string.IsNullOrWhiteSpace(_selectedVerification.DocumentUrl))
+                    {
+                        <a href="@_selectedVerification.DocumentUrl" target="_blank" class="mp-btn mp-btn-primary mp-btn-sm py-0 px-2" style="font-size: 11px;">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Oop Dokument &rarr;
+                        </a>
+                    }
+                </div>
+                <div class="small fw-bold">@_selectedVerification.DocumentName</div>
+                <div class="small text-muted font-monospace">@_selectedVerification.DocumentReference</div>
+            </div>
+
+            <div class="mb-4">
+                <label class="mp-form-label fw-bold text-gold">Verpligte rede vir beslissing *</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Tik die reden in vir goedkeuring of afkeuring..." @bind="_modalReason"></textarea>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showVerificationModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmVerificationAction">
+                    Bevestig @(_modalIsApprove ? "Goedkeuring" : "Afkeuring")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- DOCUMENT VERIFICATION MODAL -->
+@if (_showDocumentVerificationModal && _selectedDocumentVerification != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2300;">
+        <div class="mp-card p-4" style="max-width: 900px; width: 100%; max-height: 95vh; overflow-y: auto;">
+            <h4 class="brand-font text-gold mb-2">Verifieer Dokument</h4>
+            <p class="small text-muted mb-2">Eienaar: <strong>@_selectedDocumentVerification.OwnerName</strong> (@_selectedDocumentVerification.OwnerEmail)</p>
+            <p class="small text-muted mb-3">Rol: <strong>@_selectedDocumentVerification.RoleName</strong> &bull; Dokumenttipe: <strong>@_selectedDocumentVerification.DocumentTypeName</strong></p>
+
+            <div class="p-3 rounded mb-3" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color);">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="fw-bold text-gold">📄 Dokument Bewys:</div>
+                    <button type="button" class="mp-btn mp-btn-primary mp-btn-sm py-0 px-2" style="font-size: 11px;" @onclick="() => ViewQueuedDocument(_selectedDocumentVerification)">
+                        <i class="bi bi-box-arrow-up-right me-1"></i>Oop Dokument &rarr;
+                    </button>
+                </div>
+                <div class="small fw-bold">@_selectedDocumentVerification.FileName</div>
+                @if (_docPreviewUrl != null)
+                {
+                    @if (_selectedDocumentVerification.FileDataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <img src="@_docPreviewUrl" alt="@_selectedDocumentVerification.FileName" class="mt-2 rounded w-100" style="max-height: 60vh; object-fit: contain; background: #fff;" />
+                    }
+                    else
+                    {
+                        <iframe src="@_docPreviewUrl" title="@_selectedDocumentVerification.FileName" class="mt-2 rounded w-100" style="height: 60vh; border: 1px solid var(--border-color); background: #fff;"></iframe>
+                    }
+                }
+                else if (string.IsNullOrWhiteSpace(_selectedDocumentVerification.FileDataUrl))
+                {
+                    <div class="small text-danger mt-2">Geen lêer by hierdie dokument nie.</div>
+                }
+                else
+                {
+                    <div class="small text-muted mt-2">Laai voorskou...</div>
+                }
+            </div>
+
+            <div class="mb-4">
+                <label class="mp-form-label fw-bold text-gold">Rede @(_modalIsApprove ? "(opsioneel)" : "(verpligtend by afkeuring) *")</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Tik die reden in vir goedkeuring of afkeuring..." @bind="_modalReason"></textarea>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseDocumentVerificationModal">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmDocumentVerificationAction">
+                    Bevestig @(_modalIsApprove ? "Goedkeuring" : "Afkeuring")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- BOOKING DISPUTE & CORRECTION MODAL -->
+@if (_showDisputeModal && _selectedBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2350; overflow-y: auto;">
+        <div class="mp-card p-4" style="max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto;">
+            <h4 class="brand-font text-gold mb-1">Regstel Besprekingsdispuut #@_selectedBooking.Id</h4>
+            <p class="small text-muted mb-3">Plaas: <strong>@_selectedBooking.FarmName</strong> | Jagter: <strong>@_selectedBooking.HunterName</strong></p>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="mp-form-label">Reggestelde Totale Prys</label>
+                    <input type="number" class="mp-form-control" @bind="_disputeTotalPrice" step="0.01" />
+                </div>
+                <div class="col-md-6">
+                    <label class="mp-form-label">Aantal Jagters</label>
+                    <input type="number" class="mp-form-control" @bind="_disputeHunters" min="1" />
+                </div>
+                <div class="col-md-6">
+                    <label class="mp-form-label">Aantal Waarnemers</label>
+                    <input type="number" class="mp-form-control" @bind="_disputeObservers" min="0" />
+                </div>
+                <div class="col-md-6">
+                    <label class="mp-form-label">Bespreking Status</label>
+                    <select class="mp-select w-100" @bind="_disputeStatus">
+                        <option value="Approved">Goedgekeur (Approved)</option>
+                        <option value="Paid">Betaal (Paid)</option>
+                        <option value="Pending">Afwagtend (Pending)</option>
+                        <option value="Rejected">Van Hand Gewys (Rejected)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="mp-form-label fw-bold text-gold">Verpligte rede vir regstelling *</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Verduidelik hoekom die prys of besonderhede deur Admin reggestel is..." @bind="_modalReason"></textarea>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showDisputeModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmBookingCorrection">Stoor Regstelling &amp; Teken Oudit Aan</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- FEATURE FLAG TOGGLE MODAL -->
+@if (_showFlagModal && _selectedFlag != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2300;">
+        <div class="mp-card p-4" style="max-width: 480px; width: 100%;">
+            <h4 class="brand-font text-gold mb-2">Wissel Kenmerkvlag</h4>
+            <p class="small text-muted mb-2">Sleutel: <strong class="text-gold">@_selectedFlag.Key</strong></p>
+
+            <div class="mb-4">
+                <label class="mp-form-label fw-bold text-gold">Verpligte Rede vir Wissel *</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Verduidelik die rede vir hierdie kenmerk-wisseling..." @bind="_modalReason"></textarea>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showFlagModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmFlagToggle">
+                    Wissel na @(!_selectedFlag.IsEnabled ? "AAN" : "AF")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- SYSTEM SETTING UPDATE MODAL -->
+@if (_showSettingModal && _selectedSetting != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2300;">
+        <div class="mp-card p-4" style="max-width: 480px; width: 100%;">
+            <h4 class="brand-font text-gold mb-2">Wysig Instelling</h4>
+            <p class="small text-muted mb-1"><strong class="text-gold">@_selectedSetting.Key</strong></p>
+            <p class="small text-muted mb-3">@_selectedSetting.Description</p>
+
+            <div class="mb-3">
+                <label class="mp-form-label fw-bold text-gold">Nuwe Waarde *</label>
+                <input type="number" step="0.01" min="0" class="mp-form-control" @bind="_modalSettingValue" />
+            </div>
+
+            <div class="mb-4">
+                <label class="mp-form-label fw-bold text-gold">Verpligte Rede vir Wysiging *</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Verduidelik die rede vir hierdie instellingwysiging..." @bind="_modalReason"></textarea>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showSettingModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="ConfirmSettingUpdate">Stoor &amp; Teken Oudit Aan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _activeTab = "overview";
+    private string _toastMsg = string.Empty;
+    private bool _toastSuccess = true;
+
+    // Data Repositories
+    private List<UserModel> _masterUsers = new();
+    private List<RoleVerificationRequestModel> _roleVerifications = new();
+    private List<PendingDocumentVerificationModel> _pendingDocuments = new();
+    private List<BookingModel> _bookings = new();
+    private List<AdminAuditLogModel> _auditLogs = new();
+    private List<FeatureFlagModel> _featureFlags = new();
+    private List<FlaggedChatMessageModel> _flaggedMessages = new();
+    private List<FlaggedRatingCommentModel> _flaggedRatingComments = new();
+    private List<RatingDisputeModel> _ratingDisputes = new();
+    private List<SystemSettingModel> _systemSettings = new();
+    private SystemHealthModel? _health;
+    private bool _refreshingHealth;
+
+    private async Task RefreshHealthAsync()
+    {
+        _refreshingHealth = true;
+        _health = await Api.GetSystemHealthAsync();
+        _refreshingHealth = false;
+    }
+
+    /// <summary>One line of the health panel, green when <paramref name="ok"/>, red otherwise.</summary>
+    private static RenderFragment HealthRow(string label, bool ok, string detail) => __builder =>
+    {
+        <div class="p-2 rounded d-flex justify-content-between align-items-center gap-2"
+             style="background: @(ok ? "rgba(16, 185, 129, 0.1)" : "rgba(220, 38, 38, 0.12)"); border: 1px solid @(ok ? "rgba(16, 185, 129, 0.3)" : "rgba(220, 38, 38, 0.4)");">
+            <span class="small fw-bold @(ok ? "text-success" : "text-danger")">@label:</span>
+            <span class="mp-badge @(ok ? "mp-badge-success" : "mp-badge-danger") text-wrap text-end">@detail</span>
+        </div>
+    };
+
+    // Filters
+    private string _userSearchQuery = string.Empty;
+    private string _userRoleFilter = string.Empty;
+    private string _userStatusFilter = string.Empty;
+    private string _auditAdminFilter = string.Empty;
+    private string _auditActionFilter = string.Empty;
+    private DateTime? _auditStartDate;
+    private DateTime? _auditEndDate;
+    private bool _exportingAuditLogs = false;
+
+    // Modals State
+    private string _modalReason = string.Empty;
+
+    private bool _showUserModal = false;
+    private UserModel? _selectedUser;
+    private string _modalTargetStatus = string.Empty;
+
+    private bool _showVerificationModal = false;
+    private RoleVerificationRequestModel? _selectedVerification;
+    private bool _modalIsApprove = true;
+
+    private bool _showDocumentVerificationModal = false;
+    private PendingDocumentVerificationModel? _selectedDocumentVerification;
+
+    private bool _showDisputeModal = false;
+    private BookingModel? _selectedBooking;
+    private decimal _disputeTotalPrice;
+    private int _disputeHunters;
+    private int _disputeObservers;
+    private string _disputeStatus = "Approved";
+
+    private bool _showFlagModal = false;
+    private FeatureFlagModel? _selectedFlag;
+
+    private bool _showSettingModal = false;
+    private SystemSettingModel? _selectedSetting;
+    private string _modalSettingValue = string.Empty;
+
+    /// <summary>Subscribes to auth-state changes and loads every admin data set up front (all 11 API calls run on every load - this page trades a heavier initial fetch for simplicity across its many tabs).</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-runs the data load when auth state changes (e.g. login completes after this page rendered its "please sign in" gate).</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Fetches every data set this dashboard's tabs need in one pass; called on init and after every mutating admin action to refresh the view.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && Auth.HasRole("Admin"))
+        {
+            _masterUsers = await Api.GetMasterUsersAsync();
+            _roleVerifications = await Api.GetRoleVerificationRequestsAsync();
+            _pendingDocuments = await Api.GetPendingDocumentVerificationsAsync(status: null);
+            _bookings = await Api.GetBookingsAsync();
+            _auditLogs = await Api.GetAdminAuditLogsAsync();
+            _featureFlags = await Api.GetFeatureFlagsAsync();
+            _flaggedMessages = await Api.GetFlaggedChatMessagesAsync();
+            _flaggedRatingComments = await Api.GetFlaggedRatingCommentsAsync();
+            _ratingDisputes = await Api.GetRatingDisputesAsync();
+            _health = await Api.GetSystemHealthAsync();
+            _systemSettings = await Api.GetSystemSettingsAsync();
+        }
+    }
+
+    /// <summary>Switches the active tab and clears any stale toast from the previous tab's action.</summary>
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
+        _toastMsg = string.Empty;
+    }
+
+    /// <summary>Master user list filtered by name/email search, role, and account status - backs the "users" tab table.</summary>
+    private IEnumerable<UserModel> FilteredMasterUsers => _masterUsers.Where(u =>
+        (string.IsNullOrWhiteSpace(_userSearchQuery) || u.FullName.Contains(_userSearchQuery, StringComparison.OrdinalIgnoreCase) || u.Email.Contains(_userSearchQuery, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrWhiteSpace(_userRoleFilter) || u.Roles.Any(r => RoleCodeMatches(r.RoleCode, _userRoleFilter))) &&
+        (string.IsNullOrWhiteSpace(_userStatusFilter) || u.AccountStatus.Equals(_userStatusFilter, StringComparison.OrdinalIgnoreCase))
+    );
+
+    /// <summary>
+    /// The DB stores role codes as "HUNTER"/"FARMER" (English, uppercase) while the UI
+    /// uses "Jagter"/"Boer" (Afrikaans) as the canonical display/filter codes for those
+    /// two roles - everything else ("PJ","PH","VG","AP","Admin") matches case-insensitively
+    /// as-is. Without this, every role-based count/filter on this page silently under-counts
+    /// or misses real DB users. Mirrors the synonym mapping in AuthService.HasRole.
+    /// </summary>
+    private static bool RoleCodeMatches(string? roleCode, string filterCode)
+    {
+        if (string.IsNullOrWhiteSpace(roleCode)) return false;
+        string a = roleCode.Trim().ToUpperInvariant();
+        string b = filterCode.Trim().ToUpperInvariant();
+        if (a == b) return true;
+        if ((a == "JAGTER" || a == "HUNTER") && (b == "JAGTER" || b == "HUNTER")) return true;
+        if ((a == "BOER" || a == "FARMER") && (b == "BOER" || b == "FARMER")) return true;
+        return false;
+    }
+
+    /// <summary>_auditLogs filtered by admin name, action type, and date range - backs both the "audit" tab table and ExportAuditLogsAsync (export honors the same filters as the on-screen view).</summary>
+    private IEnumerable<AdminAuditLogModel> FilteredAuditLogs => _auditLogs.Where(l =>
+        (string.IsNullOrWhiteSpace(_auditAdminFilter) || l.AdminUserName.Contains(_auditAdminFilter, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrWhiteSpace(_auditActionFilter) || l.Action.Equals(_auditActionFilter, StringComparison.OrdinalIgnoreCase)) &&
+        (!_auditStartDate.HasValue || l.Timestamp.Date >= _auditStartDate.Value.Date) &&
+        (!_auditEndDate.HasValue || l.Timestamp.Date <= _auditEndDate.Value.Date)
+    );
+
+    /// <summary>Downloads the (filtered) audit log as CSV via a small JS interop helper (mikpuntDownloadFile) since Blazor Server has no native browser-download API.</summary>
+    private async Task ExportAuditLogsAsync()
+    {
+        _exportingAuditLogs = true;
+        try
+        {
+            var bytes = await Api.ExportAuditLogsCsvAsync(
+                string.IsNullOrWhiteSpace(_auditAdminFilter) ? null : _auditAdminFilter,
+                string.IsNullOrWhiteSpace(_auditActionFilter) ? null : _auditActionFilter,
+                _auditStartDate,
+                _auditEndDate);
+
+            if (bytes == null)
+            {
+                ShowToast("Kon nie die ouditrekord uitvoer nie. Probeer weer.", false);
+                return;
+            }
+
+            string base64 = Convert.ToBase64String(bytes);
+            string filename = $"mikpunt-admin-audit-log-{DateTime.UtcNow:yyyyMMddHHmmss}.csv";
+            await JS.InvokeVoidAsync("mikpuntDownloadFile", filename, "text/csv", base64);
+        }
+        finally
+        {
+            _exportingAuditLogs = false;
+        }
+    }
+
+    // --- OVERVIEW CHARTS ---
+    /// <summary>Audit-log action counts bucketed by day for the last 7 days (UTC), oldest first - feeds the CSS-bar-chart on the overview tab (no JS charting library used).</summary>
+    private List<(string Label, int Count)> AdminActionsPerDay
+    {
+        get
+        {
+            var days = Enumerable.Range(0, 7)
+                .Select(offset => DateTime.UtcNow.Date.AddDays(-6 + offset))
+                .ToList();
+
+            return days.Select(d => (
+                Label: d.ToString("dd/MM"),
+                Count: _auditLogs.Count(l => l.Timestamp.Date == d)
+            )).ToList();
+        }
+    }
+
+    /// <summary>User counts per role for the overview tab's distribution bars; zero-count roles are dropped so the chart doesn't show empty bars.</summary>
+    private List<(string RoleCode, int Count)> UsersPerRole =>
+        new[] { "Jagter", "Boer", "PJ", "PH", "VG", "AP" }
+            .Select(code => (RoleCode: code, Count: _masterUsers.Count(u => u.Roles.Any(r => RoleCodeMatches(r.RoleCode, code)))))
+            .Where(r => r.Count > 0)
+            .ToList();
+
+    // --- USER ACTIONS ---
+    /// <summary>Opens the suspend/ban/activate modal, pre-filled with the target status the clicked button represents.</summary>
+    /// <summary>Two account states: suspended (also older "Banned" rows) or active.</summary>
+    private static bool IsSuspended(UserModel u) => u.AccountStatus is "Suspended" or "Banned";
+
+    private void OpenUserActionModal(UserModel u, string targetStatus)
+    {
+        _selectedUser = u;
+        _modalTargetStatus = targetStatus;
+        _modalReason = string.Empty;
+        _showUserModal = true;
+    }
+
+    /// <summary>
+    /// Applies the status change (requires a non-empty reason, enforced client-side here)
+    /// and reloads. The WebAPI records the admin from their sign-in token, so a missing
+    /// CurrentUser (id 0) can never be attributed to another account.
+    /// </summary>
+    private async Task ConfirmUserAction()
+    {
+        if (string.IsNullOrWhiteSpace(_modalReason))
+        {
+            ShowToast(" 'n Rede is verpligtend vir enige statusverandering.", false);
+            return;
+        }
+
+        if (_selectedUser != null)
+        {
+            int adminId = Auth.CurrentUser?.UserId ?? 0;
+            string adminName = Auth.CurrentUser?.FullName ?? "Stelsel Admin";
+            var (success, msg) = await Api.UpdateUserStatusAsync(adminId, adminName, _selectedUser.UserId, _modalTargetStatus, _modalReason);
+            ShowToast(msg, success);
+            _showUserModal = false;
+            await LoadDataAsync();
+        }
+    }
+
+    // --- VERIFICATION ACTIONS ---
+    /// <summary>Opens the role-verification decision modal in approve or reject mode.</summary>
+    private void OpenVerificationModal(RoleVerificationRequestModel req, bool approve)
+    {
+        _selectedVerification = req;
+        _modalIsApprove = approve;
+        _modalReason = string.Empty;
+        _showVerificationModal = true;
+    }
+
+    /// <summary>Submits the approve/reject decision (calls AdminController.DecideRoleVerification via ProcessRoleVerificationAsync) - always requires a reason here, both for approvals and rejections.</summary>
+    private async Task ConfirmVerificationAction()
+    {
+        if (string.IsNullOrWhiteSpace(_modalReason))
+        {
+            ShowToast(" 'n Rede vir die verifikasiebepaling is verpligtend.", false);
+            return;
+        }
+
+        if (_selectedVerification != null)
+        {
+            int adminId = Auth.CurrentUser?.UserId ?? 0;
+            string adminName = Auth.CurrentUser?.FullName ?? "Stelsel Admin";
+            var (success, msg) = await Api.ProcessRoleVerificationAsync(adminId, adminName, _selectedVerification.Id, _modalIsApprove, _modalReason);
+            ShowToast(msg, success);
+            _showVerificationModal = false;
+            await LoadDataAsync();
+        }
+    }
+
+    // --- DOCUMENT VERIFICATION ACTIONS ---
+    /// <summary>Opens the document-verification decision modal in approve or reject mode.</summary>
+    private string? _docPreviewUrl;
+
+    /// <summary>Shows the document itself in the decision window (PDF or image), so the admin judges what they see.</summary>
+    private async Task LoadDocumentPreviewAsync(PendingDocumentVerificationModel doc)
+    {
+        await ReleaseDocumentPreviewAsync();
+        if (string.IsNullOrWhiteSpace(doc.FileDataUrl)) return;
+        try { _docPreviewUrl = await JS.InvokeAsync<string>("mikpuntDataUrlToBlobUrl", doc.FileDataUrl); }
+        catch (Exception) { _docPreviewUrl = null; }
+        StateHasChanged();
+    }
+
+    private async Task ReleaseDocumentPreviewAsync()
+    {
+        if (_docPreviewUrl == null) return;
+        try { await JS.InvokeVoidAsync("mikpuntRevokeBlobUrl", _docPreviewUrl); } catch (Exception) { }
+        _docPreviewUrl = null;
+    }
+
+    private async Task CloseDocumentVerificationModal()
+    {
+        _showDocumentVerificationModal = false;
+        await ReleaseDocumentPreviewAsync();
+    }
+
+    private void OpenDocumentVerificationModal(PendingDocumentVerificationModel doc, bool approve)
+    {
+        _ = InvokeAsync(() => LoadDocumentPreviewAsync(doc));
+        _selectedDocumentVerification = doc;
+        _modalIsApprove = approve;
+        _modalReason = string.Empty;
+        _showDocumentVerificationModal = true;
+    }
+
+    /// <summary>Opens the uploaded document in a new tab/viewer via JS interop, given its data URL.</summary>
+    private async Task ViewQueuedDocument(PendingDocumentVerificationModel doc)
+    {
+        await JS.InvokeVoidAsync("mikpuntViewFile", doc.FileDataUrl);
+    }
+
+    /// <summary>Submits the document approve/reject decision (calls AdminController.DecideDocumentVerification via DecideDocumentVerificationAsync). Unlike role verification above, a reason is only mandatory on rejection - matching the "(opsioneel)" label in the modal.</summary>
+    private async Task ConfirmDocumentVerificationAction()
+    {
+        if (!_modalIsApprove && string.IsNullOrWhiteSpace(_modalReason))
+        {
+            ShowToast(" 'n Rede is verpligtend wanneer 'n dokument van hand gewys word.", false);
+            return;
+        }
+
+        if (_selectedDocumentVerification != null)
+        {
+            var (success, msg) = await Api.DecideDocumentVerificationAsync(_selectedDocumentVerification.Id, _modalIsApprove, _modalReason);
+            ShowToast(msg, success);
+            await CloseDocumentVerificationModal();
+            await LoadDataAsync();
+        }
+    }
+
+    // --- DISPUTE & BOOKING CORRECTION ACTIONS ---
+    /// <summary>Opens the manual booking-correction modal, pre-filled with the booking's current price/headcount/status so the admin edits from real values rather than blank fields.</summary>
+    private void OpenDisputeModal(BookingModel b)
+    {
+        _selectedBooking = b;
+        _disputeTotalPrice = b.TotalPrice;
+        _disputeHunters = b.HunterCount;
+        _disputeObservers = b.ObserverCount;
+        _disputeStatus = string.IsNullOrWhiteSpace(b.Status) ? "Approved" : b.Status;
+        _modalReason = string.Empty;
+        _showDisputeModal = true;
+    }
+
+    /// <summary>Submits the manual price/headcount/status override for a disputed booking, building an AdminCorrectBookingRequest DTO for the API.</summary>
+    private async Task ConfirmBookingCorrection()
+    {
+        if (string.IsNullOrWhiteSpace(_modalReason))
+        {
+            ShowToast(" 'n Rede vir die besprekingsregstelling is verpligtend.", false);
+            return;
+        }
+
+        if (_selectedBooking != null)
+        {
+            int adminId = Auth.CurrentUser?.UserId ?? 0;
+            string adminName = Auth.CurrentUser?.FullName ?? "Stelsel Admin";
+
+            var req = new AdminCorrectBookingRequest
+            {
+                BookingId = _selectedBooking.Id,
+                CorrectedTotalPrice = _disputeTotalPrice,
+                CorrectedHunterCount = _disputeHunters,
+                CorrectedObserverCount = _disputeObservers,
+                Status = _disputeStatus,
+                Reason = _modalReason
+            };
+
+            var (success, msg) = await Api.CorrectBookingDisputeAsync(adminId, adminName, req);
+            ShowToast(msg, success);
+            _showDisputeModal = false;
+            await LoadDataAsync();
+        }
+    }
+
+    // --- FEATURE FLAG ACTIONS ---
+    /// <summary>Opens the feature-flag toggle modal for a given flag (the modal always flips to the opposite of its current IsEnabled state - there's no separate "set to X" control).</summary>
+    private void OpenFlagModal(FeatureFlagModel flag)
+    {
+        _selectedFlag = flag;
+        _modalReason = string.Empty;
+        _showFlagModal = true;
+    }
+
+    /// <summary>Flips the selected feature flag's enabled state, requiring a reason for the audit trail.</summary>
+    private async Task ConfirmFlagToggle()
+    {
+        if (string.IsNullOrWhiteSpace(_modalReason))
+        {
+            ShowToast(" 'n Rede vir die kenmerk-wisseling is verpligtend.", false);
+            return;
+        }
+
+        if (_selectedFlag != null)
+        {
+            int adminId = Auth.CurrentUser?.UserId ?? 0;
+            string adminName = Auth.CurrentUser?.FullName ?? "Stelsel Admin";
+            var (success, msg) = await Api.ToggleFeatureFlagAsync(adminId, adminName, _selectedFlag.Key, !_selectedFlag.IsEnabled, _modalReason);
+            ShowToast(msg, success);
+            _showFlagModal = false;
+            await LoadDataAsync();
+        }
+    }
+
+    // --- SYSTEM SETTINGS ACTIONS ---
+    /// <summary>Opens the settings-edit modal, pre-filled with the setting's current value.</summary>
+    private void OpenSettingModal(SystemSettingModel setting)
+    {
+        _selectedSetting = setting;
+        _modalSettingValue = setting.Value;
+        _modalReason = string.Empty;
+        _showSettingModal = true;
+    }
+
+    /// <summary>Persists a new value for the selected system setting (pricing/security config), applying platform-wide immediately per SystemSettingsCache - no redeploy needed.</summary>
+    private async Task ConfirmSettingUpdate()
+    {
+        if (string.IsNullOrWhiteSpace(_modalReason))
+        {
+            ShowToast(" 'n Rede vir die instellingwysiging is verpligtend.", false);
+            return;
+        }
+
+        if (_selectedSetting != null)
+        {
+            var (success, msg) = await Api.UpdateSystemSettingAsync(_selectedSetting.Key, _modalSettingValue, _modalReason);
+            ShowToast(msg, success);
+            _showSettingModal = false;
+            await LoadDataAsync();
+        }
+    }
+
+    /// <summary>Dismisses a flagged chat message from the moderation queue (single-click, no reason modal - the note text is a fixed string, not admin-entered).</summary>
+    private async Task ProcessChatFlag(FlaggedChatMessageModel msg, string action)
+    {
+        int adminId = Auth.CurrentUser?.UserId ?? 0;
+        string adminName = Auth.CurrentUser?.FullName ?? "Stelsel Admin";
+        var (success, resMsg) = await Api.ProcessFlaggedMessageAsync(adminId, adminName, msg.Id, action, "Gedissiplineer deur admin moderering.");
+        ShowToast(resMsg, success);
+        await LoadDataAsync();
+    }
+
+    /// <summary>Dismisses a flagged rating comment from the moderation queue (same fixed-note, no-modal pattern as ProcessChatFlag).</summary>
+    private async Task ProcessRatingFlag(FlaggedRatingCommentModel comment, string action)
+    {
+        var (success, resMsg) = await Api.ProcessFlaggedRatingCommentAsync(comment.Id, action, "Gedissiplineer deur admin moderering.");
+        ShowToast(resMsg, success);
+        await LoadDataAsync();
+    }
+
+    /// <summary>Resolves a rating dispute as either "Upheld" (the disputed rating is excluded from averages) or "Denied" (rating stands) - no reason modal, just the two action buttons.</summary>
+    private async Task ResolveDispute(RatingDisputeModel dispute, string status)
+    {
+        var notes = status == "Upheld" ? "Dispuut gehandhaaf - gradering uitgesluit van gemiddeldes." : "Dispuut afgewys - gradering bly staan.";
+        var (success, resMsg) = await Api.ResolveRatingDisputeAsync(dispute.DisputeId, status, notes);
+        ShowToast(resMsg, success);
+        await LoadDataAsync();
+    }
+
+    /// <summary>Sets the dismissible toast banner shown at the top of the dashboard after any admin action.</summary>
+    private void ShowToast(string message, bool isSuccess)
+    {
+        _toastMsg = message;
+        _toastSuccess = isSuccess;
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

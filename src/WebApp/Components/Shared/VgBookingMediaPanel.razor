@@ -1,0 +1,449 @@
+@* A VG's photos and short video clips for one finished booking. Everything uploaded here (and not
+   excluded by the PH) is woven into the booking's hunt story (recap video) at the moment it was
+   taken - clips play inline, without their sound. Storage, limits and the story pipeline live in
+   MobileAPI (relayed by WebAPI's api/vg/bookings/{id}/...); this panel only reflects what the
+   server allows. Files are first buffered to a temp file on the web server so a slow browser
+   upload can't time out the API call. *@
+@inject MikpuntApiService Api
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="mp-card p-3 mb-4" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <h6 class="text-gold fw-bold mb-0">🎬 Foto's &amp; videogrepe vir die jagstorie</h6>
+        @if (_items.Count > 0)
+        {
+            <span class="mp-badge">@_items.Count(i => !i.IsVideo) foto's · @_items.Count(i => i.IsVideo) grepe</span>
+        }
+    </div>
+
+    @if (!Eligible)
+    {
+        <div class="small text-muted">U kan foto's en videogrepe oplaai sodra die ekspedisie verby is (na @EndDate.ToString("dd MMM yyyy")).</div>
+    }
+    else
+    {
+        <div class="small text-muted mb-2">
+            Foto's (JPEG, PNG, WebP tot @PhotoLimitMb MB) en kort videogrepe (MP4/MOV, hoogstens @MaxClipSeconds sekondes en @VideoLimitMb MB).
+            Videogrepe speel sonder klank in die storie. Die PH besluit uiteindelik wat ingesluit word.
+        </div>
+
+        @if (StoryAlreadyMade)
+        {
+            <div class="alert alert-warning small py-2 mb-2">
+                Die jagstorie vir hierdie bespreking is reeds gegenereer. Nuwe foto's en grepe word net bewaar - hulle
+                kom nie meer in die storie nie, tensy die PH 'n nuwe storie laat maak nadat die vorige een misluk het.
+            </div>
+        }
+
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+            <label class="mp-btn mp-btn-primary mp-btn-sm mb-0 @(_uploading ? "disabled" : "")" for="@_inputId" style="cursor: pointer;">⬆ Kies lêers</label>
+            <InputFile id="@_inputId" class="d-none" multiple disabled="@_uploading" OnChange="OnFilesSelected"
+                       accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,.mp4,.mov" />
+            @if (_uploading)
+            {
+                <span class="small text-muted">
+                    <span class="spinner-border spinner-border-sm text-warning me-1"></span>
+                    @_uploadLabel (@_uploadPercent%)
+                </span>
+            }
+        </div>
+        @if (_uploading)
+        {
+            <div class="progress mb-2" style="height: 6px;">
+                <div class="progress-bar bg-warning" role="progressbar" style="width: @(_uploadPercent)%" aria-valuenow="@_uploadPercent" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+        }
+
+        @foreach (var line in _uploadResults)
+        {
+            <div class="small @(line.IsError ? "text-danger" : "text-success")">@line.Text</div>
+        }
+
+        @if (_loading)
+        {
+            <div class="small text-muted mt-2">Laai media...</div>
+        }
+        else if (_loadError != null)
+        {
+            <div class="small text-danger mt-2">@_loadError</div>
+        }
+        else if (_items.Count == 0)
+        {
+            <div class="small text-muted mt-2">Nog geen foto's of videogrepe op hierdie bespreking nie.</div>
+        }
+        else
+        {
+            <ul class="list-unstyled mb-0 mt-2">
+                @foreach (var item in _items)
+                {
+                    var mine = item.UploaderUserId == CurrentUserId;
+                    <li class="py-2 border-bottom border-secondary">
+                        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                            <div class="small">
+                                <span class="me-1">@(item.IsVideo ? "🎞" : "🖼")</span>
+                                <strong>@item.OriginalFileName</strong>
+                                <span class="text-muted">
+                                    · @item.UploaderRole
+                                    @if (item.IsVideo && item.DurationSeconds is decimal secs)
+                                    {
+                                        <text> · @secs.ToString("0.#") s</text>
+                                    }
+                                    · @FormatSize(item.FileSizeBytes)
+                                    · @(CapturedLocal(item)?.ToString("dd MMM yyyy HH:mm") ?? "tyd onbekend")
+                                </span>
+                                @if (!string.Equals(item.InclusionStatus, "Included", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <span class="mp-badge mp-badge-danger ms-1" title="Die PH het dit uit die storie gelaat">Uitgesluit</span>
+                                }
+                                @if (mine && CapturedLocal(item) == null && _editingId != item.MediaId)
+                                {
+                                    <div class="text-warning">⚠ Kies "Wysig" en stel wanneer dit geneem is - anders speel dit heel aan die einde van die storie.</div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(item.Caption) && _editingId != item.MediaId)
+                                {
+                                    <div class="text-muted fst-italic">“@item.Caption”</div>
+                                }
+                            </div>
+                            <div class="d-flex gap-1">
+                                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" style="font-size: 11px;"
+                                        disabled="@(_busyId == item.MediaId)" @onclick="() => TogglePreview(item)">
+                                    @(_previewId == item.MediaId ? "Maak toe" : "Voorskou")
+                                </button>
+                                @if (mine)
+                                {
+                                    <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" style="font-size: 11px;"
+                                            disabled="@(_busyId == item.MediaId)" @onclick="() => StartEdit(item)">Wysig</button>
+                                    <button type="button" class="mp-btn mp-btn-danger mp-btn-sm py-0 px-2" style="font-size: 11px;"
+                                            disabled="@(_busyId == item.MediaId)" @onclick="() => Delete(item)">Verwyder</button>
+                                }
+                            </div>
+                        </div>
+
+                        @if (_editingId == item.MediaId)
+                        {
+                            <div class="row g-2 mt-1">
+                                <div class="col-md-6">
+                                    <input class="mp-form-control form-control-sm" maxlength="500" placeholder="Byskrif in die storie" @bind="_editCaption" />
+                                </div>
+                                <div class="col-md-4">
+                                    <input class="mp-form-control form-control-sm" type="datetime-local" title="Wanneer dit geneem is (SA tyd)" @bind="_editCapturedLocal" />
+                                </div>
+                                <div class="col-md-2 d-flex gap-1">
+                                    <button type="button" class="mp-btn mp-btn-primary mp-btn-sm" disabled="@(_busyId == item.MediaId)" @onclick="() => SaveEdit(item)">Stoor</button>
+                                    <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => _editingId = null">✕</button>
+                                </div>
+                            </div>
+                        }
+
+                        @if (_previewId == item.MediaId)
+                        {
+                            <div class="mt-2">
+                                @if (_previewUrl == null)
+                                {
+                                    <span class="small text-muted">@(_previewError ?? "Laai voorskou...")</span>
+                                }
+                                else if (item.IsVideo)
+                                {
+                                    <video src="@_previewUrl" controls muted style="max-width: 100%; max-height: 320px;"></video>
+                                }
+                                else
+                                {
+                                    <img src="@_previewUrl" alt="@(item.Caption ?? item.OriginalFileName)" style="max-width: 100%; max-height: 320px;" />
+                                }
+                            </div>
+                        }
+
+                        @if (_itemMessages.TryGetValue(item.MediaId, out var msg))
+                        {
+                            <div class="small mt-1 @(msg.IsError ? "text-danger" : "text-success")">@msg.Text</div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        @if (_recaps.Count > 0)
+        {
+            <div class="mt-3">
+                <div class="small fw-bold text-gold mb-1">Jagstorie</div>
+                @foreach (var recap in _recaps)
+                {
+                    <div class="small">
+                        <strong>@recap.Title</strong> — @RecapStatus(recap)
+                        @if (!string.IsNullOrWhiteSpace(recap.FailureReason))
+                        {
+                            <span class="text-muted"> (@recap.FailureReason)</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else if (!_loading && _loadError == null)
+        {
+            <div class="small text-muted mt-3">Die Jagter of PH genereer die jagstorie in die MikPunt-app; alle ingeslote foto's en grepe word dan saamgevoeg.</div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int BookingId { get; set; }
+    [Parameter, EditorRequired] public int CurrentUserId { get; set; }
+    [Parameter] public DateTime StartDate { get; set; }
+    [Parameter] public DateTime EndDate { get; set; }
+    /// <summary>Media can only be added once the trip is over (Completed, or end date passed and not cancelled) - MobileAPI enforces the same rule.</summary>
+    [Parameter] public bool Eligible { get; set; }
+
+    // Mirrors MobileAPI's SharedBooking defaults; the server is the authority and explains any rejection.
+    private const long PhotoLimitMb = 15;
+    private const long VideoLimitMb = 100;
+    private const int MaxClipSeconds = 30;
+    private const int MaxFilesPerPick = 20;
+
+    // South Africa has no daylight saving, so SAST is a fixed UTC+2. The web server
+    // itself may run in UTC (Docker), so times are converted explicitly, never via Local.
+    private static readonly TimeSpan Sast = TimeSpan.FromHours(2);
+
+    private readonly string _inputId = $"vg-media-{Guid.NewGuid():N}";
+    private List<BookingMediaItemModel> _items = new();
+    private List<BookingRecapSummaryModel> _recaps = new();
+    private readonly List<(string Text, bool IsError)> _uploadResults = new();
+    private readonly Dictionary<long, (string Text, bool IsError)> _itemMessages = new();
+    private bool _loading = true;
+    private string? _loadError;
+    private bool _uploading;
+    private string _uploadLabel = string.Empty;
+    private int _uploadPercent;
+    private long? _busyId;
+    private long? _editingId;
+    private string? _editCaption;
+    private DateTime? _editCapturedLocal;
+    private long? _previewId;
+    private string? _previewUrl;
+    private string? _previewError;
+    private int _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor == BookingId) return;
+        _loadedFor = BookingId;
+        _uploadResults.Clear();
+        _itemMessages.Clear();
+        await ClosePreview();
+        if (Eligible) await Load();
+        else _loading = false;
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        (_items, _loadError) = await Api.GetVgBookingMediaAsync(BookingId);
+        _recaps = _loadError == null ? await Api.GetVgBookingRecapsAsync(BookingId) : new();
+        _loading = false;
+    }
+
+    private async Task OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        _uploadResults.Clear();
+        IReadOnlyList<IBrowserFile> files;
+        try
+        {
+            files = e.GetMultipleFiles(MaxFilesPerPick);
+        }
+        catch (InvalidOperationException)
+        {
+            _uploadResults.Add(($"Kies hoogstens {MaxFilesPerPick} lêers op 'n slag.", true));
+            return;
+        }
+
+        _uploading = true;
+        for (var index = 0; index < files.Count; index++)
+        {
+            var file = files[index];
+            var isVideo = file.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)
+                || file.Name.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+                || file.Name.EndsWith(".mov", StringComparison.OrdinalIgnoreCase);
+            var limit = (isVideo ? VideoLimitMb : PhotoLimitMb) * 1024 * 1024;
+            if (file.Size > limit)
+            {
+                _uploadResults.Add(($"{file.Name}: te groot (maks {limit / 1024 / 1024} MB).", true));
+                continue;
+            }
+
+            _uploadLabel = $"{file.Name} ({index + 1}/{files.Count})";
+            _uploadPercent = 0;
+            StateHasChanged();
+
+            var tempPath = Path.Combine(Path.GetTempPath(), $"mikpunt-vg-upload-{Guid.NewGuid():N}");
+            try
+            {
+                await BufferToTempFile(file, tempPath, limit);
+                var (ok, message) = await Api.UploadVgBookingMediaAsync(BookingId, isVideo, tempPath, file.Name,
+                    string.IsNullOrWhiteSpace(file.ContentType) ? (isVideo ? "video/mp4" : "application/octet-stream") : file.ContentType,
+                    caption: null, capturedAt: DefaultCaptureTime(file));
+                _uploadResults.Add(($"{file.Name}: {message}", !ok));
+            }
+            catch (Exception ex)
+            {
+                _uploadResults.Add(($"{file.Name}: kon nie gelees word nie ({ex.Message}).", true));
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+        }
+        _uploading = false;
+        await Load();
+    }
+
+    /// <summary>Copies the browser upload to a private temp file, reporting progress while the (possibly slow) browser stream arrives.</summary>
+    private async Task BufferToTempFile(IBrowserFile file, string path, long limit)
+    {
+        await using var input = file.OpenReadStream(limit);
+        await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        var buffer = new byte[81920];
+        long total = 0;
+        var lastPercent = -1;
+        int read;
+        while ((read = await input.ReadAsync(buffer)) > 0)
+        {
+            await output.WriteAsync(buffer.AsMemory(0, read));
+            total += read;
+            var percent = file.Size > 0 ? (int)(total * 90 / file.Size) : 90; // the last 10% is the hand-off to the server
+            if (percent != lastPercent && percent % 5 == 0)
+            {
+                lastPercent = percent;
+                _uploadPercent = percent;
+                StateHasChanged();
+            }
+        }
+        _uploadPercent = 95;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// A phone or camera file's last-modified time is normally when it was shot. It is only
+    /// trusted when it falls inside the trip (with a day's margin), otherwise the VG sets it.
+    /// </summary>
+    private DateTime? DefaultCaptureTime(IBrowserFile file)
+    {
+        var utc = file.LastModified.UtcDateTime;
+        var from = DateTime.SpecifyKind(StartDate.Date, DateTimeKind.Unspecified) - Sast - TimeSpan.FromDays(1);
+        var to = DateTime.SpecifyKind(EndDate.Date, DateTimeKind.Unspecified) - Sast + TimeSpan.FromDays(2);
+        return utc >= from && utc <= to ? DateTime.SpecifyKind(utc, DateTimeKind.Utc) : null;
+    }
+
+    private static DateTime? CapturedLocal(BookingMediaItemModel item)
+    {
+        var utc = item.AdjustedCaptureTimestamp ?? item.OriginalCaptureTimestamp;
+        return utc is { } value ? DateTime.SpecifyKind(value, DateTimeKind.Unspecified) + Sast : null;
+    }
+
+    private void StartEdit(BookingMediaItemModel item)
+    {
+        _editingId = item.MediaId;
+        _editCaption = item.Caption;
+        _editCapturedLocal = CapturedLocal(item);
+    }
+
+    private async Task SaveEdit(BookingMediaItemModel item)
+    {
+        _busyId = item.MediaId;
+        DateTime? capturedUtc = _editCapturedLocal is { } local
+            ? DateTime.SpecifyKind(local - Sast, DateTimeKind.Utc)
+            : null;
+        var (ok, message) = await Api.UpdateVgMediaDetailsAsync(BookingId, item.MediaId, _editCaption, capturedUtc);
+        _itemMessages[item.MediaId] = (message, !ok);
+        _busyId = null;
+        if (ok)
+        {
+            _editingId = null;
+            await Load();
+        }
+    }
+
+    private async Task Delete(BookingMediaItemModel item)
+    {
+        _busyId = item.MediaId;
+        var (ok, message) = await Api.DeleteVgMediaAsync(BookingId, item.MediaId);
+        _busyId = null;
+        if (ok)
+        {
+            if (_previewId == item.MediaId) await ClosePreview();
+            _uploadResults.Clear();
+            _uploadResults.Add(($"{item.OriginalFileName}: {message}", false));
+            await Load();
+        }
+        else
+        {
+            _itemMessages[item.MediaId] = (message, true);
+        }
+    }
+
+    private async Task TogglePreview(BookingMediaItemModel item)
+    {
+        var wasOpen = _previewId == item.MediaId;
+        await ClosePreview();
+        if (wasOpen) return;
+
+        _previewId = item.MediaId;
+        _busyId = item.MediaId;
+        StateHasChanged();
+        var content = await Api.OpenVgMediaContentAsync(BookingId, item.MediaId);
+        if (content is { } c)
+        {
+            try
+            {
+                await using var stream = c.Content;
+                using var streamRef = new DotNetStreamReference(stream, leaveOpen: false);
+                var url = await JS.InvokeAsync<string>("mikpuntBlobUrl", streamRef, c.ContentType);
+                if (_previewId == item.MediaId) _previewUrl = url;
+                else await JS.InvokeVoidAsync("mikpuntRevokeBlobUrl", url);
+            }
+            catch (Exception)
+            {
+                _previewError = "Kon nie die voorskou laai nie.";
+            }
+        }
+        else
+        {
+            _previewError = "Kon nie die voorskou laai nie.";
+        }
+        _busyId = null;
+    }
+
+    private async Task ClosePreview()
+    {
+        var url = _previewUrl;
+        _previewId = null;
+        _previewUrl = null;
+        _previewError = null;
+        if (url != null)
+        {
+            try { await JS.InvokeVoidAsync("mikpuntRevokeBlobUrl", url); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+
+    /// <summary>
+    /// MobileAPI allows one story per booking: a new one can only be queued after the last
+    /// one failed (QueueRecapAsync), so uploads after this point never reach the story.
+    /// </summary>
+    private bool StoryAlreadyMade => _recaps.Any(r => r.Status is "Queued" or "Processing" or "Completed" or "Uploading" or "Published");
+
+    private static string FormatSize(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+
+    private static string RecapStatus(BookingRecapSummaryModel recap) => recap.Status switch
+    {
+        "Queued" => "in die ry",
+        "Processing" => $"word gegenereer ({recap.Progress}%)",
+        "Completed" => "gereed",
+        "Uploading" => "word na YouTube opgelaai",
+        "Published" => "gepubliseer",
+        "Failed" => "misluk",
+        _ => recap.Status
+    };
+
+    public async ValueTask DisposeAsync() => await ClosePreview();
+}

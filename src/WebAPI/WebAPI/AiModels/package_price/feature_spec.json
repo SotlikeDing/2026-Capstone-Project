@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "modelVersion": "2026.09.21-bootstrap",
+  "currency": "USD",
+  "provinces": [
+    "limpopo",
+    "gauteng",
+    "mpumalanga",
+    "north_west",
+    "free_state",
+    "northern_cape",
+    "eastern_cape",
+    "western_cape",
+    "kwazulu_natal"
+  ],
+  "assumedMarkets": [
+    "domestic"
+  ],
+  "trainedAtUtc": "2026-09-21T19:52:42.756473+00:00",
+  "kinds": {
+    "PJ_PACKAGE": {
+      "onnx": "pj_package.onnx",
+      "features": [
+        "duration_days",
+        "hunters_per_ph",
+        "svc_ph_included",
+        "svc_accommodation",
+        "svc_meals",
+        "svc_field_prep",
+        "svc_airport_transfer",
+        "svc_videography",
+        "svc_drone",
+        "included_fee_log",
+        "n_included",
+        "has_dangerous",
+        "prov_limpopo",
+        "prov_gauteng",
+        "prov_mpumalanga",
+        "prov_north_west",
+        "prov_free_state",
+        "prov_northern_cape",
+        "prov_eastern_cape",
+        "prov_western_cape",
+        "prov_kwazulu_natal",
+        "month_sin",
+        "month_cos",
+        "peak_season",
+        "market_domestic"
+      ],
+      "logTarget": true,
+      "bandLog": {
+        "lo": -0.1792,
+        "hi": 0.2043
+      },
+      "evidence": "published",
+      "nReal": 0,
+      "nSynthetic": 6000
+    },
+    "PH_RATE": {
+      "onnx": "ph_rate.onnx",
+      "features": [
+        "years_experience",
+        "has_rating",
+        "rating_avg",
+        "rating_n_log",
+        "hunts_log",
+        "is_dg_rate",
+        "dg_accredited",
+        "prov_limpopo",
+        "prov_gauteng",
+        "prov_mpumalanga",
+        "prov_north_west",
+        "prov_free_state",
+        "prov_northern_cape",
+        "prov_eastern_cape",
+        "prov_western_cape",
+        "prov_kwazulu_natal",
+        "month_sin",
+        "month_cos",
+        "peak_season",
+        "market_domestic"
+      ],
+      "logTarget": true,
+      "bandLog": {
+        "lo": -0.2342,
+        "hi": 0.2377
+      },
+      "evidence": "assumed",
+      "nReal": 0,
+      "nSynthetic": 6000
+    },
+    "VG_PACKAGE": {
+      "onnx": "vg_package.onnx",
+      "features": [
+        "days_covered",
+        "drone",
+        "tier_idx",
+        "crew_size",
+        "uhd_4k",
+        "years_experience",
+        "prov_limpopo",
+        "prov_gauteng",
+        "prov_mpumalanga",
+        "prov_north_west",
+        "prov_free_state",
+        "prov_northern_cape",
+        "prov_eastern_cape",
+        "prov_western_cape",
+        "prov_kwazulu_natal",
+        "month_sin",
+        "month_cos",
+        "peak_season",
+        "market_domestic"
+      ],
+      "logTarget": true,
+      "bandLog": {
+        "lo": -0.1886,
+        "hi": 0.2053
+      },
+      "evidence": "published",
+      "nReal": 0,
+      "nSynthetic": 6000
+    },
+    "FARM_DAILY_RATE": {
+      "onnx": "farm_daily_rate.onnx",
+      "features": [
+        "hunters_per_ph",
+        "farm_size_log",
+        "lodge_rooms",
+        "catering",
+        "cold_room",
+        "guide_included",
+        "pool",
+        "wifi",
+        "n_species",
+        "game_fenced",
+        "prov_limpopo",
+        "prov_gauteng",
+        "prov_mpumalanga",
+        "prov_north_west",
+        "prov_free_state",
+        "prov_northern_cape",
+        "prov_eastern_cape",
+        "prov_western_cape",
+        "prov_kwazulu_natal",
+        "month_sin",
+        "month_cos",
+        "peak_season",
+        "market_domestic"
+      ],
+      "logTarget": true,
+      "bandLog": {
+        "lo": -0.2062,
+        "hi": 0.2149
+      },
+      "evidence": "published",
+      "nReal": 0,
+      "nSynthetic": 6000
+    },
+    "SPECIES_FEE": {
+      "onnx": "species_fee.onnx",
+      "features": [
+        "species_ref_log",
+        "is_dangerous",
+        "tier_female",
+        "tier_male",
+        "tier_trophy",
+        "farm_size_log",
+        "game_fenced",
+        "prov_limpopo",
+        "prov_gauteng",
+        "prov_mpumalanga",
+        "prov_north_west",
+        "prov_free_state",
+        "prov_northern_cape",
+        "prov_eastern_cape",
+        "prov_western_cape",
+        "prov_kwazulu_natal",
+        "month_sin",
+        "month_cos",
+        "peak_season",
+        "market_domestic"
+      ],
+      "logTarget": true,
+      "bandLog": {
+        "lo": -0.2291,
+        "hi": 0.2281
+      },
+      "evidence": "published",
+      "nReal": 0,
+      "nSynthetic": 6000
+    }
+  }
+}

@@ -1,0 +1,2400 @@
+@* /pj/bookings - PJ (Uitruster/professional organiser) role page: the core booking
+   management console where a PJ reviews incoming hunter booking requests, assigns a
+   mandatory PH guide (+ optional VG videographer) from their team, confirms accommodation
+   and per-species pricing to produce a final quote, and after staff accept the assignment
+   (server-side two-step "PendingStaffAcceptance" -> "Approved" flow in BookingsController/
+   Bookings_db) prints an official expedition voucher. Also hosts a read-only team schedule
+   matrix modal. Restricted to the "PJ" or "Admin" role. *@
+@page "/pj/besprekings"
+@page "/pj/bookings"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject ThemeService Theme
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Pakket Besprekingsbestuur | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/pj/besprekings" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PJ") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Uitruster (PJ) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Uitruster (PJ)</strong> nie. U kan hierdie rol op u profiel aktiveer om ekspedisiebesprekings te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PJ Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <!-- Top Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3 no-print">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Pakket Besprekingsbestuur</h1>
+            <p class="text-muted mb-0">Ontvang inkomende jagterbesprekings, keur dit goed deur 'n verpligte PH en opsionele VG toe te wys, trek pakket-slots af, en druk amptelike Ekspedisie-Bewyse.</p>
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="/pj/skedule" class="mp-btn mp-btn-secondary mp-btn-sm">📅 Span Skedule Matrix</a>
+            <a href="/pj/span" class="mp-btn mp-btn-secondary mp-btn-sm">Bestuur Span &rarr;</a>
+            <a href="/pj/pakkette" class="mp-btn mp-btn-primary mp-btn-sm">+ Bestuur Pakkette</a>
+        </div>
+    </div>
+
+    <!-- Feedback Notification -->
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center no-print">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    <!-- KPI Summary Metrics (Fase 5) -->
+    <div class="row g-3 mb-4 no-print">
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-warning border-3">
+                <div class="text-muted small text-uppercase fw-bold">Totaal Besprekings</div>
+                <div class="fs-3 fw-bold pj-kpi-total mt-1">@_bookings.Count</div>
+                <div class="small text-muted">Alle geregistreerde versoeke</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-warning border-3" style="border-top-color: #f59e0b !important;">
+                <div class="text-warning small text-uppercase fw-bold">Afwagtend</div>
+                <div class="fs-3 fw-bold text-warning mt-1">@_bookings.Count(b => b.Status == "Pending" || b.Status == "PendingStaffAcceptance")</div>
+                <div class="small text-muted">Benodig u goedkeuring</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-success border-3" style="border-top-color: #10b981 !important;">
+                <div class="text-success small text-uppercase fw-bold">Goedgekeur</div>
+                <div class="fs-3 fw-bold text-success mt-1">@_bookings.Count(b => b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed")</div>
+                <div class="small text-muted">Span en slots bevestig</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-danger border-3" style="border-top-color: #ef4444 !important;">
+                <div class="text-danger small text-uppercase fw-bold">Van Hand Gewys</div>
+                <div class="fs-3 fw-bold text-danger mt-1">@_bookings.Count(b => b.Status == "Rejected")</div>
+                <div class="small text-muted">Afgewys met redes</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters & Search Bar (Fase 5) -->
+    <div class="mp-card p-3 mb-4 no-print">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <!-- Filter Tabs -->
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="mp-btn mp-btn-sm @(_currentFilter == "all" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _currentFilter = "all"'>
+                    Alle (@_bookings.Count)
+                </button>
+                <button class="mp-btn mp-btn-sm @(_currentFilter == "Pending" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _currentFilter = "Pending"'>
+                    Afwagtend (@_bookings.Count(b => b.Status == "Pending" || b.Status == "PendingStaffAcceptance"))
+                </button>
+                <button class="mp-btn mp-btn-sm @(_currentFilter == "Approved" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _currentFilter = "Approved"'>
+                    Goedgekeur (@_bookings.Count(b => b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed"))
+                </button>
+                <button class="mp-btn mp-btn-sm @(_currentFilter == "Rejected" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _currentFilter = "Rejected"'>
+                    Van Hand Gewys (@_bookings.Count(b => b.Status == "Rejected"))
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <div style="min-width: 280px; max-width: 400px; flex-grow: 1;">
+                <input type="text"
+                       class="mp-form-control"
+                       placeholder="🔍 Soek op jagter, pakket, plaas, ref..."
+                       @bind="_searchQuery"
+                       @bind:event="oninput" />
+            </div>
+        </div>
+    </div>
+
+    <!-- Bookings Table -->
+    <div class="mp-card no-print">
+        @if (_loading)
+        {
+            <div class="text-center p-5 text-muted">
+                <div class="spinner-border text-warning spinner-border-sm me-2"></div> Laai besprekings...
+            </div>
+        }
+        else if (!FilteredBookings.Any())
+        {
+            <div class="text-center p-5 text-muted">
+                <p class="mb-2 fs-5">Geen besprekingsversoeke pas by u huidige filter nie.</p>
+                <p class="small">Sodra 'n jagter 'n bespreking plaas of as u die filter verander, sal dit hier verskyn.</p>
+            </div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Pakket &amp; Plaas</th>
+                            <th>Jagter</th>
+                            <th>Datums &amp; Gaste</th>
+                            <th>Toegewese Span</th>
+                            <th>Totaal</th>
+                            <th>Status</th>
+                            <th>Aksies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in FilteredBookings)
+                        {
+                            <tr @onclick="() => OpenDetailModal(b)" style="cursor: pointer;" title="Klik om volledige ekspedisiebesonderhede te sien">
+                                <td>
+                                    <strong>@(string.IsNullOrWhiteSpace(b.PackageTitle) ? "Jagekspedisie" : b.PackageTitle)</strong>
+                                    <div class="small text-muted">@b.FarmName</div>
+                                    @if (!string.IsNullOrWhiteSpace(b.PaymentReference))
+                                    {
+                                        <div class="small text-gold" style="font-family: monospace;">@b.PaymentReference</div>
+                                    }
+                                </td>
+                                <td>
+                                    <strong>@b.HunterName</strong>
+                                    <div class="small text-muted">@b.HunterEmail</div>
+                                    @if (!string.IsNullOrWhiteSpace(b.HunterPhone))
+                                    {
+                                        <div class="small text-muted">@b.HunterPhone</div>
+                                    }
+                                </td>
+                                <td>
+                                    <div>@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</div>
+                                    <div class="small text-muted">@b.HunterCount Jagters @(b.ObserverCount > 0 ? $"& {b.ObserverCount} Waarnemers" : "")</div>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(b.AssignedPhName))
+                                    {
+                                        <div class="small">
+                                            🎯 <strong>PH:</strong> @b.AssignedPhName
+                                            @if (string.Equals(b.PhAssignmentStatus, "Pending", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-warning ms-1" style="font-size: 10px;">Wag op aanvaarding &#9203;</span>
+                                            }
+                                            else if (string.Equals(b.PhAssignmentStatus, "Accepted", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-success ms-1" style="font-size: 10px;">Aanvaar &#10003;</span>
+                                            }
+                                        </div>
+                                    }
+                                    else if (string.Equals(b.PhAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="small text-danger">🎯 PH het van hand gewys - herwys benodig</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="small text-warning">Geen PH nog</div>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(b.AssignedVgName))
+                                    {
+                                        <div class="small">
+                                            🎥 <strong>VG:</strong> @b.AssignedVgName
+                                            @if (string.Equals(b.VgAssignmentStatus, "Pending", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-warning ms-1" style="font-size: 10px;">Wag op aanvaarding &#9203;</span>
+                                            }
+                                            else if (string.Equals(b.VgAssignmentStatus, "Accepted", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="mp-badge mp-badge-success ms-1" style="font-size: 10px;">Aanvaar &#10003;</span>
+                                            }
+                                        </div>
+                                    }
+                                    else if (string.Equals(b.VgAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="small text-danger">🎥 VG het van hand gewys - herwys benodig</div>
+                                    }
+                                </td>
+                                <td>
+                                    <strong class="text-gold">@Money.Format(b.TotalPrice, b.PriceBreakdown?.Currency, "N0")</strong>
+                                </td>
+                                <td>
+                                    @if (b.Status == "Approved" || b.Status == "Paid")
+                                    {
+                                        <span class="mp-badge mp-badge-success">Goedgekeur &#10003;</span>
+                                    }
+                                    else if (b.Status == "Completed")
+                                    {
+                                        <span class="mp-badge mp-badge-info">Voltooi &#10003;</span>
+                                    }
+                                    else if (b.Status == "PendingStaffAcceptance")
+                                    {
+                                        @if (string.Equals(b.PhAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase) || string.Equals(b.VgAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <span class="mp-badge mp-badge-danger">Herwys Benodig ⚠️</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mp-badge mp-badge-warning">Wag op Personeel &#9203;</span>
+                                        }
+                                    }
+                                    else if (b.Status == "Pending")
+                                    {
+                                        <span class="mp-badge mp-badge-warning">Afwagtend &#9203;</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-badge mp-badge-danger">Van Hand Gewys &#10007;</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="d-flex flex-column gap-1" @onclick:stopPropagation="true">
+                                        <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => OpenDetailModal(b)" title="Bekyk volledige ekspedisiebesonderhede">
+                                            Besonderhede 🔍
+                                        </button>
+                                        @if (b.Status == "Pending")
+                                        {
+                                            <button class="mp-btn mp-btn-success mp-btn-sm" @onclick="() => OpenApprovalModal(b, isReassignment: false)">
+                                                Wys Span Toe 🤝
+                                            </button>
+                                            <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => OpenRejectModal(b)">
+                                                Wys van hand ✕
+                                            </button>
+                                        }
+                                        else if (b.Status == "PendingStaffAcceptance")
+                                        {
+                                            @if (string.Equals(b.PhAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase) || string.Equals(b.VgAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <button class="mp-btn mp-btn-success mp-btn-sm" @onclick="() => OpenApprovalModal(b, isReassignment: true)">
+                                                    Herwys Personeel 🔄
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="small text-muted" style="font-size: 11px;">Wag op PH/VG se aanvaarding</span>
+                                            }
+                                        }
+                                        else if (b.Status == "Approved" || b.Status == "Paid")
+                                        {
+                                            <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="() => OpenVoucherModal(b)">
+                                                Bekyk Bewys / Voucher 📜
+                                            </button>
+                                            <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => OpenApprovalModal(b, isReassignment: true)">
+                                                Wysig Personeel 🔄
+                                            </button>
+                                        }
+                                        else if (b.Status == "Completed")
+                                        {
+                                            <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="() => OpenVoucherModal(b)">
+                                                Bekyk Bewys / Voucher 📜
+                                            </button>
+                                        }
+
+                                        <!-- Multi-Channel Direct Chat Buttons (Fase 3) -->
+                                        <div class="d-flex gap-1 flex-wrap mt-1">
+                                            @if (b.HunterUserId > 0)
+                                            {
+                                                <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" title="Klets met Jagter" @onclick="() => StartChat(b.HunterName, b.HunterUserId)">
+                                                    💬 Jagter
+                                                </button>
+                                            }
+                                            @if (b.AssignedPhUserId.HasValue && b.AssignedPhUserId.Value > 0 && b.AssignedPhUserId.Value != (Auth.CurrentUser?.UserId ?? 0))
+                                            {
+                                                <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" title="Klets met PH Gids" @onclick="() => StartPhChat(b)">
+                                                    🎯 PH
+                                                </button>
+                                            }
+                                            @if (b.AssignedVgUserId.HasValue && b.AssignedVgUserId.Value > 0 && b.AssignedVgUserId.Value != (Auth.CurrentUser?.UserId ?? 0))
+                                            {
+                                                <button class="mp-btn mp-btn-secondary mp-btn-sm py-0 px-2" title="Klets met Videograaf" @onclick="() => StartVgChat(b)">
+                                                    🎥 VG
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+<!-- MODAL 0: Full Booking Details Modal (Ekspedisie Besonderhede) -->
+@if (_showDetailModal && _selectedDetailBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2150; overflow-y: auto;" @onclick="CloseDetailModal">
+        <div class="mp-card pj-booking-modal" style="width: 780px; max-width: 98%; max-height: 90vh; overflow-y: auto;" @onclick:stopPropagation="true">
+            <!-- Modal Header -->
+            <div class="d-flex justify-content-between align-items-start border-bottom pb-3 mb-3 border-secondary">
+                <div>
+                    <span class="mp-badge mp-badge-warning mb-1">Volledige Bespreking Besonderhede</span>
+                    <h3 class="brand-font text-gold mb-1">@(!string.IsNullOrWhiteSpace(_selectedDetailBooking.PackageTitle) ? _selectedDetailBooking.PackageTitle : "Jagekspedisie")</h3>
+                    <div class="small text-muted">
+                        Plaas: <strong>@_selectedDetailBooking.FarmName</strong> | Verwysingsnommer: <strong class="text-gold" style="font-family: monospace;">@_selectedDetailBooking.PaymentReference</strong>
+                    </div>
+                </div>
+                <button type="button" class="btn-close pj-modal-close" aria-label="Maak toe" @onclick="CloseDetailModal"></button>
+            </div>
+
+            <!-- Status Banner -->
+            <div class="p-3 rounded mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2" style="@GetStatusBannerStyle(_selectedDetailBooking.Status)">
+                <div>
+                    <div class="fw-bold" style="font-size: 15px;">
+                        @if (_selectedDetailBooking.Status == "Approved" || _selectedDetailBooking.Status == "Paid")
+                        {
+                            <span> Goedgekeur &amp; Bevestig &#10003;</span>
+                        }
+                        else if (_selectedDetailBooking.Status == "Completed")
+                        {
+                            <span> Suksesvol Afgehandel &#10003;</span>
+                        }
+                        else if (_selectedDetailBooking.Status == "PendingStaffAcceptance")
+                        {
+                            @if (string.Equals(_selectedDetailBooking.PhAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase) || string.Equals(_selectedDetailBooking.VgAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <span> Herwysing Benodig &#9888;&#65039;</span>
+                            }
+                            else
+                            {
+                                <span> Wag op Personeel se Aanvaarding &#9203;</span>
+                            }
+                        }
+                        else if (_selectedDetailBooking.Status == "Pending")
+                        {
+                            <span> In Afwagting vir Goedkeuring &#9203;</span>
+                        }
+                        else
+                        {
+                            <span> Van Hand Gewys &#10007;</span>
+                        }
+                    </div>
+                    <div class="small opacity-75">
+                        @if (_selectedDetailBooking.Status == "Pending")
+                        {
+                            <span>Wag tans op u as Uitruster (PJ) om 'n PH toe te wys en goed te keur.</span>
+                        }
+                        else if (_selectedDetailBooking.Status == "PendingStaffAcceptance")
+                        {
+                            @if (string.Equals(_selectedDetailBooking.PhAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <span>Die toegewese PH het van hand gewys@(string.IsNullOrWhiteSpace(_selectedDetailBooking.PhDeclineReason) ? "." : $" ({_selectedDetailBooking.PhDeclineReason}).") Wys asseblief 'n ander PH toe.</span>
+                            }
+                            else if (string.Equals(_selectedDetailBooking.VgAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <span>Die toegewese Videograaf het van hand gewys@(string.IsNullOrWhiteSpace(_selectedDetailBooking.VgDeclineReason) ? "." : $" ({_selectedDetailBooking.VgDeclineReason}).") Wys asseblief 'n ander VG toe.</span>
+                            }
+                            else
+                            {
+                                <span>Personeel is toegewys - wag tans vir hulle om die toewysing te aanvaar. Die bespreking word outomaties goedgekeur sodra almal aanvaar het.</span>
+                            }
+                        }
+                        else if (_selectedDetailBooking.Status == "Approved" || _selectedDetailBooking.Status == "Paid")
+                        {
+                            <span>Personeel is toegewys en ekspedisie-reëlings is bevestig.</span>
+                        }
+                        else if (_selectedDetailBooking.Status == "Rejected")
+                        {
+                            <span>Hierdie bespreking is van die hand gewys. Sien redes hieronder.</span>
+                        }
+                        else
+                        {
+                            <span>Hierdie ekspedisie is suksesvol voltooi.</span>
+                        }
+                    </div>
+                </div>
+                <div class="text-end">
+                    <span class="small opacity-75 d-block">Totale Ekspedisie Prys:</span>
+                    <strong class="fs-5 text-gold">@Money.Format(_selectedDetailBooking.TotalPrice, _selectedDetailBooking.PriceBreakdown?.Currency, "N0")</strong>
+                </div>
+            </div>
+
+            <!-- Rejection Notice (if rejected) -->
+            @if (_selectedDetailBooking.Status == "Rejected")
+            {
+                <div class="alert alert-danger mb-4 p-3 border border-danger">
+                    <h6 class="fw-bold mb-2"> Redes vir Verwerping / Afkeuring:</h6>
+                    <div class="mb-1">
+                        <strong>Rede:</strong> @(!string.IsNullOrWhiteSpace(_selectedDetailBooking.RejectionReason) ? _selectedDetailBooking.RejectionReason : "Onvoldoende beskikbaarheid")
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_selectedDetailBooking.RejectionNotes))
+                    {
+                        <div>
+                            <strong>Notas van Uitruster:</strong> @_selectedDetailBooking.RejectionNotes
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- Grid: 2 Columns -->
+            <div class="row g-3 mb-4">
+                <!-- Column 1: Client & Guests -->
+                <div class="col-md-6">
+                    <div class="p-3 h-100 rounded pj-modal-section">
+                        <h6 class="text-gold fw-bold mb-2"> Jagter &amp; Gaste</h6>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Primêre Jagter:</span>
+                            <strong>@_selectedDetailBooking.HunterName</strong>
+                        </div>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">E-posadres:</span>
+                            <span>@_selectedDetailBooking.HunterEmail</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_selectedDetailBooking.HunterPhone))
+                        {
+                            <div class="mb-2">
+                                <span class="text-muted small d-block">Telefoonnommer:</span>
+                                <span>@_selectedDetailBooking.HunterPhone</span>
+                            </div>
+                        }
+                        <div class="pt-2 border-top border-secondary mt-2">
+                            <span class="text-muted small d-block">Groepsamestelling:</span>
+                            <div><strong>@_selectedDetailBooking.HunterCount</strong> Aktiewe Jagter(s)</div>
+                            <div><strong>@_selectedDetailBooking.ObserverCount</strong> Nie-jagter / Waarnemer(s)</div>
+                            <div class="small text-muted mt-1">Totale groep: @(_selectedDetailBooking.HunterCount + _selectedDetailBooking.ObserverCount) persone</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 2: Dates & Farm -->
+                <div class="col-md-6">
+                    <div class="p-3 h-100 rounded pj-modal-section">
+                        <h6 class="text-gold fw-bold mb-2"> Datums &amp; Bestemming</h6>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Aankoms / Begindatum:</span>
+                            <strong>@_selectedDetailBooking.StartDate.ToString("dddd, dd MMMM yyyy")</strong>
+                        </div>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Vertrek / Einddatum:</span>
+                            <strong>@_selectedDetailBooking.EndDate.ToString("dddd, dd MMMM yyyy")</strong>
+                        </div>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Totale Tydsduur:</span>
+                            <span class="mp-badge mp-badge-warning">@Math.Max(1, (_selectedDetailBooking.EndDate - _selectedDetailBooking.StartDate).Days) Dae Ekspedisie</span>
+                        </div>
+                        <div class="pt-2 border-top border-secondary mt-2">
+                            <span class="text-muted small d-block">Bestemming Jagplaas:</span>
+                            <strong>@_selectedDetailBooking.FarmName</strong>
+                            <div class="small text-muted">Provinsie: Limpopo, Suid-Afrika</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 3: Gear & Preferences -->
+                <div class="col-md-6">
+                    <div class="p-3 h-100 rounded pj-modal-section">
+                        <h6 class="text-gold fw-bold mb-2"> Vuurwapens &amp; Verfilming</h6>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Vuurwapen &amp; Ammunisie Reëling:</span>
+                            @if (_selectedDetailBooking.FirearmOption == "Rental")
+                            {
+                                <strong>Huur van PH ter plaatse</strong>
+                                <div class="small text-muted">Die PH sal gepaste kalibers en ammunisie voorsien.</div>
+                            }
+                            else
+                            {
+                                <strong>Eie vuurwapens word ingevoer</strong>
+                                <div class="small text-muted">SAPS 520 tydelike invoerpermit benodig by doeane.</div>
+                            }
+                        </div>
+                        <div class="pt-2 border-top border-secondary mt-2">
+                            <span class="text-muted small d-block">Professionele Videograaf (VG):</span>
+                            @if (_selectedDetailBooking.WantsVideographer || !string.IsNullOrWhiteSpace(_selectedDetailBooking.AssignedVgName))
+                            {
+                                <span class="text-success fw-bold">Ja, Videograaf Versoek</span>
+                                <div class="small text-muted">Professionele 4K-kamera en hommeltuig opnames verlang.</div>
+                            }
+                            else
+                            {
+                                <span class="text-muted">Nee, slegs jagbegeleiding verlang.</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 4: Assigned Staff -->
+                <div class="col-md-6">
+                    <div class="p-3 h-100 rounded pj-modal-section">
+                        <h6 class="text-gold fw-bold mb-2"> Toegewese Spanlede</h6>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Professionele Jagter (PH) Gids:</span>
+                            @if (!string.IsNullOrWhiteSpace(_selectedDetailBooking.AssignedPhName))
+                            {
+                                <strong class="text-success">🎯 @_selectedDetailBooking.AssignedPhName</strong>
+                            }
+                            else
+                            {
+                                <span class="text-warning fw-bold">⚠️ Geen PH nog toegewys nie</span>
+                                <div class="small text-muted">Verpligtend vir goedkeuring van bespreking.</div>
+                            }
+                        </div>
+                        <div class="pt-2 border-top border-secondary mt-2">
+                            <span class="text-muted small d-block">Videograaf (VG):</span>
+                            @if (!string.IsNullOrWhiteSpace(_selectedDetailBooking.AssignedVgName))
+                            {
+                                <strong class="text-info">🎥 @_selectedDetailBooking.AssignedVgName</strong>
+                            }
+                            else
+                            {
+                                <span class="text-muted">Geen VG toegewys nie</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hunter Requested Species & Notes -->
+            @if (_selectedDetailBooking.BookedSpecies != null && _selectedDetailBooking.BookedSpecies.Count > 0)
+            {
+                <div class="p-3 mb-3 rounded pj-modal-section">
+                    <h6 class="text-gold fw-bold mb-2">🦌 Ingeslote / Gevraagde Wild (Deur Jagter Gekies)</h6>
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var sp in _selectedDetailBooking.BookedSpecies)
+                        {
+                            <span class="badge pj-species-badge p-2">@sp</span>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_selectedDetailBooking.SpecialNotes))
+            {
+                <div class="p-3 mb-3 rounded pj-modal-section" style="border-left: 4px solid #d97706 !important;">
+                    <h6 class="text-gold fw-bold mb-1">📝 Spesiale Versoeke &amp; Notas vanaf Jagter:</h6>
+                    <div class="small" style="white-space: pre-wrap;">@_selectedDetailBooking.SpecialNotes</div>
+                </div>
+            }
+
+            <!-- Confirmed Pricing Breakdown (if Approved/Available) -->
+            @if (_selectedDetailBooking.PriceBreakdown != null)
+            {
+                var pb = _selectedDetailBooking.PriceBreakdown;
+                <div class="p-3 mb-4 rounded pj-confirmed-price-box">
+                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                        <h6 class="text-success fw-bold mb-0">💰 Goedgekeurde Kwotasie &amp; Tariewe</h6>
+                        <span class="text-gold fw-bold fs-6">Totale Ekspedisie Prys: @Money.Format(_selectedDetailBooking.TotalPrice, _selectedDetailBooking.PriceBreakdown?.Currency, "N2")</span>
+                    </div>
+                    <div class="small text-muted mb-2">
+                        Verblyf (@pb.Days dae &bull; @pb.HunterCount Jagters @(pb.ObserverCount > 0 ? $"+ {pb.ObserverCount} Waarnemers" : "")):
+                        <strong class="pj-accommodation-total ms-1">@Money.Format(pb.AccommodationTotal, pb.Currency, "N2")</strong>
+                    </div>
+                    @if (pb.PhTotal > 0)
+                    {
+                        <div class="small text-muted mb-2">
+                            PH Gids Tarief (@pb.Days dae):
+                            <strong class="text-gold ms-1">@Money.Format(pb.PhTotal, pb.Currency, "N2")</strong>
+                        </div>
+                    }
+                    @if (pb.VgTotal > 0)
+                    {
+                        <div class="small text-muted mb-2">
+                            Videograaf (VG) Pakket:
+                            <strong class="text-gold ms-1">@Money.Format(pb.VgTotal, pb.Currency, "N2")</strong>
+                        </div>
+                    }
+                    @if (pb.ConfirmedSpecies != null && pb.ConfirmedSpecies.Count > 0)
+                    {
+                        <div class="small text-muted mb-1 fw-bold">Goedgekeurde Prys per Bok (Plaas Spesies):</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var sp in pb.ConfirmedSpecies)
+                            {
+                                <span class="badge pj-species-tag p-2" style="font-size: 11px;">
+                                    <strong>@sp.SpeciesName:</strong> @Money.Format(sp.PricePerAnimal, pb.Currency, "N2") @(sp.SelectedCount > 0 ? $" ({sp.SelectedCount}x = {Money.Format(sp.PricePerAnimal * sp.SelectedCount, pb.Currency)})" : "")
+                                </span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- Notes Section -->
+            @if (!string.IsNullOrWhiteSpace(_selectedDetailBooking.SpecialNotes))
+            {
+                <div class="mp-card p-3 mb-4" style="background: rgba(217, 119, 6, 0.06); border: 1px solid rgba(217, 119, 6, 0.3);">
+                    <h6 class="text-gold fw-bold mb-1">📝 Spesiale Notas, Wildspesies van Belang &amp; Dieetvereistes:</h6>
+                    <div class="small" style="line-height: 1.6;">@_selectedDetailBooking.SpecialNotes</div>
+                </div>
+            }
+
+            <!-- Audit Trail & Action History Section -->
+            <div class="p-3 mb-4 rounded pj-modal-section">
+                <h6 class="text-gold fw-bold mb-2">📜 Ekspedisie Oudit &amp; Aksie-Historiek Spoor</h6>
+                @if (_detailAuditLogs == null)
+                {
+                    <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span> Laai ouditspoor...</div>
+                }
+                else if (!_detailAuditLogs.Any())
+                {
+                    <div class="small text-muted">Geen historiese oudit-aantekeninge vir hierdie bespreking nie. Initial status: Afwagtend op PJ goedkeuring.</div>
+                }
+                else
+                {
+                    <div class="d-flex flex-column gap-2" style="font-size: 12px;">
+                        @foreach (var log in _detailAuditLogs)
+                        {
+                            <div class="p-2 rounded border border-secondary d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <strong class="text-gold">@log.ActionType</strong> — <span class="fw-bold">@log.PerformedByName</span>
+                                    <div class="text-muted">@log.Details</div>
+                                </div>
+                                <div class="text-muted text-end" style="font-size: 11px;">
+                                    @log.CreatedAt.ToString("dd MMM yyyy HH:mm")
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Modal Actions Footer -->
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-3 border-top border-secondary">
+                <div class="d-flex gap-2 flex-wrap">
+                    @if (_selectedDetailBooking.HunterUserId > 0)
+                    {
+                        <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => StartChat(_selectedDetailBooking.HunterName, _selectedDetailBooking.HunterUserId)">
+                            💬 Klets met Jagter
+                        </button>
+                    }
+                    @if (_selectedDetailBooking.AssignedPhUserId.HasValue && _selectedDetailBooking.AssignedPhUserId.Value > 0 && _selectedDetailBooking.AssignedPhUserId.Value != (Auth.CurrentUser?.UserId ?? 0))
+                    {
+                        <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => StartPhChat(_selectedDetailBooking)">
+                            🎯 Klets met PH
+                        </button>
+                    }
+                    @if (_selectedDetailBooking.AssignedVgUserId.HasValue && _selectedDetailBooking.AssignedVgUserId.Value > 0 && _selectedDetailBooking.AssignedVgUserId.Value != (Auth.CurrentUser?.UserId ?? 0))
+                    {
+                        <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => StartVgChat(_selectedDetailBooking)">
+                            🎥 Klets met VG
+                        </button>
+                    }
+                </div>
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="CloseDetailModal">Maak Toe</button>
+
+                    @if (_selectedDetailBooking.Status == "Pending")
+                    {
+                        <button type="button" class="mp-btn mp-btn-danger" @onclick="ProceedFromDetailToReject">
+                            Wys van hand ✕
+                        </button>
+                        <button type="button" class="mp-btn mp-btn-success" @onclick="ProceedFromDetailToApproval">
+                            Wys Span Toe 🤝
+                        </button>
+                    }
+                    else if (_selectedDetailBooking.Status == "PendingStaffAcceptance")
+                    {
+                        @if (string.Equals(_selectedDetailBooking.PhAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase) || string.Equals(_selectedDetailBooking.VgAssignmentStatus, "Declined", StringComparison.OrdinalIgnoreCase))
+                        {
+                            <button type="button" class="mp-btn mp-btn-success" @onclick="ProceedFromDetailToReassignment">
+                                Herwys Personeel 🔄
+                            </button>
+                        }
+                    }
+                    else if (_selectedDetailBooking.Status == "Approved" || _selectedDetailBooking.Status == "Paid")
+                    {
+                        <button type="button" class="mp-btn mp-btn-secondary" @onclick="ProceedFromDetailToReassignment">
+                            Wysig Personeel 🔄
+                        </button>
+                        <button type="button" class="mp-btn mp-btn-primary" @onclick="ProceedFromDetailToVoucher">
+                            Bekyk Bewys / Voucher 📜
+                        </button>
+                    }
+                    else if (_selectedDetailBooking.Status == "Completed")
+                    {
+                        <button type="button" class="mp-btn mp-btn-primary" @onclick="ProceedFromDetailToVoucher">
+                            Bekyk Bewys / Voucher 📜
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- MODAL 1: Approval & Staff Assignment & Pricing Confirmation Modal -->
+@if (_showApprovalModal && _activeBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2100; overflow-y: auto;">
+        <div class="mp-card pj-booking-modal" style="width: 840px; max-width: 98%; max-height: 92vh; overflow-y: auto;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h3 class="brand-font text-gold mb-0">@(_isReassigning ? "Wysig Toegewese Span & Kwotasie (Hertoewysing)" : "Wys Span Toe & Bevestig Prys")</h3>
+                <button type="button" class="btn-close pj-modal-close" aria-label="Maak toe" @onclick="() => _showApprovalModal = false"></button>
+            </div>
+            <p class="text-muted small mb-3">
+                Bespreking vir <strong>@_activeBooking.PackageTitle</strong> deur <strong>@_activeBooking.HunterName</strong> (@_activeBooking.StartDate.ToString("dd MMM") – @_activeBooking.EndDate.ToString("dd MMM yyyy") &bull; @_expeditionDays dae). Plaas: <strong>@(!string.IsNullOrEmpty(_activeBooking.FarmName) ? _activeBooking.FarmName : "Kudu Bosveld")</strong>.
+            </p>
+
+            @if (!string.IsNullOrEmpty(_approvalError))
+            {
+                <div class="alert alert-danger p-2 small mb-3">@_approvalError</div>
+            }
+
+            <!-- DEEL 1: Personeelstoewysing (PH & VG) -->
+            <div class="p-3 rounded mb-3 pj-modal-section">
+                <h5 class="text-gold fw-bold mb-3 small text-uppercase">1. Personeelstoewysing (PH &amp; VG)</h5>
+                
+                <!-- Mandatory PH Selection -->
+                <div class="mp-form-group mb-3">
+                    <label class="mp-form-label fw-bold text-gold">Kies Professionele Jagter (PH) Gids * (VERPLIGTEND)</label>
+                    <select class="mp-form-control" value="@_selectedPhUserId" @onchange="OnPhSelectedChanged">
+                        <option value="0">-- Kies 'n PH uit u span --</option>
+                        @foreach (var ph in _phCandidates)
+                        {
+                            <option value="@ph.UserId">@ph.Name @ph.Surname (@ph.Role)</option>
+                        }
+                    </select>
+                    <div class="small text-muted mt-1">
+                        'n PH gids is statutêr verpligtend. U kan ook uself kies mits u as PH geregistreer is.
+                    </div>
+                    @if (!_phCandidates.Any())
+                    {
+                        <div class="alert alert-warning p-2 small mt-2 d-flex align-items-center gap-2">
+                            <span>⚠️</span>
+                            <div>U het tans geen PH in u span nie. <a href="/pj/soek-span" class="text-gold fw-bold">Nooi 'n PH uit &rarr;</a></div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Optional VG Selection -->
+                <div class="mp-form-group mb-2">
+                    <label class="mp-form-label fw-bold">Kies Videograaf (VG) (Opsioneel)</label>
+                    <select class="mp-form-control" value="@_selectedVgUserId" @onchange="OnVgSelectedChanged">
+                        <option value="0">Geen Videograaf (Slegs PH gids)</option>
+                        @foreach (var vg in _vgCandidates)
+                        {
+                            <option value="@vg.UserId">@vg.Name @vg.Surname (VG)</option>
+                        }
+                    </select>
+                    <div class="small text-muted mt-1">
+                        Indien die ekspedisie 4K verfilming of hommeltuig-dekking insluit, kies 'n videograaf uit u span.
+                    </div>
+
+                    @if (_selectedVgUserId > 0)
+                    {
+                        @if (_vgPackages.Any())
+                        {
+                            <div class="mt-2">
+                                <label class="mp-form-label small fw-bold">Kies VG Pakket</label>
+                                <select class="mp-form-control" value="@_selectedVgPackageId" @onchange="OnVgPackageSelectedChanged">
+                                    @foreach (var pkg in _vgPackages)
+                                    {
+                                        <option value="@pkg.Id">@pkg.Title — R@(pkg.DailyRate.ToString("N0")) / dag</option>
+                                    }
+                                </select>
+                                @{
+                                    var selectedPkg = _vgPackages.FirstOrDefault(p => p.Id == _selectedVgPackageId);
+                                }
+                                @if (selectedPkg != null)
+                                {
+                                    <div class="small text-muted mt-1">
+                                        @if (!string.IsNullOrWhiteSpace(selectedPkg.RegionCovered)) { <span>📍 @selectedPkg.RegionCovered</span> }
+                                        @if (!string.IsNullOrWhiteSpace(selectedPkg.EquipmentProvided)) { <span> &bull; 🎥 @selectedPkg.EquipmentProvided</span> }
+                                        @if (!string.IsNullOrWhiteSpace(selectedPkg.Description)) { <div>@selectedPkg.Description</div> }
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning p-2 small mt-2">
+                                ⚠️ Hierdie videograaf het nog geen pakkette geskep nie — geen VG-fooi sal ingesluit word nie.
+                            </div>
+                        }
+                    }
+                </div>
+
+                <!-- Date Conflict / Overlap Warnings -->
+                @{
+                    var phConflicts = GetStaffConflicts(_selectedPhUserId, _activeBooking.StartDate, _activeBooking.EndDate, _activeBooking.Id);
+                    var vgConflicts = _selectedVgUserId > 0 ? GetStaffConflicts(_selectedVgUserId, _activeBooking.StartDate, _activeBooking.EndDate, _activeBooking.Id) : new List<BookingModel>();
+                    var farmConflicts = GetFarmConflicts(_activeBooking.FarmId, _activeBooking.StartDate, _activeBooking.EndDate, _activeBooking.Id);
+                }
+
+                @if (farmConflicts.Any())
+                {
+                    <div class="p-3 rounded mb-3 border border-danger" style="background: rgba(239,68,68,0.10);">
+                        <h6 class="text-danger fw-bold mb-1">🚫 Plaas Dubbel-Bespreking Waarskuwing</h6>
+                        <p class="small text-muted mb-1">Hierdie plaas is reeds bespreek tydens oorvleuelende datums:</p>
+                        @foreach (var fc in farmConflicts)
+                        {
+                            <div class="small text-danger">🎯 @fc.HunterName — @fc.StartDate.ToString("dd MMM") – @fc.EndDate.ToString("dd MMM yyyy")</div>
+                        }
+                    </div>
+                }
+
+                @if (phConflicts.Any() || vgConflicts.Any())
+                {
+                    <div class="p-3 rounded mb-3 border border-warning" style="background: rgba(245, 158, 11, 0.12);">
+                        <h6 class="text-warning fw-bold mb-1">⚠️ Personeel Skedule Oorvleueling Bevestiging &amp; Vrystelling</h6>
+                        <p class="small text-muted mb-2">Die gekose PH of VG het 'n oorvleuelende bespreking op hierdie datums. Om hierdie toewysing te magtig op ondernemingsvlak, verskaf 'n verpligte rede en merkeer die gemagtigde bevestiging.</p>
+                        
+                        <div class="mp-form-group mb-2">
+                            <label class="small fw-bold text-gold">Rede vir Personeel Oorvleueling *</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="Bv. PH begeleid 2 groepe op dieselfde plaas / Assistent gids teenwoordig..." @bind="_scheduleOverrideReason" />
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="chkOverride" @bind="_confirmScheduleOverride" />
+                            <label class="form-check-label small fw-bold" for="chkOverride">
+                                Ek bevestig dat hierdie personeel-oorvleueling gemagtig is en die ekspedisie veilig kan plaasvind.
+                            </label>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- DEEL 2: Bevestiging van Verblyfkoste vir Tydperk -->
+            <div class="p-3 rounded mb-3 pj-modal-section">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-gold fw-bold mb-0 small text-uppercase">2. Bevestig Verblyfkoste vir Tydperk (@_expeditionDays Dae)</h5>
+                    <span class="badge bg-secondary">@_activeBooking.StartDate.ToString("dd MMM") – @_activeBooking.EndDate.ToString("dd MMM yyyy")</span>
+                </div>
+                <p class="text-muted small mb-3">
+                    Stel en bevestig die dagtariewe vir verblyf en akkommodasie vir die ekspedisie. Die stelsel bereken outomaties die verblyfsubtotaal volgens gaste en nagte.
+                </p>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="p-2 rounded pj-sub-card">
+                            <label class="small text-muted mb-1 d-flex justify-content-between">
+                                <span>Dagtarief per jagter (per dag)</span>
+                                <strong class="text-gold">@_activeBooking.HunterCount Jagter(s)</strong>
+                            </label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input type="number" step="25" min="0" class="form-control" @bind="_dailyRateHunter" @bind:after="OnDailyRatesChanged" />
+                                <span class="input-group-text">/ dag</span>
+                            </div>
+                            <div class="small text-muted mt-1" style="font-size: 11px;">
+                                Subtotaal: @_activeBooking.HunterCount × @Money.Format(_dailyRateHunter, _selectedCurrency, "N0") × @_expeditionDays dae = <strong>@Money.Format(_activeBooking.HunterCount * _dailyRateHunter * _expeditionDays, _selectedCurrency, "N2")</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="p-2 rounded pj-sub-card">
+                            <label class="small text-muted mb-1 d-flex justify-content-between">
+                                <span>Dagtarief per waarnemer (per dag)</span>
+                                <strong class="text-gold">@_activeBooking.ObserverCount Waarnemer(s)</strong>
+                            </label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input type="number" step="25" min="0" class="form-control" @bind="_dailyRateObserver" @bind:after="OnDailyRatesChanged" />
+                                <span class="input-group-text">/ dag</span>
+                            </div>
+                            <div class="small text-muted mt-1" style="font-size: 11px;">
+                                Subtotaal: @_activeBooking.ObserverCount × @Money.Format(_dailyRateObserver, _selectedCurrency, "N0") × @_expeditionDays dae = <strong>@Money.Format(_activeBooking.ObserverCount * _dailyRateObserver * _expeditionDays, _selectedCurrency, "N2")</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center p-2 rounded flex-wrap gap-2 pj-acc-calc-box">
+                    <div>
+                        <div class="small text-muted">Berekende Verblyf Subtotaal: <strong>@Money.Format(_calculatedAccommodation, _selectedCurrency, "N2")</strong></div>
+                        <div class="fw-bold text-gold small">Finale bevestigde verblyftotaal:</div>
+                    </div>
+                    <div style="width: 170px;">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">$</span>
+                            <input type="number" step="50" min="0" class="form-control fw-bold" @bind="_confirmedAccommodationPrice" @bind:after="OnAccommodationChanged" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DEEL 3: Bevestiging van Prys per Bok (Wild beskikbaar op die Plaas) -->
+            <div class="p-3 rounded mb-3 pj-modal-section">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="text-gold fw-bold mb-0 small text-uppercase">3. Bevestig Prys per Bok (Wild Beskikbaar op Plaas)</h5>
+                    <span class="badge pj-species-badge">@_farmSpeciesPrices.Count Spesies Gelys</span>
+                </div>
+                <p class="text-muted small mb-2">
+                    Hieronder is die wildsoorte wat werklik op <strong>@(!string.IsNullOrEmpty(_activeBooking.FarmName) ? _activeBooking.FarmName : "die gekose plaas")</strong> beskikbaar is. Bevestig die tarief per bok vir hierdie ekspedisie en dui eventuele diere aan wat in die aanvanklike kwotasie ingereken word.
+                </p>
+
+                <div class="table-responsive rounded border pj-table-wrapper" style="max-height: 220px; overflow-y: auto;">
+                    <table class="table table-sm align-middle mb-0 pj-species-table" style="font-size: 12px;">
+                        <thead>
+                            <tr class="text-uppercase" style="font-size: 11px;">
+                                <th>Wildsoort</th>
+                                <th>Plaaskwota Beskikbaar</th>
+                                <th style="width: 160px;">Prys per bok</th>
+                                <th style="width: 110px;">Aantal Kwotasie</th>
+                                <th class="text-end" style="width: 130px;">Subtotaal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_farmSpeciesPrices.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted p-2">Geen wildvoorraad gevind vir hierdie plaas nie.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var sp in _farmSpeciesPrices)
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong class="pj-species-name">@sp.SpeciesName</strong>
+                                            @if (_activeBooking.BookedSpecies != null && _activeBooking.BookedSpecies.Contains(sp.SpeciesName))
+                                            {
+                                                <span class="badge bg-warning text-dark ms-1" style="font-size: 9px;">Deur Jagter Gevra</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">@(sp.AvailableCount > 0 ? $"{sp.AvailableCount} beskikbaar" : "Op aanvraag")</span>
+                                        </td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                <span class="input-group-text">$</span>
+                                                <input type="number" step="50" min="0" class="form-control" @bind="sp.PricePerAnimal" @bind:after="OnGameSelectionChanged" />
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <input type="number" min="0" max="@Math.Max(10, sp.AvailableCount)" class="form-control form-control-sm text-center" @bind="sp.SelectedCount" @bind:after="OnGameSelectionChanged" />
+                                        </td>
+                                        <td class="text-end text-gold fw-bold">
+                                            @(sp.SelectedCount > 0 ? $"$ {(sp.PricePerAnimal * sp.SelectedCount):N2}" : "$ 0.00")
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top border-secondary small">
+                    <span class="text-muted">Wild / Bokke Kwotasie Subtotaal:</span>
+                    <strong class="text-gold">@Money.Format(_gameTotal, _selectedCurrency, "N2")</strong>
+                </div>
+            </div>
+
+            <!-- DEEL 4: Finale Bevestigde Kwotasie & Ekspedisie Totaal -->
+            <div class="p-3 rounded mb-3 pj-total-quote-box">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <div>
+                        <div class="text-uppercase small fw-bold pj-total-quote-title">4. Finale Bevestigde Ekspedisie Kwotasie &amp; Valuta</div>
+                        <div class="text-muted small">
+                            Verblyf (@_selectedCurrency @_confirmedAccommodationPrice.ToString("N2")) 
+                            + Wild (@_selectedCurrency @_gameTotal.ToString("N2"))
+                            @if (_phTotal > 0) { <text> + PH Tarief (@_selectedCurrency @_phTotal.ToString("N2")) </text> }
+                            @if (_vgTotal > 0) { <text> + VG Pakket (@_selectedCurrency @_vgTotal.ToString("N2")) </text> }
+                        </div>
+                        @if (_phRatesNotConfigured)
+                        {
+                            <div class="small text-warning mt-1">⚠️ Die gekose PH het nog nie hul dagtariewe gestel nie - hul fooi is nie by hierdie kwotasie ingesluit nie.</div>
+                        }
+                    </div>
+
+                    <div class="d-flex align-items-center gap-2">
+                        <select class="form-select form-select-sm fw-bold" style="width: 90px;" @bind="_selectedCurrency" @bind:after="RecalculatePricing">
+                            <option value="USD">USD ($)</option>
+                            <option value="ZAR">ZAR (R)</option>
+                        </select>
+                        <span class="fs-5 fw-bold pj-total-quote-symbol">@(_selectedCurrency == "ZAR" ? "R" : "$")</span>
+                        <input type="number" step="50" min="0" class="form-control form-control-lg fw-bold text-end pj-total-quote-input" style="width: 170px;" @bind="_grandTotal" @bind:after="RecalculatePricing" />
+                        <span class="small fw-bold pj-total-quote-curr">@_selectedCurrency</span>
+                    </div>
+                </div>
+
+                <div class="row g-2 pt-2 border-top border-warning text-dark small" style="font-size: 12px;">
+                    <div class="col-md-6">
+                        <label class="fw-bold mb-1">Deposito Vereis (% van Totaal):</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" min="10" max="100" step="5" class="form-control" @bind="_depositPercentage" @bind:after="RecalculatePricing" />
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="small text-muted mt-1">Deposito Bedrag: <strong>@(_selectedCurrency == "ZAR" ? "R" : "$") @_depositAmount.ToString("N2") @_selectedCurrency</strong></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="fw-bold mb-1">Uitstaande Balans (Plaas Afrekening):</label>
+                        <div class="form-control form-control-sm bg-light text-muted fw-bold">
+                            @(_selectedCurrency == "ZAR" ? "R" : "$") @_outstandingBalance.ToString("N2") @_selectedCurrency
+                        </div>
+                        <div class="small text-muted mt-1">Betaalbaar by aankoms op die plaas.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slot Management Notice -->
+            <div class="p-2 rounded mb-3 small pj-notice-box" style="font-size: 11.5px;">
+                @if (_isReassigning)
+                {
+                    <span><strong>Kennisgewing:</strong> Bestaande pakket-slots bly behou. Die bevestigde kwotasie en opgedateerde personeel sal op die Ekspedisie-Bewys (Voucher) aangeteken word.</span>
+                }
+                else
+                {
+                    <span><strong>Kennisgewing:</strong> By goedkeuring sal @_activeBooking.HunterCount jagter-slot(s) van die pakket afgetrek word. 'n Amptelike Ekspedisie-Bewys (Voucher) met hierdie bevestigde verblyf- en wildtariewe word gegenereer.</span>
+                }
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showApprovalModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-success" @onclick="ConfirmApproval">
+                    @(_isReassigning ? "Stoor Span & Kwotasie 🔄" : "Bevestig Prys & Keur Goed ✓")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- MODAL 2: Structured Rejection Modal (Fase 2) -->
+@if (_showRejectModal && _rejectingBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2150; overflow-y: auto;">
+        <div class="mp-card pj-booking-modal" style="width: 580px; max-width: 98%;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h3 class="brand-font text-danger mb-0">Wys Bespreking van die Hand ✕</h3>
+                <button type="button" class="btn-close pj-modal-close" aria-label="Maak toe" @onclick="() => _showRejectModal = false"></button>
+            </div>
+            <p class="text-muted small mb-3">
+                U staan op die punt om die bespreking van <strong>@_rejectingBooking.HunterName</strong> vir <strong>@_rejectingBooking.PackageTitle</strong> (@_rejectingBooking.StartDate.ToString("dd MMM") – @_rejectingBooking.EndDate.ToString("dd MMM yyyy")) van die hand te wys.
+            </p>
+
+            @if (!string.IsNullOrEmpty(_rejectError))
+            {
+                <div class="alert alert-danger p-2 small mb-3">@_rejectError</div>
+            }
+
+            <div class="mp-form-group mb-3">
+                <label class="mp-form-label fw-bold">Rede vir Verwerping *</label>
+                <select class="mp-form-control" @bind="_selectedRejectReason">
+                    <option value="Plaas is reeds vol bespreek op hierdie datums">Plaas is reeds vol bespreek op hierdie datums</option>
+                    <option value="Geen geskikte Professionele Jagter (PH) beskikbaar nie">Geen geskikte Professionele Jagter (PH) beskikbaar nie</option>
+                    <option value="Pakket-kwota of wildspesies nie tans beskikbaar nie">Pakket-kwota of wildspesies nie tans beskikbaar nie</option>
+                    <option value="Weersomstandighede of seisoenale sluiting">Weersomstandighede of seisoenale sluiting</option>
+                    <option value="Besprekingsdatums bots met plaas-instandhouding">Besprekingsdatums bots met plaas-instandhouding</option>
+                    <option value="Ander rede (spesifiseer in notas hieronder)">Ander rede (spesifiseer in notas hieronder)</option>
+                </select>
+            </div>
+
+            <div class="mp-form-group mb-3">
+                <label class="mp-form-label fw-bold">Notas / Terugvoer aan Jagter (Opsioneel)</label>
+                <textarea class="mp-form-control" rows="3" placeholder="Verskaf verdere besonderhede of stel alternatiewe datums voor..." @bind="_rejectNotes"></textarea>
+                <div class="small text-muted mt-1">Hierdie boodskap sal by die jagter se in-app kennisgewing ingesluit word.</div>
+            </div>
+
+            <div class="p-3 rounded mb-3 small pj-reject-notice">
+                <strong>Kennisgewing &amp; Slots:</strong> Die jagter sal outomaties 'n stelselkennisgewing ontvang met hierdie verduideliking. Enige gereserveerde pakket-slots word onmiddellik vrygestel sodat ander jagters kan bespreek.
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showRejectModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-danger" @onclick="ConfirmRejection">Bevestig &amp; Wys van Hand ✕</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- MODAL 3: Printable Official Expedition Voucher / Bewys (Fase 4) -->
+@if (_showVoucherModal && _activeBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2200; overflow-y: auto;">
+        <div class="mp-card p-0 pj-booking-modal" style="width: 780px; max-width: 98%; max-height: 92vh; display: flex; flex-direction: column;">
+
+            <!-- Modal Header / Actions -->
+            <div class="p-3 d-flex justify-content-between align-items-center border-bottom pj-voucher-bar">
+                <h4 class="brand-font text-gold mb-0 pj-voucher-title">📜 Amptelike Ekspedisie-Bewys &amp; Kwotasie</h4>
+                <div class="d-flex gap-2">
+                    <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="PrintVoucher">Druk / Stoor as PDF 🖨️</button>
+                    <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => _showVoucherModal = false">Maak Toe</button>
+                </div>
+            </div>
+
+            <!-- Voucher Printable Body -->
+            <div class="p-4 voucher-content overflow-auto" id="voucherPrintArea" style="background: #ffffff; color: #1a1a1a; font-family: 'Segoe UI', Arial, sans-serif;">
+
+                <!-- Voucher Header -->
+                <div style="border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h2 style="color: #d97706; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;">MIKPUNT JAG- &amp; EKOTOERISME PORTAAL</h2>
+                        <div style="font-size: 11px; color: #555; margin-top: 2px;">
+                            BTW Reg: 4980293810 | Maatskappy Reg: 2026/MIKPUNT/01<br />
+                            Pretoria, Gauteng, Suid-Afrika | info@mikpunt.co.za | www.mikpunt.co.za
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 11px; font-weight: bold; color: #888; text-transform: uppercase;">Ekspedisie Verwysing</div>
+                        <div style="font-size: 18px; font-weight: bold; color: #000;">@_activeBooking.PaymentReference</div>
+                        <div style="font-size: 11px; color: #555;">Uitgereik: @DateTime.Now.ToString("dd MMMM yyyy")</div>
+                    </div>
+                </div>
+
+                <!-- Security Verification Stamp Seal & Code (Fase 4) -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #faf5eb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <svg width="44" height="44" viewBox="0 0 100 100" fill="none">
+                            <circle cx="50" cy="50" r="46" stroke="#d97706" stroke-width="3" stroke-dasharray="4 2" />
+                            <circle cx="50" cy="50" r="38" stroke="#10b981" stroke-width="2" />
+                            <path d="M35 50 L45 60 L65 40" stroke="#10b981" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <div>
+                            <div style="font-weight: bold; font-size: 12px; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px;">Amptelik Geverifieerde Ekspedisie-Bewys</div>
+                            <div style="font-size: 11px; color: #666; font-family: monospace;">KODE: MP-SEC-@(_activeBooking.Id.ToString("D6"))-@(_activeBooking.PaymentReference.Replace("-", ""))</div>
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="background: #10b981; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase;">Geldig &amp; Goedgekeur</span>
+                    </div>
+                </div>
+
+                <!-- Parties Involved -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                    <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px;">
+                        <div style="font-size: 11px; font-weight: bold; color: #d97706; text-transform: uppercase; margin-bottom: 4px;">Uitruster &amp; Organiseerder (PJ):</div>
+                        <div style="font-weight: bold; font-size: 14px; color: #000;">@(Auth.CurrentUser?.FullName ?? "MikPunt Uitruster")</div>
+                        <div style="font-size: 12px; color: #444;">E-pos: @(Auth.CurrentUser?.Email ?? "uitruster@mikpunt.co.za")</div>
+                        <div style="font-size: 12px; color: #444;">Status: Geregistreerde MikPunt Professionele Uitruster</div>
+                    </div>
+                    <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px;">
+                        <div style="font-size: 11px; font-weight: bold; color: #d97706; text-transform: uppercase; margin-bottom: 4px;">Kliënt / Jagter Besonderhede:</div>
+                        <div style="font-weight: bold; font-size: 14px; color: #000;">@_activeBooking.HunterName</div>
+                        <div style="font-size: 12px; color: #444;">E-pos: @_activeBooking.HunterEmail</div>
+                        @if (!string.IsNullOrWhiteSpace(_activeBooking.HunterPhone))
+                        {
+                            <div style="font-size: 12px; color: #444;">Kontak: @_activeBooking.HunterPhone</div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Expedition Specs Table -->
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12.5px;">
+                    <thead>
+                        <tr style="background: #222; color: #fff;">
+                            <th style="padding: 8px 10px; text-align: left;">Beskrywing / Fasiliteit</th>
+                            <th style="padding: 8px 10px; text-align: left;">Besonderhede</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 8px 10px; font-weight: bold; color: #333;">Pakket &amp; Ekspedisie</td>
+                            <td style="padding: 8px 10px; color: #000;">@_activeBooking.PackageTitle</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 8px 10px; font-weight: bold; color: #333;">Bestemming Plaas</td>
+                            <td style="padding: 8px 10px; color: #000;">@_activeBooking.FarmName</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 8px 10px; font-weight: bold; color: #333;">Ekspedisie Datums</td>
+                            <td style="padding: 8px 10px; color: #000;">@_activeBooking.StartDate.ToString("dd MMMM yyyy") tot @_activeBooking.EndDate.ToString("dd MMMM yyyy")</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 8px 10px; font-weight: bold; color: #333;">Aantal Gaste</td>
+                            <td style="padding: 8px 10px; color: #000;">@_activeBooking.HunterCount Jagters @(_activeBooking.ObserverCount > 0 ? $"+ {_activeBooking.ObserverCount} Nie-jagters" : "")</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee; background: #fffdf5;">
+                            <td style="padding: 8px 10px; font-weight: bold; color: #d97706;">Toegewese PH Gids</td>
+                            <td style="padding: 8px 10px; font-weight: bold; color: #000;">@(_activeBooking.AssignedPhName ?? "Aangewese PH Gids") (Gesertifiseer)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee; background: #fffdf5;">
+                            <td style="padding: 8px 10px; font-weight: bold; color: #d97706;">Toegewese Videograaf (VG)</td>
+                            <td style="padding: 8px 10px; color: #000;">@(!string.IsNullOrWhiteSpace(_activeBooking.AssignedVgName) ? _activeBooking.AssignedVgName : "Geen videograaf versoek nie")</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding: 10px; font-weight: bold; font-size: 14px; color: #000;">Totale Belegging / Fooi</td>
+                            <td style="padding: 10px; font-weight: bold; font-size: 16px; color: #d97706;">@Money.Format(_activeBooking.TotalPrice, _activeBooking.PriceBreakdown?.Currency, "N2")</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Itemized Price Confirmation Section (Verblyf & Bokke) -->
+                @if (_activeBooking.PriceBreakdown != null)
+                {
+                    var pb = _activeBooking.PriceBreakdown;
+                    <div style="margin-bottom: 16px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+                        <div style="background: #fdf8f0; border-bottom: 1px solid #fde68a; padding: 8px 12px; font-weight: bold; color: #92400e; font-size: 12px; text-transform: uppercase;">
+                            Geverifieerde Kwotasie &amp; Tariewe (Uitruster Goedgekeur)
+                        </div>
+                        <div style="padding: 10px 12px; font-size: 12px; background: #fff;">
+                            <div style="display: flex; justify-content: space-between; padding-bottom: 6px; border-bottom: 1px dashed #eee;">
+                                <span><strong>Verblyf &amp; Akkommodasie</strong> (@pb.Days dae &bull; @pb.HunterCount Jagters teen @Money.Format(pb.DailyRateHunter, pb.Currency)/dag @(pb.ObserverCount > 0 ? $"+ {pb.ObserverCount} Waarnemers teen {Money.Format(pb.DailyRateObserver, pb.Currency)}/dag" : "")):</span>
+                                <strong style="color: #000;">@Money.Format(pb.AccommodationTotal, pb.Currency, "N2")</strong>
+                            </div>
+                            @if (pb.PhTotal > 0)
+                            {
+                                <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #eee;">
+                                    <span><strong>PH Gids Tarief</strong> (@pb.Days dae):</span>
+                                    <strong style="color: #000;">@Money.Format(pb.PhTotal, pb.Currency, "N2")</strong>
+                                </div>
+                            }
+                            @if (pb.VgTotal > 0)
+                            {
+                                <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #eee;">
+                                    <span><strong>Videograaf Pakket</strong>:</span>
+                                    <strong style="color: #000;">@Money.Format(pb.VgTotal, pb.Currency, "N2")</strong>
+                                </div>
+                            }
+                            @if (pb.ConfirmedSpecies != null && pb.ConfirmedSpecies.Count > 0)
+                            {
+                                <div style="margin-top: 8px; font-weight: bold; color: #333; font-size: 11.5px;">Goedgekeurde Wildtariewe per Bok (Beskikbaar op Plaas):</div>
+                                <table style="width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 11.5px;">
+                                    <thead>
+                                        <tr style="background: #f9fafb; color: #555;">
+                                            <th style="padding: 4px 6px; text-align: left;">Spesie</th>
+                                            <th style="padding: 4px 6px; text-align: right;">Prys per bok</th>
+                                            <th style="padding: 4px 6px; text-align: right;">Aantal Ingesluit / Skatting</th>
+                                            <th style="padding: 4px 6px; text-align: right;">Subtotaal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var sp in pb.ConfirmedSpecies)
+                                        {
+                                            <tr style="border-bottom: 1px solid #f3f4f6;">
+                                                <td style="padding: 4px 6px; font-weight: 500;">@sp.SpeciesName</td>
+                                                <td style="padding: 4px 6px; text-align: right;">@Money.Format(sp.PricePerAnimal, pb.Currency, "N2")</td>
+                                                <td style="padding: 4px 6px; text-align: right;">@(sp.SelectedCount > 0 ? sp.SelectedCount.ToString() : "Volgens oes")</td>
+                                                <td style="padding: 4px 6px; text-align: right; font-weight: bold;">@(sp.SelectedCount > 0 ? $"$ {(sp.PricePerAnimal * sp.SelectedCount):N2}" : "Tarief van krag")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <!-- Footer & Legal -->
+                <div style="background: #f3f4f6; border-left: 4px solid #d97706; padding: 10px; font-size: 11px; color: #4b5563; line-height: 1.4; margin-bottom: 8px;">
+                    <strong>Regs- &amp; Veiligheidsverklaring:</strong> Hierdie dokument dien as amptelike statutêre bewys van bespreking en spantoewysing kragtens MikPunt Ekotoerisme Regulasies. Alle jagters en besoekers moet by aankoms op die bestemming plaas die voorgeskrewe vrywaringsvorms voltooi en ten alle tye aan die toegewese PH se veiligheidsinstruksies voldoen.
+                </div>
+            </div>
+
+            <div class="p-3 text-center border-top pj-voucher-bar">
+                <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="() => _showVoucherModal = false">Maak Toe</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- MODAL 4: Team Schedule Matrix Modal -->
+@if (_showScheduleModal)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2300; overflow-y: auto;">
+        <div class="mp-card pj-booking-modal" style="width: 860px; max-width: 98%; max-height: 90vh; overflow-y: auto;">
+            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+                <h4 class="brand-font text-gold mb-0">📅 Span Skedule Matrix &amp; Beskikbaarheid</h4>
+                <button type="button" class="btn-close pj-modal-close" aria-label="Maak toe" @onclick="() => _showScheduleModal = false"></button>
+            </div>
+            
+            <p class="text-muted small mb-3">
+                Hieronder is 'n oorsig van al u spanlede (PH's &amp; VG's) en hul toegewese ekspedisie-datums om skeduleringsbotsings te voorkom.
+            </p>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle pj-species-table" style="font-size: 12px;">
+                    <thead>
+                        <tr>
+                            <th>Personeellid</th>
+                            <th>Rol</th>
+                            <th>Aktiewe Ekspedisies</th>
+                            <th>Status vir Seisoen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _teamMembers)
+                        {
+                            var activeAssigned = _bookings.Where(b => (b.Status == "Approved" || b.Status == "Paid") && 
+                                                                      ((b.AssignedPhUserId == m.UserId) || (b.AssignedVgUserId == m.UserId))).ToList();
+                            <tr>
+                                <td><strong>@m.Name @m.Surname</strong></td>
+                                <td><span class="badge @(m.Role == "PH" ? "bg-warning text-dark" : "bg-info text-dark")">@m.Role</span></td>
+                                <td>
+                                    @if (!activeAssigned.Any())
+                                    {
+                                        <span class="text-muted">Geen besprekings toegewys</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-column gap-1">
+                                            @foreach (var ab in activeAssigned)
+                                            {
+                                                <div class="badge bg-dark text-gold border border-warning p-1 text-start">
+                                                    🎯 @ab.PackageTitle (@ab.StartDate.ToString("dd MMM") - @ab.EndDate.ToString("dd MMM yyyy")) - Plaas: @ab.FarmName
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                                <td>
+                                    @if (activeAssigned.Count > 2)
+                                    {
+                                        <span class="badge bg-danger">Hoë Lading (@activeAssigned.Count)</span>
+                                    }
+                                    else if (activeAssigned.Any())
+                                    {
+                                        <span class="badge bg-success">Besig (@activeAssigned.Count)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Beskikbaar</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex justify-content-end mt-3 pt-2 border-top">
+                <button class="mp-btn mp-btn-secondary" @onclick="() => _showScheduleModal = false">Maak Toe</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* Scoped theme rules for PJ Bookings & Confirmation Modal */
+    [data-theme="dark"] .pj-modal-close {
+        filter: invert(1) grayscale(100%) brightness(200%) !important;
+    }
+    [data-theme="light"] .pj-modal-close,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-modal-close {
+        filter: none !important;
+    }
+
+    [data-theme="dark"] .pj-kpi-total {
+        color: #ffffff !important;
+    }
+    [data-theme="light"] .pj-kpi-total,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-kpi-total {
+        color: #140a04 !important;
+    }
+
+    [data-theme="dark"] .pj-modal-section {
+        background: rgba(15, 20, 28, 0.6) !important;
+        border: 1px solid rgba(212, 175, 55, 0.25) !important;
+    }
+    [data-theme="light"] .pj-modal-section,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-modal-section {
+        background: rgba(254, 243, 199, 0.45) !important;
+        border: 1px solid rgba(180, 83, 9, 0.22) !important;
+    }
+
+    [data-theme="dark"] .pj-sub-card {
+        background: rgba(10, 14, 20, 0.65) !important;
+        border: 1px solid rgba(212, 175, 55, 0.25) !important;
+    }
+    [data-theme="light"] .pj-sub-card,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-sub-card {
+        background: #ffffff !important;
+        border: 1px solid rgba(180, 83, 9, 0.25) !important;
+        box-shadow: 0 1px 3px rgba(180, 83, 9, 0.08) !important;
+    }
+
+    [data-theme="dark"] .pj-acc-calc-box {
+        background: rgba(217, 119, 6, 0.14) !important;
+        border: 1px solid rgba(212, 175, 55, 0.4) !important;
+    }
+    [data-theme="light"] .pj-acc-calc-box,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-acc-calc-box {
+        background: rgba(254, 243, 199, 0.75) !important;
+        border: 1px solid rgba(194, 65, 12, 0.4) !important;
+    }
+
+    [data-theme="dark"] .pj-species-badge {
+        background: rgba(15, 20, 28, 0.9) !important;
+        color: #d4af37 !important;
+        border: 1px solid #d4af37 !important;
+    }
+    [data-theme="light"] .pj-species-badge,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-badge {
+        background: rgba(254, 243, 199, 0.95) !important;
+        color: #9a3412 !important;
+        border: 1px solid #c2410c !important;
+    }
+
+    [data-theme="dark"] .pj-table-wrapper {
+        border-color: rgba(212, 175, 55, 0.25) !important;
+    }
+    [data-theme="light"] .pj-table-wrapper,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-table-wrapper {
+        border-color: rgba(180, 83, 9, 0.25) !important;
+    }
+
+    [data-theme="dark"] .pj-species-table {
+        background: rgba(15, 20, 28, 0.8) !important;
+        color: #f0f4f8 !important;
+    }
+    [data-theme="dark"] .pj-species-table thead tr {
+        background: rgba(10, 14, 20, 0.95) !important;
+        color: #94a3b8 !important;
+        border-bottom: 1px solid rgba(212, 175, 55, 0.35) !important;
+    }
+    [data-theme="dark"] .pj-species-table thead th {
+        color: #d4af37 !important;
+    }
+    [data-theme="dark"] .pj-species-table tbody tr {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+    [data-theme="dark"] .pj-species-table tbody tr:hover {
+        background: rgba(212, 175, 55, 0.09) !important;
+    }
+    [data-theme="dark"] .pj-species-name {
+        color: #ffffff !important;
+    }
+
+    [data-theme="light"] .pj-species-table,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-table {
+        background: #ffffff !important;
+        color: #2d180c !important;
+    }
+    [data-theme="light"] .pj-species-table thead tr,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-table thead tr {
+        background: rgba(254, 243, 199, 0.85) !important;
+        color: #78350f !important;
+        border-bottom: 2px solid rgba(180, 83, 9, 0.35) !important;
+    }
+    [data-theme="light"] .pj-species-table thead th,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-table thead th {
+        color: #78350f !important;
+    }
+    [data-theme="light"] .pj-species-table tbody tr,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-table tbody tr {
+        border-bottom: 1px solid rgba(180, 83, 9, 0.12) !important;
+    }
+    [data-theme="light"] .pj-species-table tbody tr:hover,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-table tbody tr:hover {
+        background: rgba(254, 243, 199, 0.4) !important;
+    }
+    [data-theme="light"] .pj-species-name,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-name {
+        color: #140a04 !important;
+    }
+
+    /* Total Quote Box & White Input in Dark Mode */
+    [data-theme="dark"] .pj-total-quote-box {
+        background: rgba(217, 119, 6, 0.16) !important;
+        border: 2px solid rgba(212, 175, 55, 0.55) !important;
+    }
+    [data-theme="dark"] .pj-total-quote-title {
+        color: #d4af37 !important;
+    }
+    [data-theme="dark"] .pj-total-quote-symbol,
+    [data-theme="dark"] .pj-total-quote-curr {
+        color: #ffffff !important;
+    }
+    [data-theme="dark"] .pj-total-quote-input {
+        color: #ffffff !important;
+        background: rgba(12, 16, 23, 0.95) !important;
+        border: 2px solid #d4af37 !important;
+        box-shadow: 0 0 12px rgba(212, 175, 55, 0.3) !important;
+    }
+    [data-theme="dark"] .pj-total-quote-input:focus {
+        color: #ffffff !important;
+        background: rgba(18, 24, 34, 0.98) !important;
+        border-color: #f1c40f !important;
+        box-shadow: 0 0 16px rgba(241, 196, 15, 0.45) !important;
+    }
+
+    [data-theme="light"] .pj-total-quote-box,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-total-quote-box {
+        background: rgba(254, 243, 199, 0.65) !important;
+        border: 2px solid rgba(194, 65, 12, 0.45) !important;
+    }
+    [data-theme="light"] .pj-total-quote-title,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-total-quote-title {
+        color: #c2410c !important;
+    }
+    [data-theme="light"] .pj-total-quote-symbol,
+    [data-theme="light"] .pj-total-quote-curr,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-total-quote-symbol,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-total-quote-curr {
+        color: #b45309 !important;
+    }
+    [data-theme="light"] .pj-total-quote-input,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-total-quote-input {
+        color: #140a04 !important;
+        background: #ffffff !important;
+        border: 2px solid #ea580c !important;
+        box-shadow: 0 2px 6px rgba(194, 65, 12, 0.15) !important;
+    }
+    [data-theme="light"] .pj-total-quote-input:focus,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-total-quote-input:focus {
+        color: #140a04 !important;
+        background: #ffffff !important;
+        border-color: #c2410c !important;
+        box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.25) !important;
+    }
+
+    [data-theme="dark"] .pj-notice-box {
+        background: rgba(10, 14, 20, 0.6) !important;
+        border: 1px solid rgba(212, 175, 55, 0.25) !important;
+        color: #94a3b8 !important;
+    }
+    [data-theme="light"] .pj-notice-box,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-notice-box {
+        background: rgba(254, 243, 199, 0.65) !important;
+        border: 1px solid rgba(180, 83, 9, 0.25) !important;
+        color: #5e4333 !important;
+    }
+
+    [data-theme="dark"] .pj-booking-modal .form-control,
+    [data-theme="dark"] .pj-booking-modal .mp-form-control,
+    [data-theme="dark"] .pj-booking-modal select {
+        background: rgba(15, 20, 28, 0.9) !important;
+        color: #f0f4f8 !important;
+        border: 1px solid rgba(212, 175, 55, 0.3) !important;
+    }
+    [data-theme="dark"] .pj-booking-modal .form-control:focus,
+    [data-theme="dark"] .pj-booking-modal .mp-form-control:focus,
+    [data-theme="dark"] .pj-booking-modal select:focus {
+        background: rgba(20, 26, 36, 0.98) !important;
+        color: #ffffff !important;
+        border-color: #d4af37 !important;
+        box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25) !important;
+    }
+    [data-theme="dark"] .pj-booking-modal .input-group-text {
+        background: rgba(30, 39, 53, 0.95) !important;
+        color: #d4af37 !important;
+        border: 1px solid rgba(212, 175, 55, 0.3) !important;
+    }
+    [data-theme="dark"] .pj-booking-modal select option {
+        background: #161c26 !important;
+        color: #f0f4f8 !important;
+    }
+
+    [data-theme="light"] .pj-booking-modal .form-control,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal .form-control,
+    [data-theme="light"] .pj-booking-modal .mp-form-control,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal .mp-form-control,
+    [data-theme="light"] .pj-booking-modal select,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal select {
+        background: #ffffff !important;
+        color: #2d180c !important;
+        border: 1px solid rgba(180, 83, 9, 0.3) !important;
+    }
+    [data-theme="light"] .pj-booking-modal .form-control:focus,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal .form-control:focus,
+    [data-theme="light"] .pj-booking-modal select:focus,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal select:focus {
+        background: #ffffff !important;
+        color: #140a04 !important;
+        border-color: #ea580c !important;
+        box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2) !important;
+    }
+    [data-theme="light"] .pj-booking-modal .input-group-text,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal .input-group-text {
+        background: rgba(254, 243, 199, 0.95) !important;
+        color: #9a3412 !important;
+        border: 1px solid rgba(180, 83, 9, 0.3) !important;
+    }
+    [data-theme="light"] .pj-booking-modal select option,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-booking-modal select option {
+        background: #ffffff !important;
+        color: #2d180c !important;
+    }
+
+    [data-theme="dark"] .pj-confirmed-price-box {
+        background: rgba(16, 185, 129, 0.1) !important;
+        border: 1px solid rgba(16, 185, 129, 0.4) !important;
+    }
+    [data-theme="light"] .pj-confirmed-price-box,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-confirmed-price-box {
+        background: rgba(236, 253, 245, 0.95) !important;
+        border: 1.5px solid rgba(16, 185, 129, 0.45) !important;
+    }
+
+    [data-theme="dark"] .pj-accommodation-total {
+        color: #ffffff !important;
+    }
+    [data-theme="light"] .pj-accommodation-total,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-accommodation-total {
+        color: #140a04 !important;
+    }
+
+    [data-theme="dark"] .pj-species-tag {
+        background: rgba(15, 20, 28, 0.85) !important;
+        color: #f0f4f8 !important;
+        border: 1px solid rgba(212, 175, 55, 0.35) !important;
+    }
+    [data-theme="light"] .pj-species-tag,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-species-tag {
+        background: #ffffff !important;
+        color: #2d180c !important;
+        border: 1px solid rgba(180, 83, 9, 0.3) !important;
+        box-shadow: 0 1px 2px rgba(180, 83, 9, 0.08) !important;
+    }
+
+    [data-theme="dark"] .pj-reject-notice {
+        background: rgba(239, 68, 68, 0.12) !important;
+        border: 1px solid rgba(239, 68, 68, 0.35) !important;
+        color: #fca5a5 !important;
+    }
+    [data-theme="light"] .pj-reject-notice,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-reject-notice {
+        background: rgba(254, 242, 242, 0.95) !important;
+        border: 1px solid rgba(239, 68, 68, 0.3) !important;
+        color: #991b1b !important;
+    }
+
+    [data-theme="dark"] .pj-voucher-bar {
+        background: #0a0e14 !important;
+        border-color: rgba(212, 175, 55, 0.25) !important;
+    }
+    [data-theme="light"] .pj-voucher-bar,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-voucher-bar {
+        background: #2b180c !important;
+        border-color: rgba(180, 83, 9, 0.35) !important;
+    }
+
+    [data-theme="light"] .pj-voucher-bar h4,
+    [data-theme="light"] .pj-voucher-title,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-voucher-bar h4,
+    .mikpunt-app-container:not([data-theme="dark"]) .pj-voucher-title {
+        color: #ffffff !important;
+    }
+
+    @@media print {
+        html, body {
+            height: auto !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+        body * {
+            visibility: hidden !important;
+        }
+        .position-fixed.top-0.start-0 {
+            position: static !important;
+            overflow: visible !important;
+            background: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: block !important;
+            height: auto !important;
+            width: 100% !important;
+        }
+        .mp-card, .pj-booking-modal {
+            max-height: none !important;
+            overflow: visible !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: #ffffff !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        .pj-voucher-bar {
+            display: none !important;
+        }
+        #voucherPrintArea, #voucherPrintArea * {
+            visibility: visible !important;
+            color: #000000 !important;
+            background: #ffffff !important;
+        }
+        #voucherPrintArea {
+            position: static !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 10mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            overflow: visible !important;
+            height: auto !important;
+            page-break-inside: auto;
+        }
+        #voucherPrintArea table, #voucherPrintArea tr {
+            page-break-inside: avoid;
+        }
+        @@page {
+            size: A4 portrait;
+            margin: 10mm;
+        }
+    }
+</style>
+
+@code {
+    private List<BookingModel> _bookings = new();
+    private List<TeamMemberResponse> _teamMembers = new();
+    private List<TeamMemberResponse> _phCandidates = new();
+    private List<TeamMemberResponse> _vgCandidates = new();
+    private List<FarmModel> _farms = new();
+    private bool _loading = true;
+    private string _notificationMsg = string.Empty;
+
+    // Filters & Search (Fase 5)
+    private string _currentFilter = "all"; // "all", "Pending", "Approved", "Rejected"
+    private string _searchQuery = string.Empty;
+
+    // Detail modal state
+    private bool _showDetailModal = false;
+    private BookingModel? _selectedDetailBooking;
+    private List<BookingAuditLog>? _detailAuditLogs;
+
+    // Team Schedule Matrix modal state
+    private bool _showScheduleModal = false;
+
+    // Approval & Reassignment modal state (Fase 1)
+    private bool _showApprovalModal = false;
+    private bool _isReassigning = false;
+    private BookingModel? _activeBooking;
+    private int _selectedPhUserId = 0;
+    private int _selectedVgUserId = 0;
+    private string _approvalError = string.Empty;
+    // Auto-included prices from staff
+    private decimal _phTotal = 0m;
+    private decimal _vgTotal = 0m;
+    private bool _phIsDangerousGame = false;
+    private bool _phRatesNotConfigured = false;
+    private string _vgPackageName = string.Empty;
+    private List<ServicePackageModel> _vgPackages = new();
+    private int _selectedVgPackageId = 0;
+
+    // Enterprise Conflict Override & Currency/Deposit State
+    private string _selectedCurrency = Money.PackageCurrency;   // quote in the package currency by default
+    private decimal _depositPercentage = 50m;
+    private decimal _depositAmount = 0m;
+    private decimal _outstandingBalance = 0m;
+    private bool _confirmScheduleOverride = false;
+    private string _scheduleOverrideReason = string.Empty;
+
+    // Pricing Confirmation State (Verblyf & Prys per Bok)
+    private int _expeditionDays = 1;
+    private decimal _dailyRateHunter = 850m;
+    private decimal _dailyRateObserver = 350m;
+    private decimal _calculatedAccommodation = 0m;
+    private decimal _confirmedAccommodationPrice = 0m;
+    private List<ConfirmedSpeciesPriceItem> _farmSpeciesPrices = new();
+    private decimal _gameTotal = 0m;
+    private decimal _grandTotal = 0m;
+
+    // Rejection modal state (Fase 2)
+    private bool _showRejectModal = false;
+    private BookingModel? _rejectingBooking;
+    private string _selectedRejectReason = "Plaas is reeds vol bespreek op hierdie datums";
+    private string _rejectNotes = string.Empty;
+    private string _rejectError = string.Empty;
+
+    // Voucher modal state (Fase 4)
+    private bool _showVoucherModal = false;
+
+    [SupplyParameterFromQuery(Name = "openVoucher")]
+    private int? openVoucher { get; set; }
+
+    /// <summary>Applies the active status filter tab and free-text search query to _bookings, newest first. Computed on every access (no caching) since the underlying list is small and this is only read during render.</summary>
+    private IEnumerable<BookingModel> FilteredBookings
+    {
+        get
+        {
+            var query = _bookings.AsEnumerable();
+
+            if (_currentFilter == "Pending")
+                query = query.Where(b => b.Status == "Pending" || b.Status == "PendingStaffAcceptance");
+            else if (_currentFilter == "Approved")
+                query = query.Where(b => b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed");
+            else if (_currentFilter == "Rejected")
+                query = query.Where(b => b.Status == "Rejected");
+
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var q = _searchQuery.Trim().ToLowerInvariant();
+                query = query.Where(b =>
+                    (!string.IsNullOrEmpty(b.HunterName) && b.HunterName.ToLowerInvariant().Contains(q)) ||
+                    (!string.IsNullOrEmpty(b.HunterEmail) && b.HunterEmail.ToLowerInvariant().Contains(q)) ||
+                    (!string.IsNullOrEmpty(b.PackageTitle) && b.PackageTitle.ToLowerInvariant().Contains(q)) ||
+                    (!string.IsNullOrEmpty(b.FarmName) && b.FarmName.ToLowerInvariant().Contains(q)) ||
+                    (!string.IsNullOrEmpty(b.PaymentReference) && b.PaymentReference.ToLowerInvariant().Contains(q)) ||
+                    (!string.IsNullOrEmpty(b.AssignedPhName) && b.AssignedPhName.ToLowerInvariant().Contains(q))
+                );
+            }
+
+            return query.OrderByDescending(b => b.CreatedAt);
+        }
+    }
+
+    /// <summary>Subscribes to auth/theme change events and does the initial data load if already authenticated with the right role at first render.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        Theme.OnThemeChanged += HandleThemeChanged;
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            await LoadData();
+        }
+    }
+
+    /// <summary>Re-renders when the light/dark theme toggles (the page's inline &lt;style&gt; block has theme-scoped selectors).</summary>
+    private void HandleThemeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Reloads booking data once login completes (auth state resolves asynchronously after initial render, e.g. from a stored token) or clears/re-renders on logout.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+            {
+                await LoadData();
+            }
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Reloads on every parameter change (covers navigating here from elsewhere) and, if the URL carries an ?openVoucher=&lt;id&gt; query param, jumps straight to that booking's voucher modal.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            await LoadData();
+            if (openVoucher.HasValue && openVoucher.Value > 0)
+            {
+                var target = _bookings.FirstOrDefault(b => b.Id == openVoucher.Value);
+                if (target != null)
+                {
+                    OpenVoucherModal(target);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads this PJ's bookings and team roster, then derives the PH/VG candidate lists
+    /// for the assignment dropdown - including inserting the PJ themself as a candidate
+    /// when they also hold the PH/VG role but aren't already on their own team roster.
+    /// Known bug: Auth.CurrentUser?.UserId falls back to the hardcoded literal 1 if
+    /// somehow null here (mirrors the same "?? 1"/"UserId = 1" placeholder pattern
+    /// flagged in UserController.RefreshToken) - in the unlikely event auth state is
+    /// inconsistent, this would silently load user 1's bookings instead of failing loudly.
+    /// </summary>
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _bookings = await Api.GetBookingsForPjAsync(myUserId);
+            _teamMembers = await Api.GetPjTeamMembersAsync(myUserId);
+            try { _farms = await Api.GetFarmsAsync(); } catch { }
+
+            // Populate PH candidates
+            _phCandidates = _teamMembers.Where(m => string.Equals(m.Role, "PH", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            // If current PJ has PH role, allow choosing himself (Fase 1)
+            if (Auth.HasRole("PH") && !_phCandidates.Any(c => c.UserId == myUserId))
+            {
+                _phCandidates.Insert(0, new TeamMemberResponse
+                {
+                    Id = 0,
+                    UserId = myUserId,
+                    Name = Auth.CurrentUser?.FirstName ?? "Ekself",
+                    Surname = $"{Auth.CurrentUser?.LastName} (PJ & Geregistreerde PH)",
+                    Role = "PH"
+                });
+            }
+
+            // Populate VG candidates
+            _vgCandidates = _teamMembers.Where(m => string.Equals(m.Role, "VG", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            // If current PJ has VG role, allow choosing himself
+            if (Auth.HasRole("VG") && !_vgCandidates.Any(c => c.UserId == myUserId))
+            {
+                _vgCandidates.Insert(0, new TeamMemberResponse
+                {
+                    Id = 0,
+                    UserId = myUserId,
+                    Name = Auth.CurrentUser?.FirstName ?? "Ekself",
+                    Surname = $"{Auth.CurrentUser?.LastName} (PJ & Geregistreerde VG)",
+                    Role = "VG"
+                });
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>Approved/Paid bookings (excluding currentBookingId) where staffUserId is already assigned as PH or VG on overlapping dates - drives the schedule-conflict warning in the approval modal.</summary>
+    private List<BookingModel> GetStaffConflicts(int staffUserId, DateTime start, DateTime end, int currentBookingId)
+    {
+        if (staffUserId <= 0) return new List<BookingModel>();
+        return _bookings.Where(b => b.Id != currentBookingId &&
+                                    (b.Status == "Approved" || b.Status == "Paid") &&
+                                    ((b.AssignedPhUserId.HasValue && b.AssignedPhUserId.Value == staffUserId) ||
+                                     (b.AssignedVgUserId.HasValue && b.AssignedVgUserId.Value == staffUserId)) &&
+                                    b.StartDate <= end && b.EndDate >= start).ToList();
+    }
+
+    /// <summary>Approved/Paid bookings on the same farm (excluding currentBookingId) with overlapping dates - drives the farm double-booking warning in the approval modal.</summary>
+    private List<BookingModel> GetFarmConflicts(int? farmId, DateTime start, DateTime end, int currentBookingId)
+    {
+        if (!farmId.HasValue || farmId.Value <= 0) return new List<BookingModel>();
+        return _bookings.Where(b => b.Id != currentBookingId &&
+                                    (b.Status == "Approved" || b.Status == "Paid") &&
+                                    b.FarmId.HasValue && b.FarmId.Value == farmId.Value &&
+                                    b.StartDate < end && b.EndDate > start).ToList();
+    }
+
+    /// <summary>Opens the full booking-details modal (row click) and fetches its audit trail; shows a loading spinner in the audit section until GetBookingAuditLogsAsync resolves.</summary>
+    private async Task OpenDetailModal(BookingModel b)
+    {
+        _selectedDetailBooking = b;
+        _detailAuditLogs = null;
+        _showDetailModal = true;
+        _detailAuditLogs = await Api.GetBookingAuditLogsAsync(b.Id);
+    }
+
+    private void CloseDetailModal()
+    {
+        _showDetailModal = false;
+        _selectedDetailBooking = null;
+    }
+
+    /// <summary>Detail-modal footer action: close this modal and immediately open the (fresh, non-reassignment) approval modal for the same booking.</summary>
+    private async Task ProceedFromDetailToApproval()
+    {
+        if (_selectedDetailBooking == null) return;
+        var b = _selectedDetailBooking;
+        CloseDetailModal();
+        await OpenApprovalModal(b, isReassignment: false);
+    }
+
+    /// <summary>Detail-modal footer action: close this modal and open the approval modal in reassignment mode (used after a staff decline, or to edit an already-approved booking's team/pricing).</summary>
+    private async Task ProceedFromDetailToReassignment()
+    {
+        if (_selectedDetailBooking == null) return;
+        var b = _selectedDetailBooking;
+        CloseDetailModal();
+        await OpenApprovalModal(b, isReassignment: true);
+    }
+
+    /// <summary>Detail-modal footer action: close this modal and open the rejection modal for the same booking.</summary>
+    private void ProceedFromDetailToReject()
+    {
+        if (_selectedDetailBooking == null) return;
+        var b = _selectedDetailBooking;
+        CloseDetailModal();
+        OpenRejectModal(b);
+    }
+
+    /// <summary>Detail-modal footer action: close this modal and open the printable voucher modal for the same booking.</summary>
+    private void ProceedFromDetailToVoucher()
+    {
+        if (_selectedDetailBooking == null) return;
+        var b = _selectedDetailBooking;
+        CloseDetailModal();
+        OpenVoucherModal(b);
+    }
+
+    /// <summary>Inline background/border style for the detail modal's status banner, colour-coded per booking status.</summary>
+    private string GetStatusBannerStyle(string status) => status switch
+    {
+        "Approved" or "Paid" => "background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4);",
+        "Completed" => "background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4);",
+        "Rejected" => "background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);",
+        _ => "background: rgba(217, 119, 6, 0.15); border: 1px solid rgba(217, 119, 6, 0.4);"
+    };
+
+    /// <summary>
+    /// Opens the approval/reassignment modal and seeds every field of its pricing
+    /// worksheet: pre-selects existing PH/VG if already assigned (leaves the slot empty
+    /// on a reassignment so the PJ must consciously re-pick rather than silently keeping
+    /// a PH who just declined), fetches PH/VG day-rates, looks up the farm's daily
+    /// accommodation rates and game inventory, and - if a price breakdown was already
+    /// confirmed on a prior approval - restores every one of its values (species prices,
+    /// VG package, currency, deposit %) instead of recomputing fresh defaults. Falls back
+    /// to a hardcoded default species list when the farm's own inventory isn't available.
+    /// </summary>
+    private async Task OpenApprovalModal(BookingModel b, bool isReassignment = false)
+    {
+        _activeBooking = b;
+        _isReassigning = isReassignment;
+        _approvalError = string.Empty;
+        _confirmScheduleOverride = false;
+        _scheduleOverrideReason = string.Empty;
+
+        if (b.AssignedPhUserId.HasValue && b.AssignedPhUserId.Value > 0)
+            _selectedPhUserId = b.AssignedPhUserId.Value;
+        else if (!isReassignment && _phCandidates.Count > 0)
+            // Only auto-pick a default on a brand new assignment. On a reassignment
+            // (e.g. after a decline) the PH slot is empty precisely because the PJ
+            // needs to consciously choose someone else - defaulting to "first in the
+            // list" here could silently re-select the very PH who just declined.
+            _selectedPhUserId = _phCandidates.First().UserId;
+        else
+            _selectedPhUserId = 0;
+
+        _selectedVgUserId = b.AssignedVgUserId ?? 0;
+        // Reset before FetchVgRates() runs, not just _selectedVgUserId - otherwise its
+        // "keep the current package if still valid for this VG" logic (meant for
+        // switching VGs within one open modal) would silently carry over whatever
+        // package was picked for a *different* booking opened earlier in this same
+        // component instance, whenever that booking happened to share the same VG.
+        _selectedVgPackageId = 0;
+
+        await FetchPhRates();
+        await FetchVgRates();
+        // Initialize duration in days
+        _expeditionDays = Math.Max(1, (b.EndDate - b.StartDate).Days);
+        // FetchVgRates() above ran before _expeditionDays was set to this booking's
+        // actual duration - recompute now that it's known so the shown VG total isn't
+        // based on a stale value left over from whichever booking the modal last had open.
+        ApplySelectedVgPackage();
+
+        // Find farm
+        var farm = _farms.FirstOrDefault(f => (b.FarmId.HasValue && f.Id == b.FarmId.Value) || 
+                                              (!string.IsNullOrEmpty(b.FarmName) && string.Equals(f.Name, b.FarmName, StringComparison.OrdinalIgnoreCase)));
+        if (farm == null && b.FarmId.HasValue && b.FarmId.Value > 0)
+        {
+            try { farm = await Api.GetFarmByIdAsync(b.FarmId.Value); } catch { }
+        }
+
+        // Daily rates for accommodation
+        _dailyRateHunter = farm?.DailyRateHunter > 0 ? farm.DailyRateHunter : 850m;
+        _dailyRateObserver = farm?.DailyRateObserver > 0 ? farm.DailyRateObserver : 350m;
+
+        _calculatedAccommodation = (_activeBooking.HunterCount * _dailyRateHunter + _activeBooking.ObserverCount * _dailyRateObserver) * _expeditionDays;
+        _confirmedAccommodationPrice = _activeBooking.ConfirmedAccommodationPrice ?? _calculatedAccommodation;
+
+        // Populate available species on the farm
+        _farmSpeciesPrices = new List<ConfirmedSpeciesPriceItem>();
+
+        // Check if previously confirmed breakdown exists
+        var existingBreakdown = _activeBooking.PriceBreakdown;
+
+        // Restore the previously-confirmed VG package choice (if any) rather than
+        // leaving whichever default FetchVgRates() picked - only meaningful once the
+        // VG's package list has loaded and still contains that package.
+        if (existingBreakdown != null && existingBreakdown.VgPackageId > 0
+            && _vgPackages.Any(p => p.Id == existingBreakdown.VgPackageId))
+        {
+            _selectedVgPackageId = existingBreakdown.VgPackageId;
+            ApplySelectedVgPackage();
+        }
+
+        if (existingBreakdown?.ConfirmedSpecies != null && existingBreakdown.ConfirmedSpecies.Count > 0)
+        {
+            _farmSpeciesPrices = existingBreakdown.ConfirmedSpecies.Select(s => new ConfirmedSpeciesPriceItem
+            {
+                SpeciesName = s.SpeciesName,
+                PricePerAnimal = s.PricePerAnimal,
+                AvailableCount = s.AvailableCount,
+                SelectedCount = s.SelectedCount
+            }).ToList();
+            if (existingBreakdown.DailyRateHunter > 0) _dailyRateHunter = existingBreakdown.DailyRateHunter;
+            if (existingBreakdown.DailyRateObserver > 0) _dailyRateObserver = existingBreakdown.DailyRateObserver;
+            if (existingBreakdown.AccommodationTotal > 0) _confirmedAccommodationPrice = existingBreakdown.AccommodationTotal;
+            if (!string.IsNullOrWhiteSpace(existingBreakdown.Currency)) _selectedCurrency = existingBreakdown.Currency;
+            if (existingBreakdown.DepositPercentage > 0) _depositPercentage = existingBreakdown.DepositPercentage;
+        }
+        else if (farm != null && farm.GameInventory != null && farm.GameInventory.Count > 0)
+        {
+            foreach (var game in farm.GameInventory)
+            {
+                decimal initialPrice = game.PriceTrophy > 0 ? game.PriceTrophy : (game.PriceMale > 0 ? game.PriceMale : 5000m);
+                int selected = (_activeBooking.BookedSpecies != null && _activeBooking.BookedSpecies.Any(s => string.Equals(s, game.SpeciesName, StringComparison.OrdinalIgnoreCase))) ? 1 : 0;
+                _farmSpeciesPrices.Add(new ConfirmedSpeciesPriceItem
+                {
+                    SpeciesName = game.SpeciesName,
+                    PricePerAnimal = initialPrice,
+                    AvailableCount = game.AvailableCount,
+                    SelectedCount = selected
+                });
+            }
+        }
+        else
+        {
+            // Default farm inventory if farm details not loaded
+            var defaultSpecies = new List<(string Name, decimal Price, int Count)>
+            {
+                ("Koedoe", 8500m, 30),
+                ("Rooibok", 1800m, 100),
+                ("Vlakvark", 1200m, 50),
+                ("Gemsbok", 7500m, 25),
+                ("Blouwildebees", 6000m, 35),
+                ("Sebra", 5500m, 20)
+            };
+            foreach (var (spName, spPrice, spCount) in defaultSpecies)
+            {
+                int selected = (_activeBooking.BookedSpecies != null && _activeBooking.BookedSpecies.Any(s => string.Equals(s, spName, StringComparison.OrdinalIgnoreCase))) ? 1 : 0;
+                _farmSpeciesPrices.Add(new ConfirmedSpeciesPriceItem
+                {
+                    SpeciesName = spName,
+                    PricePerAnimal = spPrice,
+                    AvailableCount = spCount,
+                    SelectedCount = selected
+                });
+            }
+        }
+
+        RecalculatePricing();
+        _showApprovalModal = true;
+    }
+
+    /// <summary>Recomputes the grand total (accommodation + game + PH + VG), deposit amount and outstanding balance from current worksheet state. Called after any pricing input changes via @bind:after.</summary>
+    private void RecalculatePricing()
+    {
+        if (_activeBooking == null) return;
+        _calculatedAccommodation = (_activeBooking.HunterCount * _dailyRateHunter + _activeBooking.ObserverCount * _dailyRateObserver) * _expeditionDays;
+
+        if (_confirmedAccommodationPrice <= 0)
+            _confirmedAccommodationPrice = _calculatedAccommodation;
+
+        _gameTotal = _farmSpeciesPrices.Sum(s => s.SelectedCount > 0 ? s.PricePerAnimal * s.SelectedCount : 0);
+        _grandTotal = _confirmedAccommodationPrice + _gameTotal + _phTotal + _vgTotal;
+        _depositAmount = _grandTotal * (_depositPercentage / 100m);
+        _outstandingBalance = _grandTotal - _depositAmount;
+    }
+
+    /// <summary>When the per-day hunter/observer rate inputs change, recompute the calculated accommodation total and overwrite the (possibly manually-edited) confirmed price with it, then cascade to the grand total.</summary>
+    private void OnDailyRatesChanged()
+    {
+        if (_activeBooking == null) return;
+        _calculatedAccommodation = (_activeBooking.HunterCount * _dailyRateHunter + _activeBooking.ObserverCount * _dailyRateObserver) * _expeditionDays;
+        _confirmedAccommodationPrice = _calculatedAccommodation;
+        RecalculatePricing();
+    }
+
+    private void OnAccommodationChanged()
+    {
+        RecalculatePricing();
+    }
+
+    private void OnGameSelectionChanged()
+    {
+        RecalculatePricing();
+    }
+
+    /// <summary>
+    /// Validates the approval worksheet (PH required; any staff schedule conflict needs
+    /// an override reason + confirmation checkbox), builds a BookingPriceBreakdown
+    /// snapshot of every confirmed figure, JSON-serializes it, and calls
+    /// ApproveBookingWithStaffAsync - which server-side moves the booking to
+    /// "PendingStaffAcceptance" rather than directly to "Approved" (see Bookings_db's
+    /// staff-assignment acceptance workflow) until the assigned PH/VG accept.
+    /// </summary>
+    private async Task ConfirmApproval()
+    {
+        if (_activeBooking == null) return;
+
+        if (_selectedPhUserId <= 0)
+        {
+            _approvalError = "Kies asseblief 'n Professionele Jagter (PH) gids. 'n PH is wetlik verpligtend vir elke ekspedisie.";
+            return;
+        }
+
+        var phConflicts = GetStaffConflicts(_selectedPhUserId, _activeBooking.StartDate, _activeBooking.EndDate, _activeBooking.Id);
+        var vgConflicts = _selectedVgUserId > 0 ? GetStaffConflicts(_selectedVgUserId, _activeBooking.StartDate, _activeBooking.EndDate, _activeBooking.Id) : new List<BookingModel>();
+
+        if ((phConflicts.Any() || vgConflicts.Any()) && (!_confirmScheduleOverride || string.IsNullOrWhiteSpace(_scheduleOverrideReason)))
+        {
+            _approvalError = "Daar is 'n skedule-oorvleueling met die gekose personeel. Vul asseblief die verpligte oorvleuelingsrede in en merk die gemagtigde bevestigingsblokkie.";
+            return;
+        }
+
+        var breakdown = new BookingPriceBreakdown
+        {
+            Days = _expeditionDays,
+            HunterCount = _activeBooking.HunterCount,
+            ObserverCount = _activeBooking.ObserverCount,
+            DailyRateHunter = _dailyRateHunter,
+            DailyRateObserver = _dailyRateObserver,
+            AccommodationTotal = _confirmedAccommodationPrice,
+            ConfirmedSpecies = _farmSpeciesPrices.Where(s => s.PricePerAnimal > 0).ToList(),
+            GameTotal = _gameTotal,
+            PhTotal = _phTotal,
+            VgTotal = _vgTotal,
+            VgPackageId = _selectedVgPackageId,
+            VgPackageTitle = _vgPackageName,
+            GrandTotal = _grandTotal,
+            Currency = _selectedCurrency,
+            DepositPercentage = _depositPercentage,
+            DepositAmount = _depositAmount,
+            OutstandingBalance = _outstandingBalance,
+            ScheduleOverrideReason = (phConflicts.Any() || vgConflicts.Any()) ? _scheduleOverrideReason : null,
+            ConfirmedAt = DateTime.UtcNow
+        };
+        string breakdownJson = System.Text.Json.JsonSerializer.Serialize(breakdown);
+
+        int? vgId = _selectedVgUserId > 0 ? _selectedVgUserId : null;
+        bool ok = await Api.ApproveBookingWithStaffAsync(_activeBooking.Id, _selectedPhUserId, vgId, _grandTotal, _confirmedAccommodationPrice, breakdownJson);
+
+        if (ok)
+        {
+            var phName = _phCandidates.FirstOrDefault(c => c.UserId == _selectedPhUserId)?.Name ?? "PH Gids";
+            var currSymbol = _selectedCurrency == "ZAR" ? "R" : "$";
+            if (_isReassigning)
+            {
+                _notificationMsg = $"Span en kwotasie vir bespreking '{_activeBooking.PackageTitle}' is suksesvol opgedateer na PH ({phName}) teen {currSymbol} {_grandTotal:N2} {_selectedCurrency}.";
+            }
+            else
+            {
+                _notificationMsg = $"Span vir bespreking '{_activeBooking.PackageTitle}' is toegewys (PH: {phName}) teen {currSymbol} {_grandTotal:N2} {_selectedCurrency}. Wag nou vir PH{(vgId.HasValue ? "/VG" : "")} se aanvaarding voordat die bespreking goedgekeur en slot(s) afgetrek word.";
+            }
+            _showApprovalModal = false;
+            await LoadData();
+        }
+        else
+        {
+            _approvalError = "Fout met goedkeuring van bespreking. Probeer asseblief weer.";
+        }
+    }
+
+    private void OpenRejectModal(BookingModel b)
+    {
+        _rejectingBooking = b;
+        _selectedRejectReason = "Plaas is reeds vol bespreek op hierdie datums";
+        _rejectNotes = string.Empty;
+        _rejectError = string.Empty;
+        _showRejectModal = true;
+    }
+
+    /// <summary>Submits the rejection; server-side this also frees any reserved package slots and notifies the hunter (per the modal's own notice text).</summary>
+    private async Task ConfirmRejection()
+    {
+        if (_rejectingBooking == null) return;
+
+        bool ok = await Api.RejectBookingAsync(_rejectingBooking.Id, _selectedRejectReason, _rejectNotes);
+        if (ok)
+        {
+            _notificationMsg = $"Besprekingsversoek vir '{_rejectingBooking.PackageTitle}' is van die hand gewys. Kennisgewing is aan die jagter gestuur en slots is herstel.";
+            _showRejectModal = false;
+            await LoadData();
+        }
+        else
+        {
+            _rejectError = "Kon nie die bespreking van die hand wys nie. Probeer asseblief weer.";
+        }
+    }
+
+    private void OpenVoucherModal(BookingModel b)
+    {
+        _activeBooking = b;
+        _showVoucherModal = true;
+    }
+
+    /// <summary>Triggers the browser print dialog; the page's @@media print CSS block hides everything except #voucherPrintArea so only the voucher itself prints.</summary>
+    private async Task PrintVoucher()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    /// <summary>Navigates to the Messages page pre-filled with the target user, starting (or resuming) a direct chat thread.</summary>
+    private void StartChat(string targetName, int targetUserId)
+    {
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(targetName)}&targetUserId={targetUserId}");
+    }
+
+    private void StartPhChat(BookingModel b)
+    {
+        if (b.AssignedPhUserId.HasValue && b.AssignedPhUserId.Value > 0)
+        {
+            StartChat(b.AssignedPhName ?? "PH Gids", b.AssignedPhUserId.Value);
+        }
+    }
+
+    private void StartVgChat(BookingModel b)
+    {
+        if (b.AssignedVgUserId.HasValue && b.AssignedVgUserId.Value > 0)
+        {
+            StartChat(b.AssignedVgName ?? "Videograaf", b.AssignedVgUserId.Value);
+        }
+    }
+
+    /// <summary>PH dropdown onchange handler: re-fetches that PH's day rate and recalculates the total.</summary>
+    private async Task OnPhSelectedChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int phId))
+        {
+            _selectedPhUserId = phId;
+            await FetchPhRates();
+            RecalculatePricing();
+        }
+    }
+
+    /// <summary>VG dropdown onchange handler: re-fetches that VG's package list and recalculates the total.</summary>
+    private async Task OnVgSelectedChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int vgId))
+        {
+            _selectedVgUserId = vgId;
+            await FetchVgRates();
+            RecalculatePricing();
+        }
+    }
+
+    /// <summary>
+    /// Looks up the selected PH's configured day rate and picks the dangerous-game rate
+    /// over the standard rate when any of the booking's requested species (matched by a
+    /// hardcoded Afrikaans keyword list: leeu/buffel/olifant/renoster/luiperd/seekoei/
+    /// krokodil - the "Big Five" plus hippo/crocodile) is dangerous game. Sets
+    /// _phRatesNotConfigured (surfaced as a warning banner) if the PH hasn't set that
+    /// rate at all yet.
+    /// </summary>
+    private async Task FetchPhRates()
+    {
+        _phTotal = 0m;
+        if (_selectedPhUserId > 0 && _activeBooking != null)
+        {
+            var phRates = await Api.GetPhDailyRatesAsync(_selectedPhUserId);
+            if (phRates != null)
+            {
+                bool hasDangerousGame = _activeBooking.BookedSpecies?.Any(s => s.ToLowerInvariant().Contains("leeu") || s.ToLowerInvariant().Contains("buffel") || s.ToLowerInvariant().Contains("olifant") || s.ToLowerInvariant().Contains("renoster") || s.ToLowerInvariant().Contains("luiperd") || s.ToLowerInvariant().Contains("seekoei") || s.ToLowerInvariant().Contains("krokodil")) ?? false;
+                _phIsDangerousGame = hasDangerousGame;
+                decimal? selectedRate = hasDangerousGame ? phRates.DangerousGameDailyRate : phRates.StandardDailyRate;
+                _phRatesNotConfigured = selectedRate == null;
+                _phTotal = (selectedRate ?? 0m) * _expeditionDays;
+            }
+        }
+    }
+
+    /// <summary>Loads the selected VG's service packages and re-picks a default package selection if the current one no longer belongs to this VG (see ApplySelectedVgPackage).</summary>
+    private async Task FetchVgRates()
+    {
+        _vgPackages = _selectedVgUserId > 0 ? (await Api.GetVgPackagesAsync(_selectedVgUserId) ?? new()) : new();
+
+        // Re-pick a default whenever the current selection no longer belongs to this
+        // VG's package list (new VG chosen, or first load) - otherwise keep whatever
+        // the PJ (or a pre-fill from an existing breakdown) already chose.
+        if (!_vgPackages.Any(p => p.Id == _selectedVgPackageId))
+            _selectedVgPackageId = _vgPackages.FirstOrDefault()?.Id ?? 0;
+
+        ApplySelectedVgPackage();
+    }
+
+    /// <summary>Sets _vgPackageName/_vgTotal from whichever package _selectedVgPackageId currently points to (or clears both if none selected).</summary>
+    private void ApplySelectedVgPackage()
+    {
+        var pkg = _vgPackages.FirstOrDefault(p => p.Id == _selectedVgPackageId);
+        _vgPackageName = pkg?.Title ?? string.Empty;
+        _vgTotal = pkg != null ? pkg.DailyRate * _expeditionDays : 0m; // vgPackages.Price is a per-day rate - VgPackages.razor labels it "R X / dag"
+    }
+
+    private void OnVgPackageSelectedChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int pkgId))
+        {
+            _selectedVgPackageId = pkgId;
+            ApplySelectedVgPackage();
+            RecalculatePricing();
+        }
+    }
+
+    /// <summary>Unsubscribes from Auth/Theme events to avoid leaking this component instance via a stale event handler.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+        Theme.OnThemeChanged -= HandleThemeChanged;
+    }
+}

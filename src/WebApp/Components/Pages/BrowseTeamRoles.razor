@@ -1,0 +1,414 @@
+@* /pj/browse and /browse (same page, two routes) - directory/networking screen with two
+   modes decided purely by the viewer's own role: a PJ (Uitruster/outfitter) browses PH/VG/Boer
+   profiles and can send team invites; a PH/VG/Boer browses PJ profiles to find outfitters to
+   join. One card per person, listing each of their roles that has an active paid listing
+   (IsSubscriptionActive) - an unpaid/lapsed role never appears, whatever the filters. *@
+@page "/pj/soek-span"
+@page "/soek-span"
+@page "/pj/browse"
+@page "/browse"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Netwerk &amp; Spanbou | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die MikPunt Netwerk &amp; Spanbou portaal is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/soek-span" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else
+{
+    var isPj = Auth.HasRole("PJ") || Auth.HasRole("Admin");
+    var isMemberCandidate = Auth.HasRole("PH") || Auth.HasRole("VG") || Auth.HasRole("Boer");
+
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">
+                @(isPj ? "Spanbou & Werwing (LinkedIn-Styl)" : "Soek Uitrusters (PJ) Netwerk")
+            </h1>
+            <p class="text-muted mb-0">
+                @(isPj 
+                    ? "'n Professionele netwerk om PH gidse, videograwe en boere te vind, te gesels en na u span uit te nooi." 
+                    : "Vind geregistreerde Uitrusters (PJ) om mee te gesels en deel te word van georganiseerde ekspedisies.")
+            </p>
+        </div>
+
+        <div class="d-flex gap-2">
+            @if (isPj)
+            {
+                <a href="/pj/span" class="mp-btn mp-btn-secondary mp-btn-sm">My Span &amp; Uitnodigings &rarr;</a>
+            }
+            else
+            {
+                <a href="/uitnodigings" class="mp-btn mp-btn-secondary mp-btn-sm">My Ontvange Uitnodigings &rarr;</a>
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    <!-- Filter Bar -->
+    <div class="mp-card mb-4">
+        <div class="row g-3 align-items-center">
+            @if (isPj)
+            {
+                <div class="col-md-4">
+                    <label class="mp-form-label">Filtreer volgens Rol</label>
+                    <select class="mp-form-control" @bind="_selectedRoleFilter">
+                        <option value="">Alle Rolle (PH, VG &amp; Boere)</option>
+                        <option value="PH">Professionele Jagters (PH)</option>
+                        <option value="VG">Videograwe (VG)</option>
+                        <option value="Boer">Wildsplaas Boere (Boer)</option>
+                    </select>
+                </div>
+            }
+            <div class="@(isPj ? "col-md-8" : "col-md-12")">
+                <label class="mp-form-label">Soek op Naam, Besigheid of Vaardighede</label>
+                <input type="text" class="mp-form-control" placeholder="Soek bv. Johan, Limpopo, Drone, Hendrik..." @bind="_searchQuery" @bind:event="oninput" />
+            </div>
+        </div>
+    </div>
+
+    <!-- Candidate Cards Grid -->
+    @if (_loading)
+    {
+        <div class="text-center p-5 text-muted">
+            <div class="spinner-border text-warning mb-2" role="status"></div>
+            <div>Laai lede vanaf netwerk...</div>
+        </div>
+    }
+    else if (!FilteredPeople.Any())
+    {
+        <div class="mp-card text-center p-5">
+            <h3 class="brand-font text-gold mb-2">Geen lede gevind nie</h3>
+            <p class="text-muted">Probeer om u soekterme of rolfilters aan te pas.</p>
+        </div>
+    }
+    else
+    {
+        <div class="mp-grid">
+            @foreach (var person in FilteredPeople)
+            {
+                var prof = person.Primary;
+                var phListing = person.Roles.FirstOrDefault(r => r.RoleCode == "PH");
+                var isAlreadyInTeam = _existingTeamMemberIds.Contains(prof.UserId);
+                var isPendingInvite = _pendingInvitedUserIds.Contains(prof.UserId);
+
+                <div class="mp-card d-flex flex-column h-100">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <div class="d-flex align-items-center gap-2">
+                                <h3 class="brand-font text-gold mb-0">@prof.Name @prof.Surname</h3>
+                                @if (prof.IsSubscriptionActive)
+                                {
+                                    <span class="badge bg-warning text-dark" title="Maandelikse Advertensie Aktief">⭐ Adverteerder</span>
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(prof.BusinessName))
+                            {
+                                <div class="small text-gold fw-bold">@prof.BusinessName</div>
+                            }
+                        </div>
+                        <div class="d-flex gap-1 flex-wrap justify-content-end">
+                            @foreach (var role in person.Roles)
+                            {
+                                <span class="mp-badge @GetRoleBadgeClass(role.RoleCode ?? "")">@(role.RoleCode ?? role.RoleName)</span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="small text-muted mb-2">
+                        @if (prof.YearsExperience > 0)
+                        {
+                            <span><strong>Ondervinding:</strong> @prof.YearsExperience jaar</span>
+                            <span> &bull; </span>
+                        }
+                        <span><strong>E-pos:</strong> @prof.Email</span>
+                    </div>
+
+                    @if (phListing != null)
+                    {
+                        @if (phListing.StandardDailyRate == null && phListing.DangerousGameDailyRate == null)
+                        {
+                            <div class="p-2 mb-2 rounded border border-secondary text-muted" style="font-size: 12px;">Tariewe nog nie gestel nie</div>
+                        }
+                        else
+                        {
+                            <div class="p-2 mb-2 rounded border border-warning" style="background: rgba(217, 119, 6, 0.08); font-size: 12px;">
+                                <div>🌿 <strong>Standaard (Vlaktewild):</strong> <span class="text-success fw-bold">@(phListing.StandardDailyRate.HasValue ? $"R {phListing.StandardDailyRate.Value:N0} / dag" : "Nie gestel nie")</span></div>
+                                <div>🦁 <strong>Gevaarlike Wild:</strong> <span class="text-gold fw-bold">@(phListing.DangerousGameDailyRate.HasValue ? $"R {phListing.DangerousGameDailyRate.Value:N0} / dag" : "Nie gestel nie")</span></div>
+                            </div>
+                        }
+                    }
+
+                    <p class="text-muted small mb-3 flex-grow-1" style="line-height: 1.4;">
+                        @(string.IsNullOrWhiteSpace(prof.Bio) ? "Geen bio beskikbaar nie. Kontak gerus vir meer inligting en beskikbaarheid." : prof.Bio)
+                    </p>
+
+                    @if (isAlreadyInTeam)
+                    {
+                        <div class="badge bg-success mb-2 py-1">Reeds in U Span &#10003;</div>
+                    }
+                    else if (isPendingInvite)
+                    {
+                        <div class="badge bg-warning text-dark mb-2 py-1">Uitnodiging Hangende &#9203;</div>
+                    }
+
+                    <div class="d-flex gap-2 mt-auto pt-2 border-top border-secondary flex-wrap">
+                        <button class="mp-btn mp-btn-secondary mp-btn-sm flex-grow-1" @onclick="() => StartChat(prof)">
+                            Klets 💬
+                        </button>
+                        <a href="/profiel/@prof.UserId" class="mp-btn mp-btn-secondary mp-btn-sm flex-grow-1">
+                            Sien Profiel 👤
+                        </a>
+                        
+                        @if (isPj && !isAlreadyInTeam && !isPendingInvite)
+                        {
+                            <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="() => OpenInviteModal(person)">
+                                Nooi Uit na Span 🤝
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@if (_showModal && _targetProfile != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.8); z-index: 2000;">
+        <div class="mp-card" style="width: 550px; max-width: 90%;">
+            <h3 class="brand-font text-gold mb-2">Nooi Uit na U Span: @_targetProfile.Name @_targetProfile.Surname</h3>
+            <p class="text-muted small mb-3">
+                Hierdie persoon sal 'n uitnodiging ontvang om by u ekspedisie-span aan te sluit. Nadat hulle aanvaar, kan u hulle toewys aan jagter-besprekings.
+            </p>
+
+            @if (_targetRoles.Count > 1)
+            {
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Nooi uit as</label>
+                    <select class="mp-form-control" @bind="_targetUserRoleId">
+                        @foreach (var role in _targetRoles)
+                        {
+                            <option value="@role.UserRoleId">@(role.RoleName ?? role.RoleCode)</option>
+                        }
+                    </select>
+                </div>
+            }
+            else
+            {
+                <p class="small mb-3">Rol: <strong>@(_targetProfile.RoleName ?? _targetProfile.RoleCode)</strong></p>
+            }
+
+            <div class="mp-form-group">
+                <label class="mp-form-label">Spannaam / Ekspedisie Fokus</label>
+                <input type="text" class="mp-form-control" @bind="_expeditionName" placeholder="bv. MikPunt Elite Trofeejag Span" />
+            </div>
+
+            <div class="mp-form-group">
+                <label class="mp-form-label">Boodskap, Terme of Dagtarief Ooreenkoms</label>
+                <textarea class="mp-form-control" rows="3" @bind="_terms" placeholder="Verduidelik u verwagtinge, beplande seisoen, tariewe en voorwaardes..."></textarea>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showModal = false">Kanselleer</button>
+                <button type="button" class="mp-btn mp-btn-primary" @onclick="SendInvite">Stuur Span-Uitnodiging &rarr;</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<BrowseProfileResponse> _profiles = new();
+
+    /// <summary>One person in the directory with each of their listed roles (the API returns one row per role).</summary>
+    private sealed record PersonCard(BrowseProfileResponse Primary, List<BrowseProfileResponse> Roles);
+
+    private List<BrowseProfileResponse> _targetRoles = new();
+    private int _targetUserRoleId;
+    private HashSet<int> _existingTeamMemberIds = new();
+    private HashSet<int> _pendingInvitedUserIds = new();
+    private string _selectedRoleFilter = string.Empty;
+    private string _searchQuery = string.Empty;
+    private bool _loading = true;
+    private bool _showModal = false;
+    private BrowseProfileResponse? _targetProfile;
+    private string _expeditionName = "MikPunt Jagspan 2026";
+    private string _terms = "Welkom by my span vir komende safari-seisoen ekspedisies.";
+    private string _notificationMsg = string.Empty;
+
+    /// <summary>Subscribes to auth-state changes and loads the directory once authenticated.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        if (Auth.IsAuthenticated)
+        {
+            await LoadData();
+        }
+    }
+
+    /// <summary>Re-loads the directory once auth state resolves after initial render.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated)
+            {
+                await LoadData();
+            }
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Unsubscribes from auth-state changes on teardown.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>
+    /// Loads the candidate pool for the viewer's role (PJ sees PH/VG/Boer; everyone else
+    /// sees PJ), excludes the viewer's own profile, and for a PJ viewer also loads their
+    /// existing team + already-sent invites so the cards can show "already in team"/"invite
+    /// pending" badges instead of a duplicate invite button.
+    /// </summary>
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var isPj = Auth.HasRole("PJ") || Auth.HasRole("Admin");
+            if (Auth.CurrentUser == null) return;
+            var myUserId = Auth.CurrentUser.UserId;
+
+            if (isPj)
+            {
+                _profiles = await Api.BrowseRolesAsync("PH,VG,Boer");
+                // Don't show myself
+                _profiles.RemoveAll(p => p.UserId == myUserId);
+
+                // Load existing team and sent invites
+                var team = await Api.GetPjTeamMembersAsync(myUserId);
+                _existingTeamMemberIds = team.Select(t => t.UserId).ToHashSet();
+
+                var sentInvites = await Api.GetSentInvitesForPjAsync(myUserId);
+                _pendingInvitedUserIds = sentInvites.Where(i => i.Status == "Pending").Select(i => i.TargetUserId).ToHashSet();
+            }
+            else
+            {
+                // PH, VG, or Boer searches for PJ
+                _profiles = await Api.BrowseRolesAsync("PJ");
+                _profiles.RemoveAll(p => p.UserId == myUserId);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static bool IsRole(BrowseProfileResponse p, string filter)
+        => filter == "Boer" ? p.RoleCode is "Boer" or "FARMER" : string.Equals(p.RoleCode, filter, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// People with at least one active paid listing, one card each. The role filter keeps a
+    /// person when any of their listed roles matches; the search looks at name, business,
+    /// bio and every listed role.
+    /// </summary>
+    private IEnumerable<PersonCard> FilteredPeople => _profiles
+        .Where(p => p.IsSubscriptionActive)
+        .GroupBy(p => p.UserId)
+        .Select(g =>
+        {
+            var roles = g.OrderBy(r => r.RoleCode).ToList();
+            var primary = (string.IsNullOrEmpty(_selectedRoleFilter) ? null : roles.FirstOrDefault(r => IsRole(r, _selectedRoleFilter))) ?? roles[0];
+            return new PersonCard(primary, roles);
+        })
+        .Where(card =>
+        {
+            if (!string.IsNullOrEmpty(_selectedRoleFilter) && !card.Roles.Any(r => IsRole(r, _selectedRoleFilter))) return false;
+            if (string.IsNullOrWhiteSpace(_searchQuery)) return true;
+            var q = _searchQuery.Trim();
+            return $"{card.Primary.Name} {card.Primary.Surname}".Contains(q, StringComparison.OrdinalIgnoreCase)
+                || card.Roles.Any(r => (r.BusinessName ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                                    || (r.Bio ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                                    || (r.RoleCode ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
+        });
+
+    private string GetRoleBadgeClass(string roleCode) => roleCode switch
+    {
+        "PH" => "mp-badge-warning",
+        "VG" => "mp-badge-info",
+        "Boer" or "FARMER" => "mp-badge-success",
+        "PJ" => "mp-badge-primary",
+        _ => "mp-badge-secondary"
+    };
+
+    /// <summary>Navigates to Messages pre-targeted at the given profile.</summary>
+    private void StartChat(BrowseProfileResponse prof)
+    {
+        var targetName = $"{prof.Name} {prof.Surname}".Trim();
+        if (!string.IsNullOrWhiteSpace(prof.RoleCode))
+        {
+            targetName += $" ({prof.RoleCode})";
+        }
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(targetName)}&targetUserId={prof.UserId}");
+    }
+
+    /// <summary>Opens the invite modal for a person; with several listed roles the PJ chooses which one to invite.</summary>
+    private void OpenInviteModal(PersonCard person)
+    {
+        _targetRoles = person.Roles;
+        _targetProfile = person.Primary;
+        _targetUserRoleId = person.Primary.UserRoleId;
+        _showModal = true;
+    }
+
+    /// <summary>Sends the team invite for the modal's target profile and optimistically marks them "pending" locally on success.</summary>
+    private async Task SendInvite()
+    {
+        if (_targetProfile == null || Auth.CurrentUser == null) return;
+        var myUserId = Auth.CurrentUser.UserId;
+        _targetProfile = _targetRoles.FirstOrDefault(r => r.UserRoleId == _targetUserRoleId) ?? _targetProfile;
+
+        bool ok = await Api.SendTeamInviteAsync(
+            pjUserId: myUserId,
+            targetUserId: _targetProfile.UserId,
+            memberUserRoleId: _targetProfile.UserRoleId,
+            expeditionName: _expeditionName,
+            terms: _terms,
+            targetUserName: $"{_targetProfile.Name} {_targetProfile.Surname}".Trim(),
+            targetRoleCode: _targetProfile.RoleCode
+        );
+
+        if (ok)
+        {
+            _notificationMsg = $"Span-uitnodiging is suksesvol gestuur na {_targetProfile.Name} {_targetProfile.Surname}!";
+            _pendingInvitedUserIds.Add(_targetProfile.UserId);
+        }
+        else
+        {
+            _notificationMsg = "Uitnodiging kon nie gestuur word nie. Probeer asseblief weer.";
+        }
+
+        _showModal = false;
+    }
+}
+

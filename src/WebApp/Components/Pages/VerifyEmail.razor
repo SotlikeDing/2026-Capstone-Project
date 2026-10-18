@@ -1,0 +1,147 @@
+@* Post-registration email-OTP verification page (route: /verify-email). Email is taken
+   from the ?Email= query param if present, else from the currently signed-in user;
+   otherwise falls back to a placeholder string shown until one of those resolves. On
+   success, redirects to /login?verified=true after a short delay. *@
+@page "/bevestig-epos"
+@page "/verify-email"
+@inject NavigationManager Nav
+@inject AuthService Auth
+@inject MikpuntApiService Api
+
+<PageTitle>E-pos Verifikasie | MikPunt</PageTitle>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-7 col-lg-6 text-center">
+            <div class="mp-card p-4 p-md-5 shadow-lg rounded-4 border-0">
+                <div class="mb-3">
+                    <span class="badge bg-gold text-dark p-3 rounded-circle fs-3 shadow-sm">
+                        <i class="bi bi-envelope-check"></i>
+                    </span>
+                </div>
+                <h2 class="brand-font text-gold mb-2 fw-bold">E-posadres Verifikasie</h2>
+                
+                <p class="text-muted small mb-4">
+                    Ons het 'n 6-syfer verifikasiekode gestuur na <strong class="text-light">@_email</strong>. Voer die kode onder in om jou rekening te aktiveer.
+                </p>
+
+                @if (!string.IsNullOrEmpty(_message))
+                {
+                    <div class="alert @_messageClass alert-dismissible fade show mb-4" role="alert">
+                        @_message
+                    </div>
+                }
+
+                <div class="mb-4">
+                    <label class="form-label text-light small fw-bold mb-2">Voer 6-Syfer Kodes In</label>
+                    <input type="text" class="form-control form-control-lg bg-dark text-white border-warning text-center font-monospace fs-3 tracking-widest mx-auto" 
+                           style="max-width: 260px; letter-spacing: 8px; color: #ffffff !important; caret-color: #ffffff;"
+                           maxlength="6"
+                           placeholder="123456"
+                           @bind="_otpCode" />
+                </div>
+
+                <button type="button" class="mp-btn mp-btn-primary w-100 py-2 fs-5 fw-bold mb-3" @onclick="VerifyOtp" disabled="@_isVerifying">
+                    @if (_isVerifying)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Besig om te verifieer...</span>
+                    }
+                    else
+                    {
+                        <span>Verifieer Kode &amp; Teken In</span>
+                    }
+                </button>
+
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top border-secondary">
+                    <button type="button" class="btn btn-link text-gold p-0 text-decoration-none small" @onclick="ResendOtp" disabled="@_resendCooldown">
+                        <i class="bi bi-arrow-clockwise me-1"></i>
+                        @if (_resendCooldown)
+                        {
+                            <span>Herstuur kode oorblywend...</span>
+                        }
+                        else
+                        {
+                            <span>Herstuur Verifikasiekode</span>
+                        }
+                    </button>
+
+                    <a href="/teken-in" class="text-muted small text-decoration-none">Terug na In Teken</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? Email { get; set; }
+
+    private string _email = "jou-epos@voorbeeld.co.za";
+    private string _otpCode = string.Empty;
+    private string _message = "Status: E-pos suksesvol gestuur! Kontroleer jou inboks of spam-lêer.";
+    private string _messageClass = "alert-success border-success";
+    private bool _isVerifying = false;
+    private bool _resendCooldown = false;
+
+    /// <summary>Resolves which email to verify: query-string param first, then the signed-in user, else the placeholder stays.</summary>
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrWhiteSpace(Email))
+        {
+            _email = Email;
+        }
+        else if (Auth.CurrentUser != null && !string.IsNullOrEmpty(Auth.CurrentUser.Email))
+        {
+            _email = Auth.CurrentUser.Email;
+        }
+    }
+
+    /// <summary>Submits the 6-digit code; on success also patches the locally-cached Auth.CurrentUser.IsVerified so the UI reflects verification immediately without waiting for a fresh /me fetch, then redirects to login.</summary>
+    private async Task VerifyOtp()
+    {
+        if (string.IsNullOrWhiteSpace(_otpCode) || _otpCode.Length < 6)
+        {
+            _message = "Voer asseblief 'n geldige 6-syfer kode in.";
+            _messageClass = "alert-danger";
+            return;
+        }
+
+        _isVerifying = true;
+        
+        var (success, apiMsg) = await Api.VerifyEmailOtpAsync(_email, _otpCode);
+        if (success)
+        {
+            if (Auth.CurrentUser != null)
+            {
+                Auth.CurrentUser.IsVerified = true;
+            }
+
+            _message = "Jou e-posadres is suksesvol geverifieer! Jy word nou aangestuur...";
+            _messageClass = "alert-success";
+            
+            await Task.Delay(1200);
+            Nav.NavigateTo("/teken-in?verified=true");
+        }
+        else
+        {
+            _message = apiMsg;
+            _messageClass = "alert-danger";
+        }
+
+        _isVerifying = false;
+    }
+
+    /// <summary>Requests a new OTP and enforces a client-side 5-second cooldown on the resend button (purely a UX debounce - the server has its own independent rate limiting).</summary>
+    private async Task ResendOtp()
+    {
+        _resendCooldown = true;
+        var (success, apiMsg) = await Api.ResendVerificationEmailAsync(_email);
+
+        _message = apiMsg;
+        _messageClass = success ? "alert-info" : "alert-danger";
+
+        await Task.Delay(5000);
+        _resendCooldown = false;
+    }
+}

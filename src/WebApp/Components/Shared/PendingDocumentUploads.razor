@@ -1,0 +1,116 @@
+@* Used by UserProfile.razor when a user is adding a new role: collects the role's
+   required documents as in-memory pending uploads (base64 data URLs, same 5MB/PDF-PNG-JPEG
+   limits as DocumentManager) BEFORE the role/userRole row even exists server-side, since
+   there's no userRoleId yet to attach real uploads to. The parent reads PendingFiles /
+   AllRequiredAttached to decide whether role creation can proceed, then presumably submits
+   the collected files itself once the new userRoleId comes back from the server. *@
+@inject MikpuntApiService Api
+
+<div class="mp-card p-3 mb-3" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color);">
+    <h5 class="brand-font text-gold mb-1" style="font-size: 16px;">Verpligte Dokumente</h5>
+    <p class="small text-muted mb-3">
+        Laai die volgende dokumente op om hierdie rol te aktiveer (PDF, PNG of JPEG, maksimum 5MB elk).
+        Sodra die rol geaktiveer is, kan hierdie dokumente enige tyd op u dashboard vervang word.
+    </p>
+
+    @if (_loading)
+    {
+        <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span> Laai vereistes...</div>
+    }
+    else
+    {
+        @foreach (var req in _requirements.Where(r => r.IsRequired))
+        {
+            var hasFile = PendingFiles.ContainsKey(req.DocumentTypeId);
+            <div class="mb-2">
+                <label class="small text-muted mb-1 d-block">
+                    @req.DocumentTypeName <span class="text-danger">*</span>
+                    @if (hasFile)
+                    {
+                        <span class="text-success ms-2" style="font-size: 11px;">&#10003; @PendingFiles[req.DocumentTypeId].FileName</span>
+                    }
+                </label>
+                <InputFile OnChange="e => HandleFileSelected(e, req.DocumentTypeId)" accept=".pdf,.png,.jpg,.jpeg" class="form-control form-control-sm" />
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="text-danger small mt-1">@_error</div>
+        }
+        @if (ShowMissingError && !AllRequiredAttached)
+        {
+            <div class="text-danger small mt-1">Alle dokumente gemerk met * is verpligtend om hierdie rol te aktiveer.</div>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Role code whose required-document list to load and collect uploads for.</summary>
+    [Parameter, EditorRequired] public string RoleCode { get; set; } = string.Empty;
+    /// <summary>Set by the parent to reveal the "missing required documents" validation message, typically after a failed submit attempt.</summary>
+    [Parameter] public bool ShowMissingError { get; set; }
+
+    /// <summary>Files staged in-memory (not yet uploaded to the server) keyed by document type id, for the parent to read and submit once the role/userRole exists.</summary>
+    public Dictionary<int, (string FileName, string DataUrl)> PendingFiles { get; } = new();
+    /// <summary>The role's document requirements, exposed so the parent can enumerate them (e.g. to show which are still missing).</summary>
+    public List<DocumentRequirementModel> Requirements => _requirements;
+    /// <summary>True once every required document type has a staged file - the parent's submit gate.</summary>
+    public bool AllRequiredAttached => _requirements.Where(r => r.IsRequired).All(r => PendingFiles.ContainsKey(r.DocumentTypeId));
+
+    private List<DocumentRequirementModel> _requirements = new();
+    private bool _loading = true;
+    private string? _error;
+    private string? _loadedForRole;
+
+    private const long MaxFileSizeBytes = 5 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf", "image/png", "image/jpeg"
+    };
+
+    /// <summary>Reloads requirements (and clears any staged files) only when RoleCode actually changes - _loadedForRole guards against redundant reloads on every re-render.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(RoleCode) && _loadedForRole != RoleCode)
+        {
+            _loadedForRole = RoleCode;
+            _loading = true;
+            PendingFiles.Clear();
+            _requirements = await Api.GetDocumentRequirementsAsync(RoleCode);
+            _loading = false;
+        }
+    }
+
+    /// <summary>Validates and base64-encodes the selected file into PendingFiles - stays in-memory only, nothing is sent to the server from here.</summary>
+    private async Task HandleFileSelected(InputFileChangeEventArgs e, int documentTypeId)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        if (file.Size > MaxFileSizeBytes)
+        {
+            _error = $"'{file.Name}' is te groot. Maksimum lêergrootte is 5MB.";
+            return;
+        }
+        if (!AllowedMimeTypes.Contains(file.ContentType))
+        {
+            _error = "Slegs PDF-, PNG- of JPEG-lêers word aanvaar.";
+            return;
+        }
+
+        try
+        {
+            using var stream = file.OpenReadStream(MaxFileSizeBytes);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            string base64 = Convert.ToBase64String(ms.ToArray());
+            PendingFiles[documentTypeId] = (file.Name, $"data:{file.ContentType};base64,{base64}");
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Kon nie lêer verwerk nie: {ex.Message}";
+        }
+    }
+}

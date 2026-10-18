@@ -1,0 +1,188 @@
+stages:
+  - test
+  - build
+  - push
+  - deploy
+  - verify
+
+variables:
+  CI_REGISTRY_IMAGE: $CI_REGISTRY/$CI_PROJECT_PATH
+  # Where the deploy lands, through the proxy like every user (the containers refuse direct IP:port
+  # requests). The runner maps these names to the proxy (extra_hosts in its config.toml).
+  E2E_WEB_URL: "http://webapi.mikpunt.ddns.net"
+  E2E_MOBILE_URL: "http://mobileapi.mikpunt.ddns.net"
+  E2E_APP_URL: "http://webapp.mikpunt.ddns.net"
+#
+# ---------------------------------------------------------------- test
+# Every push and merge request: build the website and run the WebAPI + MobileAPI unit tests
+# (the *IntegrationTests classes need a local SQL Server and run on developer machines).
+# A red test stops the pipeline before anything is built or deployed.
+unit-tests:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  variables:
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    DOTNET_NOLOGO: "1"
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget"
+  cache:
+    key: nuget-packages
+    paths:
+      - .nuget/
+  script:
+    - mkdir -p test-results
+    - dotnet build src/WebApp/WebApp.csproj -c Release
+    - >
+      dotnet test src/WebAPI.Tests/WebAPI.Tests.csproj -c Release
+      --filter "FullyQualifiedName!~IntegrationTests"
+      --logger "junit;LogFilePath=$CI_PROJECT_DIR/test-results/webapi.xml"
+      --collect:"XPlat Code Coverage" --results-directory coverage/webapi
+    - >
+      dotnet test src/MobileAPI/MobileAPI.Tests/MobileAPI.Tests.csproj -c Release
+      --filter "FullyQualifiedName!~IntegrationTests"
+      --logger "junit;LogFilePath=$CI_PROJECT_DIR/test-results/mobileapi.xml"
+      --collect:"XPlat Code Coverage" --results-directory coverage/mobileapi
+    # One line-coverage figure over both APIs, for the pipeline badge and the MR widget.
+    - >
+      cat coverage/*/*/coverage.cobertura.xml | grep -o '<coverage [^>]*' |
+      sed -E 's/.*lines-covered="([0-9]+)".*lines-valid="([0-9]+)".*/\1 \2/' |
+      awk '{c+=$1; v+=$2} END {printf "Line coverage (WebAPI + MobileAPI): %.1f%%\n", (v ? 100*c/v : 0)}'
+  coverage: '/Line coverage \(WebAPI \+ MobileAPI\): \d+(?:\.\d+)?%/'
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - test-results/
+    reports:
+      junit: test-results/*.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/*/*/coverage.cobertura.xml
+  rules:
+    - when: never
+
+# The Flutter app's own tests, only when the app changed (the Flutter image is large).
+flutter-tests:
+  stage: test
+  image: ghcr.io/cirruslabs/flutter:stable
+  script:
+    - echo "Toets weer"
+    - cd src/jagbestuur_app
+    - flutter pub get
+    - flutter test --reporter expanded
+  rules:
+    - when: never
+
+# Build WebAPI
+build-webapi:
+  stage: build
+  image: docker:24.0.5
+  script:
+    - echo "Building WebAPI "
+    - docker build -t webapi:latest -f src/WebAPI/Dockerfile.dockerfile .
+    - docker tag webapi:latest $CI_REGISTRY_IMAGE/webapi:$CI_COMMIT_SHORT_SHA
+    - docker tag webapi:latest $CI_REGISTRY_IMAGE/webapi:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main_dev"
+
+# Build MobileApi
+build-mobileapi:
+  stage: build
+  image: docker:24.0.5
+  script:
+    - echo "Building MobileApi "
+    - docker build -t mobileapi:latest -f src/MobileAPI/Dockerfile.dockerfile .
+    - docker tag mobileapi:latest $CI_REGISTRY_IMAGE/mobileapi:$CI_COMMIT_SHORT_SHA
+    - docker tag mobileapi:latest $CI_REGISTRY_IMAGE/mobileapi:latest   
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main_dev"
+
+# Build WebApp
+build-webapp:
+  stage: build
+  image: docker:24.0.5
+  script:
+    - echo "Building WebApp..."
+    - docker build -t webapp:latest -f src/WebApp/Dockerfile.dockerfile .
+    - docker tag webapp:latest $CI_REGISTRY_IMAGE/webapp:$CI_COMMIT_SHORT_SHA
+    - docker tag webapp:latest $CI_REGISTRY_IMAGE/webapp:latest    
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main_dev"
+
+push:
+  stage: push
+  image: docker:24.0.5
+  script:
+    - docker login gitlab.akademia.ac.za:5050 -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD
+    - docker push $CI_REGISTRY_IMAGE/webapi:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/webapi:latest
+    - docker push $CI_REGISTRY_IMAGE/mobileapi:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/mobileapi:latest
+    - docker push $CI_REGISTRY_IMAGE/webapp:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/webapp:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main_dev"
+
+
+deploy:
+  stage: deploy
+  image: docker:24.0.5
+  script:
+    - echo "Deploying to VM"
+    - cd /opt/project
+    - docker compose -f docker-compose.prod.yml up -d --pull never
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main_dev"
+
+# ---------------------------------------------------------------- verify
+# After every deploy: is the new release up, secured and serving data? Red = look now.
+# Optional CI/CD variables E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD (masked) add the admin checks.
+smoke-test:
+  stage: verify
+  image: python:3.12-slim
+  script:
+    - pip install --quiet --disable-pip-version-check requests
+    - cd tests/e2e
+    - python smoke.py
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - tests/e2e/out/
+  rules:
+    - when: never
+
+# The full end-to-end regression (~1000 checks over every role, API and page) against staging.
+# Runs from a pipeline schedule (CI/CD > Schedules, e.g. nightly on main_dev) and needs the masked
+# variables E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_SQL_SERVER, E2E_SQL_USER, E2E_SQL_PASSWORD.
+e2e-full:
+  stage: verify
+  image: mcr.microsoft.com/playwright/python:v1.47.0-jammy
+  variables:
+    E2E_BROWSER_CHANNEL: ""          # the image's bundled Chromium
+  timeout: 1h
+  script:
+    - pip install --quiet --disable-pip-version-check requests pymssql playwright==1.47.0
+    - cd tests/e2e
+    - python run_all.py --ui
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - tests/e2e/out/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"

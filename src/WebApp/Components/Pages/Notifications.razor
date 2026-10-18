@@ -1,0 +1,271 @@
+@* /notifications and /kennisgewings - Full notification center for authenticated users
+   listing in-app system notifications, chats, invites, and activity alerts. *@
+@page "/notifications"
+@page "/kennisgewings"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Kennisgewingsentrum | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/kennisgewings" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Kennisgewingsentrum</h1>
+            <p class="text-muted mb-0">Bestuur u in-app kennisgewings, aktiwiteitswaarskuwings en stelselboodskappe.</p>
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap">
+            @if (_notifications.Any(n => !n.IsRead))
+            {
+                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="MarkAllAsRead">
+                    <i class="bi bi-check2-all me-1"></i> Merk Alles as Gelees
+                </button>
+            }
+            <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="LoadDataAsync">
+                <i class="bi bi-arrow-clockwise me-1"></i> Herlaai
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Badges Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="mp-card text-center p-3">
+                <div class="text-muted small">Ongelees</div>
+                <div class="fs-3 fw-bold @(_unreadCount > 0 ? "text-warning" : "text-white")">@_unreadCount</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <a href="/boodskappe" class="mp-card text-center p-3 text-decoration-none d-block">
+                <div class="text-muted small">Kletsboodskappe</div>
+                <div class="fs-3 fw-bold text-gold">@_summary.unreadChats</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3">
+            <a href="/uitnodigings" class="mp-card text-center p-3 text-decoration-none d-block">
+                <div class="text-muted small">Spanuitnodigings</div>
+                <div class="fs-3 fw-bold text-gold">@_summary.pendingInvites</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card text-center p-3">
+                <div class="text-muted small">Totaal Ontvang</div>
+                <div class="fs-3 fw-bold text-white">@_notifications.Count</div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_statusMsg))
+    {
+        <div class="alert alert-success alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center">
+            <div><i class="bi bi-info-circle me-2"></i>@_statusMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _statusMsg = null'></button>
+        </div>
+    }
+
+    <!-- Filter Bar -->
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div class="d-flex gap-2">
+            <button type="button" class="mp-btn mp-btn-sm @(_filter == "all" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _filter = "all"'>
+                Alle (@_notifications.Count)
+            </button>
+            <button type="button" class="mp-btn mp-btn-sm @(_filter == "unread" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _filter = "unread"'>
+                Ongelees (@_unreadCount)
+            </button>
+            <button type="button" class="mp-btn mp-btn-sm @(_filter == "read" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _filter = "read"'>
+                Gelees (@(_notifications.Count - _unreadCount))
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification List -->
+    @if (_loading)
+    {
+        <div class="mp-card text-center p-5 text-muted">
+            <div class="spinner-border text-gold spinner-border-sm me-2"></div> Laai kennisgewings...
+        </div>
+    }
+    else if (FilteredNotifications.Count == 0)
+    {
+        <div class="mp-card text-center p-5 text-muted">
+            <i class="bi bi-bell-slash fs-1 text-gold mb-3 d-block"></i>
+            <h4 class="text-white mb-2">Geen kennisgewings gevind nie</h4>
+            <p class="small text-muted mb-0">
+                @(_filter == "unread" ? "U het geen ongeleesde kennisgewings nie." : "U het tans geen kennisgewings in hierdie oorsig nie.")
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex flex-column gap-2 mb-5">
+            @foreach (var notif in FilteredNotifications)
+            {
+                <div class="mp-card p-3 @(!notif.IsRead ? "border-gold" : "")" style="background: @(!notif.IsRead ? "rgba(218, 165, 32, 0.08)" : "var(--card-bg)"); transition: all 0.2s ease;">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div class="d-flex align-items-start gap-3 flex-grow-1">
+                            <div class="rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; background: rgba(255,255,255,0.05); color: var(--accent-gold); font-size: 18px;">
+                                @GetNotificationIcon(notif.NotificationType)
+                            </div>
+                            <div>
+                                <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                    <h5 class="mb-0 fs-6 fw-bold @(!notif.IsRead ? "text-gold" : "text-white")">@notif.Title</h5>
+                                    @if (!notif.IsRead)
+                                    {
+                                        <span class="badge bg-warning text-dark" style="font-size: 10px;">Nuut</span>
+                                    }
+                                    <span class="text-muted small" style="font-size: 11px;">
+                                        &bull; @notif.CreatedTimestamp.ToString("yyyy-MM-dd HH:mm")
+                                    </span>
+                                </div>
+                                <p class="mb-2 text-white-50 small">@notif.Message</p>
+
+                                @if (!string.IsNullOrWhiteSpace(notif.ActionUrl) && notif.ActionUrl != "/notifications" && notif.ActionUrl != "/kennisgewings")
+                                {
+                                    <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm py-1 px-2" @onclick="() => NavigateToAction(notif)">
+                                        Gaan na skakel &rarr;
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-2">
+                            @if (!notif.IsRead)
+                            {
+                                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm py-1 px-2" title="Merk as gelees" @onclick="() => MarkAsRead(notif)">
+                                    <i class="bi bi-check2 me-1"></i> Merk Gelees
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="text-muted small"><i class="bi bi-check2-all text-success me-1"></i>Gelees</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<UserNotificationDto> _notifications = new();
+    private (int unreadChats, int pendingInvites, int pendingBookings, int systemNotifications, int total) _summary;
+    private bool _loading = true;
+    private string _filter = "all";
+    private string? _statusMsg;
+
+    private int _unreadCount => _notifications.Count(n => !n.IsRead);
+
+    private List<UserNotificationDto> FilteredNotifications => _filter switch
+    {
+        "unread" => _notifications.Where(n => !n.IsRead).ToList(),
+        "read" => _notifications.Where(n => n.IsRead).ToList(),
+        _ => _notifications
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && Auth.CurrentUser != null)
+        {
+            _loading = true;
+            try
+            {
+                var isPj = Auth.HasRole("PJ");
+                _summary = await Api.GetNotificationSummaryAsync(Auth.CurrentUser.UserId, isPj);
+                _notifications = await Api.GetUserNotificationsAsync(Auth.CurrentUser.UserId, 1);
+            }
+            finally
+            {
+                _loading = false;
+            }
+        }
+        else
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task MarkAsRead(UserNotificationDto notif)
+    {
+        if (notif.IsRead) return;
+        bool ok = await Api.MarkNotificationAsReadAsync(notif.NotificationId);
+        if (ok)
+        {
+            notif.IsRead = true;
+            Api.NotifyNotificationsChanged();
+        }
+    }
+
+    private async Task MarkAllAsRead()
+    {
+        var unread = _notifications.Where(n => !n.IsRead).ToList();
+        int count = 0;
+        foreach (var n in unread)
+        {
+            if (await Api.MarkNotificationAsReadAsync(n.NotificationId))
+            {
+                n.IsRead = true;
+                count++;
+            }
+        }
+        if (count > 0)
+        {
+            _statusMsg = $"{count} kennisgewing(s) gemerk as gelees.";
+            Api.NotifyNotificationsChanged();
+        }
+    }
+
+    private async Task NavigateToAction(UserNotificationDto notif)
+    {
+        await MarkAsRead(notif);
+        if (!string.IsNullOrWhiteSpace(notif.ActionUrl) && notif.ActionUrl != "/notifications" && notif.ActionUrl != "/kennisgewings")
+        {
+            Nav.NavigateTo(notif.ActionUrl);
+        }
+    }
+
+    private string GetNotificationIcon(string? type) => (type?.ToLowerInvariant()) switch
+    {
+        "chat" or "klets" => "💬",
+        "teaminvite" or "invite" or "uitnodiging" => "🤝",
+        "booking" or "bespreking" => "📅",
+        "permit" or "permitte" or "saps520" => "🎯",
+        "admin" or "dokument" => "🛡️",
+        _ => "🔔"
+    };
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

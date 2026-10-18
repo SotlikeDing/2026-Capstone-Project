@@ -1,0 +1,2394 @@
+{
+  "schemaVersion": 1,
+  "catalogueType": "rowland_ward_mobileapi_measurement_methods",
+  "status": "APPROVED",
+  "sourceVersionId": "rw_31_africa_winter_2026_2027",
+  "scoreAuthority": "printed_us_standard",
+  "dryingPeriodEnforced": false,
+  "claimsOfficialCertification": false,
+  "methods": [
+    {
+      "code": "12-a",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Cape, Central African, Nile Buffalo",
+      "measurementProfiles": [
+        {
+          "id": "12a_buffalo",
+          "fields": [
+            {
+              "id": "boss_width_left",
+              "labelAf": "Skildbreedte (links)",
+              "sourceSymbol": "W",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "boss_width_right",
+              "labelAf": "Skildbreedte (regs)",
+              "sourceSymbol": "W",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "greatest_spread",
+              "labelAf": "Grootste span",
+              "sourceSymbol": "G",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "sum",
+            "fields": [
+              "boss_width_left",
+              "boss_width_right",
+              "greatest_spread"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "sum",
+            "fields": [
+              "boss_width_left",
+              "boss_width_right",
+              "greatest_spread"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "sum",
+            "fields": [
+              "boss_width_left",
+              "boss_width_right",
+              "greatest_spread"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-12-a-Cape.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-12-a-Cape.pdf",
+            "sha256": "cfeaee2f9d66aa39cca610e3e35c219a707aa6d2f158560daec046dbf23e9086",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "13-a",
+      "runtimeStatus": "READY",
+      "sourceTitle": "All Wildebeests or Gnus except Black Wildebeest",
+      "measurementProfiles": [
+        {
+          "id": "13a_wildebeest",
+          "fields": [
+            {
+              "id": "base_circumference_left",
+              "labelAf": "Basisomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_right",
+              "labelAf": "Basisomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "greatest_spread",
+              "labelAf": "Grootste buitespan",
+              "sourceSymbol": "G",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "identity",
+            "fields": [
+              "greatest_spread"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "identity",
+            "fields": [
+              "greatest_spread"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "identity",
+            "fields": [
+              "greatest_spread"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": false
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-13-a-wildb.pdf",
+        "sourceStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+        "sourceReviewIssueIds": [
+          "METHOD_13A_CLASSIFICATION_CONFLICT"
+        ],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-13-a-wildb.pdf",
+            "sha256": "ea4d714ae1a355be2bcd558d48f4fdcec58981fdfc4f7fb9acd6218813c2dc1c",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "13-b",
+      "runtimeStatus": "READY",
+      "sourceTitle": "White-tailed Gnu or Black Wildebeest",
+      "measurementProfiles": [
+        {
+          "id": "13b_black_wildebeest",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "boss_width_left",
+              "labelAf": "Skildbreedte (links)",
+              "sourceSymbol": "W",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "boss_width_right",
+              "labelAf": "Skildbreedte (regs)",
+              "sourceSymbol": "W",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-13-b-WT-gnu.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-13-b-WT-gnu.pdf",
+            "sha256": "d6ba651e0cbef58b1adc67f739f2f454f627934071c72e389ba021a29c0dccf2",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "16",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Rhinos",
+      "measurementProfiles": [
+        {
+          "id": "16_rhino",
+          "fields": [
+            {
+              "id": "front_horn_length",
+              "labelAf": "Voorste horinglengte",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "rear_horn_length",
+              "labelAf": "Agterste horinglengte",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "front_horn_circumference",
+              "labelAf": "Voorste horingomtrek",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "rear_horn_circumference",
+              "labelAf": "Agterste horingomtrek",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "front_horn_length",
+              "rear_horn_length"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "front_horn_length",
+              "rear_horn_length"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "front_horn_length",
+              "rear_horn_length"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-16-rhino.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-16-rhino.pdf",
+            "sha256": "4a0a742486f4623082b2066138510569574d9c4f34f58997c1aded3a26a7f796",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "17",
+      "runtimeStatus": "READY",
+      "sourceTitle": "African and Asian Elephants and Mammoths",
+      "measurementProfiles": [
+        {
+          "id": "17_one_tusk",
+          "fields": [
+            {
+              "id": "tusk_weight_left",
+              "labelAf": "Slagtandgewig (links)",
+              "sourceSymbol": "A/B",
+              "kind": "rational",
+              "unitCode": "pound",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "roundingMode": "nearest_half_up",
+              "sourceAlternative": {
+                "unitCode": "kilogram",
+                "increment": {
+                  "numerator": 1,
+                  "denominator": 2
+                },
+                "roundingMode": "nearest_half_up",
+                "conversionIntoCanonicalPoundScore": null,
+                "status": "SOURCE_DATA_REVIEW_REQUIRED",
+                "note": "Do not invent a kg-to-rounded-lb scoring pipeline from the rounded gram equivalence on the form."
+              },
+              "applicationInput": {
+                "unitCode": "kilogram",
+                "visibleUnitLabel": "kg",
+                "treatEnteredDecimalAsExact": true,
+                "conversionToCanonicalPounds": "kilogramsExact * 100000000 / 45359237",
+                "scoringRoundingMode": "round_half_up",
+                "scoringIncrement": {
+                  "numerator": 1,
+                  "denominator": 1
+                }
+              }
+            },
+            {
+              "id": "tusk_weight_right",
+              "labelAf": "Slagtandgewig (regs)",
+              "sourceSymbol": "A/B",
+              "kind": "rational",
+              "unitCode": "pound",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "roundingMode": "nearest_half_up",
+              "sourceAlternative": {
+                "unitCode": "kilogram",
+                "increment": {
+                  "numerator": 1,
+                  "denominator": 2
+                },
+                "roundingMode": "nearest_half_up",
+                "conversionIntoCanonicalPoundScore": null,
+                "status": "SOURCE_DATA_REVIEW_REQUIRED",
+                "note": "Do not invent a kg-to-rounded-lb scoring pipeline from the rounded gram equivalence on the form."
+              },
+              "applicationInput": {
+                "unitCode": "kilogram",
+                "visibleUnitLabel": "kg",
+                "treatEnteredDecimalAsExact": true,
+                "conversionToCanonicalPounds": "kilogramsExact * 100000000 / 45359237",
+                "scoringRoundingMode": "round_half_up",
+                "scoringIncrement": {
+                  "numerator": 1,
+                  "denominator": 1
+                }
+              }
+            },
+            {
+              "id": "tusk_length_left",
+              "labelAf": "Slagtandlengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": null,
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "precisionStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+              "sourcePrecisionAlternatives": [
+                {
+                  "page": 1,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 8
+                  }
+                },
+                {
+                  "page": 2,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 4
+                  }
+                }
+              ]
+            },
+            {
+              "id": "tusk_length_right",
+              "labelAf": "Slagtandlengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": null,
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "precisionStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+              "sourcePrecisionAlternatives": [
+                {
+                  "page": 1,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 8
+                  }
+                },
+                {
+                  "page": 2,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 4
+                  }
+                }
+              ]
+            },
+            {
+              "id": "tusk_circumference_left",
+              "labelAf": "Slagtandomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tusk_circumference_right",
+              "labelAf": "Slagtandomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_weight_left",
+              "tusk_weight_right"
+            ]
+          },
+          "scoreUnitCode": "pound",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_weight_left",
+              "tusk_weight_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_weight_left",
+              "tusk_weight_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": [
+            "Class score/comparison is the heavier individual tusk. The form also records pair total A+B."
+          ]
+        },
+        {
+          "id": "17_both_tusks",
+          "fields": [
+            {
+              "id": "tusk_weight_left",
+              "labelAf": "Slagtandgewig (links)",
+              "sourceSymbol": "A/B",
+              "kind": "rational",
+              "unitCode": "pound",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "roundingMode": "nearest_half_up",
+              "sourceAlternative": {
+                "unitCode": "kilogram",
+                "increment": {
+                  "numerator": 1,
+                  "denominator": 2
+                },
+                "roundingMode": "nearest_half_up",
+                "conversionIntoCanonicalPoundScore": null,
+                "status": "SOURCE_DATA_REVIEW_REQUIRED",
+                "note": "Do not invent a kg-to-rounded-lb scoring pipeline from the rounded gram equivalence on the form."
+              },
+              "applicationInput": {
+                "unitCode": "kilogram",
+                "visibleUnitLabel": "kg",
+                "treatEnteredDecimalAsExact": true,
+                "conversionToCanonicalPounds": "kilogramsExact * 100000000 / 45359237",
+                "scoringRoundingMode": "round_half_up",
+                "scoringIncrement": {
+                  "numerator": 1,
+                  "denominator": 1
+                }
+              }
+            },
+            {
+              "id": "tusk_weight_right",
+              "labelAf": "Slagtandgewig (regs)",
+              "sourceSymbol": "A/B",
+              "kind": "rational",
+              "unitCode": "pound",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "roundingMode": "nearest_half_up",
+              "sourceAlternative": {
+                "unitCode": "kilogram",
+                "increment": {
+                  "numerator": 1,
+                  "denominator": 2
+                },
+                "roundingMode": "nearest_half_up",
+                "conversionIntoCanonicalPoundScore": null,
+                "status": "SOURCE_DATA_REVIEW_REQUIRED",
+                "note": "Do not invent a kg-to-rounded-lb scoring pipeline from the rounded gram equivalence on the form."
+              },
+              "applicationInput": {
+                "unitCode": "kilogram",
+                "visibleUnitLabel": "kg",
+                "treatEnteredDecimalAsExact": true,
+                "conversionToCanonicalPounds": "kilogramsExact * 100000000 / 45359237",
+                "scoringRoundingMode": "round_half_up",
+                "scoringIncrement": {
+                  "numerator": 1,
+                  "denominator": 1
+                }
+              }
+            },
+            {
+              "id": "tusk_length_left",
+              "labelAf": "Slagtandlengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": null,
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "precisionStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+              "sourcePrecisionAlternatives": [
+                {
+                  "page": 1,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 8
+                  }
+                },
+                {
+                  "page": 2,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 4
+                  }
+                }
+              ]
+            },
+            {
+              "id": "tusk_length_right",
+              "labelAf": "Slagtandlengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": null,
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "precisionStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+              "sourcePrecisionAlternatives": [
+                {
+                  "page": 1,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 8
+                  }
+                },
+                {
+                  "page": 2,
+                  "increment": {
+                    "numerator": 1,
+                    "denominator": 4
+                  }
+                }
+              ]
+            },
+            {
+              "id": "tusk_circumference_left",
+              "labelAf": "Slagtandomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tusk_circumference_right",
+              "labelAf": "Slagtandomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "sum",
+            "fields": [
+              "tusk_weight_left",
+              "tusk_weight_right"
+            ]
+          },
+          "scoreUnitCode": "pound",
+          "minimumComparisonExpression": {
+            "operator": "sum",
+            "fields": [
+              "tusk_weight_left",
+              "tusk_weight_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_weight_left",
+              "tusk_weight_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": [
+            "Class score and minimum comparison use the pair total; the form separately says rank by heavier tusk. Do not conflate these values."
+          ]
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-17-phunt.pdf",
+        "sourceStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+        "sourceReviewIssueIds": [
+          "METHOD_17_LENGTH_PRECISION_CONFLICT",
+          "METHOD_17_METRIC_INPUT_REVIEW"
+        ],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-17-phunt.pdf",
+            "sha256": "465bba8d4d91b8db12f8a8c0e6c1f9933b1260a33889a1b28fc277f4cdd1c0e1",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "18",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Skulls",
+      "measurementProfiles": [
+        {
+          "id": "18_skull",
+          "fields": [
+            {
+              "id": "skull_length",
+              "labelAf": "Skedellengte",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "skull_width",
+              "labelAf": "Skedelbreedte",
+              "sourceSymbol": "W",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "body_length",
+              "labelAf": "Liggaamslengte",
+              "sourceSymbol": "Body length",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 4
+              },
+              "role": "optional_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "appliesToSourceCategories": [
+                "CATS",
+                "CIVETS",
+                "HYENAS"
+              ]
+            },
+            {
+              "id": "body_weight",
+              "labelAf": "Liggaamsgewig",
+              "sourceSymbol": "Weight",
+              "kind": "rational",
+              "unitCode": "pound",
+              "increment": {
+                "numerator": 1,
+                "denominator": 2
+              },
+              "role": "optional_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "sourceAlternative": {
+                "unitCode": "kilogram",
+                "increment": {
+                  "numerator": 1,
+                  "denominator": 4
+                }
+              }
+            }
+          ],
+          "scoreExpression": {
+            "operator": "sum",
+            "fields": [
+              "skull_length",
+              "skull_width"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "sum",
+            "fields": [
+              "skull_length",
+              "skull_width"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "sum",
+            "fields": [
+              "skull_length",
+              "skull_width"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-18-skulls_FILL.pdf",
+        "sourceStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+        "sourceReviewIssueIds": [
+          "METHOD_18_DRYING_CONFLICT"
+        ],
+        "sourceDryingRule": {
+          "days": null,
+          "sourcePages": [
+            1
+          ],
+          "status": "SOURCE_DATA_REVIEW_REQUIRED"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-18-skulls_FILL.pdf",
+            "sha256": "39d38e6f69879d843a99a4342abef57b9d4acc5e6606a53dd99b1c2fb8d1d7d6",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "19",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Crocodiles and Alligators",
+      "measurementProfiles": [
+        {
+          "id": "19_crocodile_body",
+          "fields": [
+            {
+              "id": "body_length",
+              "labelAf": "Liggaamslengte",
+              "sourceSymbol": "Length",
+              "kind": "rational",
+              "unitCode": "foot",
+              "increment": {
+                "numerator": 1,
+                "denominator": 48
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": [],
+              "sourceInputFormat": {
+                "majorUnit": "foot",
+                "minorUnit": "inch",
+                "minorIncrement": {
+                  "numerator": 1,
+                  "denominator": 4
+                },
+                "minorUnitsPerMajor": 12
+              }
+            }
+          ],
+          "scoreExpression": {
+            "operator": "identity",
+            "fields": [
+              "body_length"
+            ]
+          },
+          "scoreUnitCode": "foot",
+          "minimumComparisonExpression": {
+            "operator": "identity",
+            "fields": [
+              "body_length"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "identity",
+            "fields": [
+              "body_length"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-19-croc-1.pdf",
+        "sourceStatus": "SOURCE_DATA_REVIEW_REQUIRED",
+        "sourceReviewIssueIds": [
+          "METHOD_19_DRYING_CONFLICT"
+        ],
+        "sourceDryingRule": {
+          "days": null,
+          "sourcePages": [
+            1
+          ],
+          "status": "SOURCE_DATA_REVIEW_REQUIRED"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-19-croc-1.pdf",
+            "sha256": "13812275c911513a0ba8f6234c2914db692bd89a5c811af09d7db0922641ec7c",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "5",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Wild Pigs and Hippopotamus",
+      "measurementProfiles": [
+        {
+          "id": "5_tusks",
+          "fields": [
+            {
+              "id": "tusk_length_left",
+              "labelAf": "Slagtandlengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tusk_length_right",
+              "labelAf": "Slagtandlengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tusk_circumference_left",
+              "labelAf": "Slagtandomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tusk_circumference_right",
+              "labelAf": "Slagtandomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "dentition_typical",
+              "labelAf": "Volledige gebit met normale slytasie",
+              "sourceSymbol": "Typical/Non-typical",
+              "kind": "boolean",
+              "unitCode": null,
+              "increment": null,
+              "role": "required_classification",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_length_left",
+              "tusk_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_length_left",
+              "tusk_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "tusk_length_left",
+              "tusk_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-5-pigs-1.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-5-pigs-1.pdf",
+            "sha256": "1624dd85c703ecf1c3422df528f9c38c2bf3409e07d6855f76d80f6be64283bb",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "7-a",
+      "runtimeStatus": "READY",
+      "sourceTitle": "African and Asian Antelopes (excluding spiral horns and wildebeests)",
+      "measurementProfiles": [
+        {
+          "id": "7a_standard",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_left",
+              "labelAf": "Basisomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_right",
+              "labelAf": "Basisomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        },
+        {
+          "id": "7a_small_antelope",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_left",
+              "labelAf": "Basisomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_right",
+              "labelAf": "Basisomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 16
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        },
+        {
+          "id": "7a_reedbuck",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-7-a-STATIC.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-7-a-STATIC.pdf",
+            "sha256": "0c5eea94b86be853babc8c6a83e06e6fef87f352b1f32b758e44f898247918a7",
+            "pages": [
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "7-b",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Chamois, Goral, Ibex, Serow, Tahr, Wild Goats",
+      "measurementProfiles": [
+        {
+          "id": "7b_ibex",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_left",
+              "labelAf": "Basisomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_right",
+              "labelAf": "Basisomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "growth_ring_count_left",
+              "labelAf": "Aantal groeiringe (links)",
+              "sourceSymbol": "Growth Rings",
+              "kind": "integer",
+              "unitCode": "count",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "optional_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "growth_ring_count_right",
+              "labelAf": "Aantal groeiringe (regs)",
+              "sourceSymbol": "Growth Rings",
+              "kind": "integer",
+              "unitCode": "count",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "optional_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-7-b.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-7-b.pdf",
+            "sha256": "ae4c46a9a36f0033b8ac3bcd0adc0ee4483e6c5e5cdd20d1c6f7a60c234e1fab",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "7-c",
+      "runtimeStatus": "READY",
+      "sourceTitle": "Barbary Sheep, Blue Sheep, Dagestan Tur",
+      "measurementProfiles": [
+        {
+          "id": "7c_aoudad",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_left",
+              "labelAf": "Basisomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_right",
+              "labelAf": "Basisomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "growth_ring_count_left",
+              "labelAf": "Aantal groeiringe (links)",
+              "sourceSymbol": "Growth Rings",
+              "kind": "integer",
+              "unitCode": "count",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "optional_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "growth_ring_count_right",
+              "labelAf": "Aantal groeiringe (regs)",
+              "sourceSymbol": "Growth Rings",
+              "kind": "integer",
+              "unitCode": "count",
+              "increment": {
+                "numerator": 1,
+                "denominator": 1
+              },
+              "role": "optional_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-7-c.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-7-c.pdf",
+            "sha256": "648e5319941bc38c0689e4875669db9f9f00bbab20795fd2f4af4b6b4bd397fe",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "8",
+      "runtimeStatus": "READY",
+      "sourceTitle": "All African Spiral-horned Antelopes",
+      "measurementProfiles": [
+        {
+          "id": "8_spiral",
+          "fields": [
+            {
+              "id": "horn_length_left",
+              "labelAf": "Horinglengte (links)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "horn_length_right",
+              "labelAf": "Horinglengte (regs)",
+              "sourceSymbol": "L",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_scoring",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_left",
+              "labelAf": "Basisomtrek (links)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "base_circumference_right",
+              "labelAf": "Basisomtrek (regs)",
+              "sourceSymbol": "C",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            },
+            {
+              "id": "tip_to_tip",
+              "labelAf": "Afstand tussen horingpunte",
+              "sourceSymbol": "E",
+              "kind": "rational",
+              "unitCode": "inch",
+              "increment": {
+                "numerator": 1,
+                "denominator": 8
+              },
+              "role": "required_supplemental",
+              "visibility": "owner_only",
+              "sourcePages": [
+                1,
+                2
+              ],
+              "notes": []
+            }
+          ],
+          "scoreExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "scoreUnitCode": "inch",
+          "minimumComparisonExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "minimumComparisonOperator": "greater_than_or_equal",
+          "rankingExpression": {
+            "operator": "max",
+            "fields": [
+              "horn_length_left",
+              "horn_length_right"
+            ]
+          },
+          "rankingDirection": "descending",
+          "tieBreakRule": null,
+          "tieBreakStatus": "NOT_SPECIFIED_IN_SUPPLIED_SOURCE",
+          "roundingPolicy": "Validate exact input increments; no rounding mode inferred from a fraction box.",
+          "sourcePages": [
+            1,
+            2
+          ],
+          "notes": []
+        }
+      ],
+      "applicationPolicy": {
+        "dryingPeriodEnforced": false,
+        "claimsOfficialCertification": false,
+        "typicalityClassificationEnabled": null
+      },
+      "provenance": {
+        "canonicalSourceFile": "methods/Rowland-Ward-Method-8-spiral_STATIC.pdf",
+        "sourceStatus": "EXTRACTED_FROM_SUPPLIED_SOURCE",
+        "sourceReviewIssueIds": [],
+        "sourceDryingRule": {
+          "days": 60,
+          "sourcePages": [
+            1
+          ],
+          "status": "PRINTED_FORM_REQUIREMENT"
+        },
+        "sourceReferences": [
+          {
+            "documentId": "methods/Rowland-Ward-Method-8-spiral_STATIC.pdf",
+            "sha256": "3c44f5eabf5352ad5c862fcec93c395dbf46fd2f1256cfca8cf19df97b32365b",
+            "pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

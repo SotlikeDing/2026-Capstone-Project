@@ -1,0 +1,53 @@
+@* Site-wide footer, rendered once by MainLayout on every page. Purely static markup
+   (nav links, contact/support info, a placeholder support email/phone) plus a
+   server-rendered copyright year - no @code block, no data loading. *@
+<footer class="mp-footer">
+    <div class="mp-footer-inner">
+        <div class="mp-footer-col">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <img src="images/Mik-Punt_Logo_Vertikaal.png" alt="MikPunt Logo" style="height: 52px; width: auto; object-fit: contain; border-radius: 6px;" />
+                <h4 class="brand-font mb-0 text-gold fs-3">MikPunt</h4>
+            </div>
+            <p>
+                Die premiere Suid-Afrikaanse Jag, Plaas &amp; Ekotoerisme Bestuursplatform. Verbind Jagters, Boere, Uitrusters, Professionele Jagters (PH), Videograwe en Adverteerders in een geïntegreerde ekosisteem.
+            </p>
+        </div>
+
+        <div class="mp-footer-col">
+            <h4>Navigasie</h4>
+            <ul>
+                <li><a href="/markplein">Jag Pakkette</a></li>
+                <li><a href="/advertensies">Dienste &amp; Promosies</a></li>
+                <li><a href="/rolle">Rolle &amp; Ekosisteem</a></li>
+                <li><a href="/oor-ons">Oor MikPunt</a></li>
+                <li><a href="/kontak">Kontak Ons</a></li>
+            </ul>
+        </div>
+
+        <div class="mp-footer-col">
+            <h4>Portale &amp; Dienste</h4>
+            <ul>
+                <li><a href="/jagter/paneelbord">Jagterportaal</a></li>
+                <li><a href="/boer/paneelbord">Boerportaal</a></li>
+                <li><a href="/pj/paneelbord">PJ-portaal</a></li>
+                <li><a href="/ph/paneelbord">PH-portaal</a></li>
+                <li><a href="/vg/paneelbord">VG-portaal</a></li>
+                <li><a href="/ap/paneelbord">AP-portaal</a></li>
+            </ul>
+        </div>
+
+        <div class="mp-footer-col">
+            <h4>Nood &amp; Ondersteuning</h4>
+            <p>
+                SAPS 520 Vuurwapen Invoere<br />
+                Provinsiale Jagpermitte Wallet<br />
+                Ondersteuning: <a href="mailto:support@mikpunt.co.za">support@mikpunt.co.za</a><br />
+                Telefoon: +27 (0)12 555 0199
+            </p>
+        </div>
+    </div>
+
+    <div class="mp-copyright">
+        &copy; @DateTime.Now.Year MikPunt Platform (Edms) Bpk. Alle regte voorbehou. Volhoubare Wildbestuur &amp; Etiese Ekotoerisme.
+    </div>
+</footer>

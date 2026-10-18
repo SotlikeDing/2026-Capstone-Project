@@ -1,0 +1,1046 @@
+@* AP (Adverteerder/Advertiser) dashboard - routes /ap/dashboard and legacy /ap/ads (which
+   redirects to /ap/dashboard, see OnInitializedAsync). Restricted to users with the "AP"
+   role (or Admin). Lets an advertiser create/pay-for/edit/delete/renew ad campaigns, see
+   impressions/clicks/CTR/investment stats, and view/print tax-invoice-style receipts for
+   past payments. Ads are paid via the PayFast-simulation flow (see Payment.razor /
+   AdPaymentSimulation.razor) at a flat rate (_adMonthlyPrice, loaded from
+   GetPublicSettingsAsync) per month. *@
+@page "/ap/paneelbord"
+@page "/ap/advertensies"
+@page "/ap/dashboard"
+@page "/ap/ads"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>AP Adverteerderportaal &amp; Veldtogte | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die Adverteerders (AP) Portaal is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/ap/paneelbord" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("AP") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Adverteerder (AP) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Adverteerder (AP)</strong> nie. U kan hierdie rol op u profiel aktiveer om produkte, toerusting en dienste aan die jagter- en plaasgemeenskap te bemark.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer AP Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="no-print">
+        <!-- Header Section -->
+        <div class="d-flex justify-content-between align-items-center mb-4 gap-3">
+            <div class="me-3">
+                <h1 class="brand-font text-gold mb-1">Adverteerders (AP) Portaal &amp; Veldtogte</h1>
+                <p class="text-muted mb-0 small">Skep, betaal, wysig, verleng en monitor al jou kommersiële adverteringsveldtogte (R@_adMonthlyPrice.ToString("N0")/maand).</p>
+                <AiHelperLinks RoleCode="AP" />
+            </div>
+
+            <div class="d-flex gap-2 flex-shrink-0 align-items-center flex-wrap">
+                <a href="/advertensies" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                    Verken Markplein ↗
+                </a>
+                <a href="/ap/nuwe-advertensie" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    + Plaas Nuwe Advertensie
+                </a>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_notificationMsg))
+        {
+            <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+                <div>@_notificationMsg</div>
+                <button type="button" class="btn-close btn-close-white" @onclick='() => _notificationMsg = ""'></button>
+            </div>
+        }
+
+        <!-- Expiry Alert Banner (if any ads expiring within 7 days) -->
+        @if (ExpiringSoonAds.Count > 0)
+        {
+            <div class="alert alert-warning p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2" 
+                 style="background: rgba(217, 119, 6, 0.18); border: 1.5px solid #f59e0b; color: #fef3c7; border-radius: 8px;">
+                <div class="d-flex align-items-center gap-3">
+                    <div style="font-size: 24px;">⚠️</div>
+                    <div>
+                        <strong class="d-block" style="color: #ffffff; font-size: 15px;">
+                            Kennisgewing: @ExpiringSoonAds.Count @(ExpiringSoonAds.Count == 1 ? "advertensie verval" : "advertensies verval") binne die volgende 7 dae!
+                        </strong>
+                        <div class="small" style="color: #e5e7eb;">
+                            Verleng vroegtydig teen R@_adMonthlyPrice.ToString("N0")/maand om deurlopende blootstelling op die markplein te verseker sonder onderbreking.
+                        </div>
+                    </div>
+                </div>
+                <a href="/ap/betaal-advertensie/@ExpiringSoonAds.First().Id" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    Verleng Nou (@ExpiringSoonAds.First().Title) &rarr;
+                </a>
+            </div>
+        }
+
+        <!-- Pricing Policy Banner -->
+        <div class="p-3 rounded mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3 mp-pricing-banner" 
+             style="background: rgba(35, 20, 10, 0.88); border: 1.5px solid #d97706; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <div class="d-flex align-items-center gap-3">
+                <div style="color: #f59e0b;">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+                </div>
+                <div>
+                    <strong class="d-block text-white fw-bold" style="font-size: 16px; color: #ffffff !important;">Vaste Advertering Tarief: R@_adMonthlyPrice.ToString("N0") / maand per advertensie</strong>
+                    <div class="small" style="color: #e5e7eb;">
+                        Elke advertensie vereis 'n fooi van R@_adMonthlyPrice.ToString("N0")/maand vir die gekose tydperk voor publisering.
+                    </div>
+                </div>
+            </div>
+            <a href="/ap/nuwe-advertensie" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">Plaas Advertensie Nou &rarr;</a>
+        </div>
+
+        <!-- Stat Metrics Row 1: 4 Cards -->
+        <div class="mp-grid-4 mb-3">
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@UserScopedAds.Count()</div>
+                <div class="small text-muted text-uppercase fw-bold">Totale Veldtogte</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-success font-bold">@UserScopedAds.Count(a => a.IsActive && a.EndDate >= DateTime.Today)</div>
+                <div class="small text-muted text-uppercase fw-bold">Aktiewe Advertensies</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-warning font-bold">@UserScopedAds.Count(a => !a.IsActive || a.PaymentStatus == "Pending Payment" || a.EndDate < DateTime.Today)</div>
+                <div class="small text-muted text-uppercase fw-bold">Wag op Betaling</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@TotalImpressions.ToString("N0")</div>
+                <div class="small text-muted text-uppercase fw-bold">Totale Vertonings</div>
+            </div>
+        </div>
+
+        <!-- Stat Metrics Row 2: Centralized 3 Performance Cards -->
+        <div class="d-flex justify-content-center gap-3 flex-wrap mb-4">
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-gold font-bold">@TotalClicks.ToString("N0")</div>
+                <div class="small text-muted text-uppercase fw-bold">Totale Klikke</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Besoekers na skakels</div>
+            </div>
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-gold font-bold">@OverallCtr.ToString("F1")%</div>
+                <div class="small text-muted text-uppercase fw-bold">Gemiddelde CTR (Deurklik)</div>
+                <div class="small text-success mt-1" style="font-size: 11px;">
+                    @(OverallCtr >= 5.0 ? "Uitstekende Bereik ⭐" : OverallCtr >= 2.0 ? "Goeie Prestasie 👍" : "Aktiewe Blootstelling 📈")
+                </div>
+            </div>
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-success font-bold text-nowrap">R @TotalInvestment.ToString("N0")</div>
+                <div class="small text-muted text-uppercase fw-bold">Totale Belegging</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Aktiewe veldtogbelegging</div>
+            </div>
+        </div>
+
+        <!-- Quick Action Navigation Cards -->
+        <div class="mp-grid mb-4">
+            <a href="/ap/nuwe-advertensie" class="mp-card text-decoration-none" style="border: 2px solid var(--accent-gold);">
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                    <h3 class="brand-font text-gold mb-0 text-nowrap">Plaas Advertensie</h3>
+                    <span class="badge bg-warning text-dark text-nowrap flex-shrink-0">R@_adMonthlyPrice.ToString("N0") / mnd</span>
+                </div>
+                <p class="text-muted small mb-0">Skep teiken advertensies vir jagters en boere en aktiveer via veilige betaling.</p>
+            </a>
+
+            <div class="mp-card text-decoration-none" style="border: 1px solid var(--border-color);">
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                    <h3 class="brand-font text-gold mb-0 text-nowrap">Bestuur Veldtogte</h3>
+                </div>
+                <p class="text-muted small mb-0">Verleng tydsduur, wysig prentskakel, monitor en bestuur veldtogte in die tabel hieronder &darr;</p>
+            </div>
+        </div>
+
+        <!-- Full Detailed Campaigns Table with Search, Filter Tabs & Sorting -->
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
+            <!-- Filter Tabs -->
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="mp-btn @(_filter == "All" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _filter = "All"'>
+                    Alle Veldtogte (@_ads.Count)
+                </button>
+                <button class="mp-btn @(_filter == "Active" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _filter = "Active"'>
+                    Aktief (@_ads.Count(a => a.IsActive && a.EndDate >= DateTime.Today))
+                </button>
+                <button class="mp-btn @(_filter == "Pending" ? "mp-btn-primary" : "mp-btn-secondary") mp-btn-sm" @onclick='() => _filter = "Pending"'>
+                    Wag op Betaling (@_ads.Count(a => !a.IsActive || a.PaymentStatus == "Pending Payment" || a.EndDate < DateTime.Today))
+                </button>
+            </div>
+
+            <!-- Search & Sort Controls -->
+            <div class="d-flex gap-2 align-items-center flex-wrap flex-grow-1 justify-content-md-end">
+                <div class="mp-search-box">
+                    <span class="mp-search-icon">🔍</span>
+                    <input type="text" 
+                           class="mp-search-input" 
+                           placeholder="Soek veldtogte, borg, kontak, ref..." 
+                           @bind="_searchQuery" 
+                           @bind:event="oninput" />
+                    @if (!string.IsNullOrWhiteSpace(_searchQuery))
+                    {
+                        <button type="button" class="mp-search-clear" 
+                                @onclick='() => _searchQuery = ""' title="Maak soektog skoon">✕</button>
+                    }
+                </div>
+
+                <select class="mp-select" style="width: auto;" @bind="_sortBy">
+                    <option value="Newest">Sorteer: Nuutste Eerste</option>
+                    <option value="ExpiringSoon">Sorteer: Verval Binnekort</option>
+                    <option value="MostViews">Sorteer: Meeste Vertonings</option>
+                    <option value="MostClicks">Sorteer: Meeste Klikke</option>
+                    <option value="HighestInvestment">Sorteer: Hoogste Belegging</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Table View of Ads -->
+        @if (FilteredAds.Count == 0)
+        {
+            <div class="mp-card p-5 text-center mb-4">
+                <div class="display-6 mb-3">📢</div>
+                <h4 class="brand-font text-gold">Geen Veldtogte Gevind Nie</h4>
+                <p class="text-muted">Daar is tans geen advertensies wat ooreenstem met u filterkriteria nie.</p>
+                <a href="/ap/nuwe-advertensie" class="mp-btn mp-btn-primary mt-2">+ Plaas Jou Eerste Advertensie</a>
+            </div>
+        }
+        else
+        {
+            <div class="mp-card p-0 mb-4" style="width: 100%; overflow: hidden;">
+                <table class="mp-table mp-table-compact align-middle w-100" style="margin: 0; width: 100%; table-layout: fixed;">
+                    <thead>
+                        <tr>
+                            <th style="width: 25%;">Veldtog &amp; Borg</th>
+                            <th style="width: 11%; text-align: center;">Kategorie</th>
+                            <th style="width: 14%;">Geldigheid &amp; Tydperk</th>
+                            <th style="width: 14%;">Betaling &amp; Fooi</th>
+                            <th style="width: 6%; text-align: center;">Vertonings</th>
+                            <th style="width: 6%; text-align: center;">Klikke</th>
+                            <th style="width: 8%; text-align: center;">Status</th>
+                            <th class="text-end" style="width: 16%;">Aksies</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in FilteredAds)
+                        {
+                            var isExpired = a.EndDate < DateTime.Today;
+                            var isPending = !a.IsActive || a.PaymentStatus == "Pending Payment";
+                            var daysLeft = Math.Max(0, (a.EndDate - DateTime.Today).Days);
+                            var isExpiringSoon = a.IsActive && !isExpired && daysLeft <= 7;
+
+                            <tr style="@(isExpiringSoon ? "background: rgba(245, 158, 11, 0.06);" : "")">
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <img src="@(a.ImageUrls.Count > 0 ? a.ImageUrls[0] : "images/savanna_sunrise.jpg")" 
+                                             alt="@a.Title" 
+                                             class="rounded"
+                                             style="width: 38px; height: 38px; object-fit: cover; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;" />
+                                        <div class="text-truncate" style="min-width: 0;">
+                                            <strong class="d-block text-gold text-truncate" style="font-size: 13px;" title="@a.Title">@a.Title</strong>
+                                            <div class="small text-muted text-truncate" style="font-size: 11px;">@a.AdvertiserName</div>
+                                            @if (!string.IsNullOrEmpty(a.ContactNumber))
+                                            {
+                                                <div class="small text-muted font-monospace text-truncate" style="font-size: 10px;">📞 @a.ContactNumber</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-secondary d-inline-block text-wrap" style="max-width: 90px; line-height: 1.25; padding: 4px 6px; font-size: 11px; white-space: normal;">
+                                        @((MarkupString)MikpuntApiService.FormatCategory(a.Category).Replace(" & ", "<br/>& "))
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (isPending)
+                                    {
+                                        <span class="text-muted small d-block">Onaktief (Wag)</span>
+                                        <div class="small text-muted" style="font-size: 11px;">1 Mnd Veldtog</div>
+                                    }
+                                    else if (isExpired)
+                                    {
+                                        <span class="text-danger small fw-bold d-block">Verval: @a.EndDate.ToString("dd/MM/yyyy")</span>
+                                        <div class="small text-muted" style="font-size: 11px;">0 dae oor</div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-success small fw-bold d-block">Tot: @a.EndDate.ToString("dd/MM/yyyy")</span>
+                                        <div class="small @(isExpiringSoon ? "text-warning fw-bold" : "text-muted")" style="font-size: 11px;">
+                                            @daysLeft @(daysLeft == 1 ? "dag" : "dae") oor @(isExpiringSoon ? "⚠️" : "")
+                                        </div>
+                                    }
+                                </td>
+                                <td>
+                                    @if (isPending)
+                                    {
+                                        <span class="badge bg-warning text-dark" style="font-size: 10.5px;">Wag op Betaling</span>
+                                        <div class="small text-muted mt-1" style="font-size: 11px;">R 100 / maand</div>
+                                    }
+                                    else
+                                    {
+                                        var displayPaymentRef = !string.IsNullOrWhiteSpace(a.PaymentRef) && a.PaymentRef.StartsWith("MP-ADPAY-")
+                                            ? a.PaymentRef
+                                            : $"MP-ADPAY-{a.Id:D6}";
+
+                                        <span class="badge bg-success" style="font-size: 10.5px;">Betaal (R @a.TotalPaidAmount.ToString("N0"))</span>
+                                        <div class="text-muted font-monospace text-truncate mt-1" style="font-size: 10px;" title="@displayPaymentRef">@displayPaymentRef</div>
+                                        <button type="button" class="btn btn-link p-0 text-gold text-decoration-none small d-inline-block mt-1 fw-bold" 
+                                                style="font-size: 11px;" @onclick="() => OpenInvoiceModal(a)" title="Bekyk en druk amptelike faktuur/kwitansie">
+                                            🧾 Faktuur
+                                        </button>
+                                    }
+                                </td>
+                                <td class="text-center"><strong>@a.ImpressionsCount.ToString("N0")</strong></td>
+                                <td class="text-center"><strong>@a.ClicksCount.ToString("N0")</strong></td>
+                                <td class="text-center">
+                                    @if (a.IsActive && !isExpired)
+                                    {
+                                        <span class="mp-badge mp-badge-success" style="font-size: 10.5px; padding: 2px 6px;">Aktief</span>
+                                    }
+                                    else if (isPending)
+                                    {
+                                        <span class="mp-badge mp-badge-warning" style="font-size: 10.5px; padding: 2px 6px;">Wag</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-badge mp-badge-danger" style="font-size: 10.5px; padding: 2px 6px;">Verval</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <div class="d-flex justify-content-end gap-1 flex-wrap">
+                                        <a href="/advertensies/@a.Id" class="mp-btn mp-btn-secondary mp-btn-xs" title="Bekyk lewendige advertensie op markplein">
+                                            Bekyk
+                                        </a>
+
+                                        @if (isPending)
+                                        {
+                                            <a href="/ap/betaal-advertensie/@a.Id" class="mp-btn mp-btn-primary mp-btn-xs">
+                                                Betaal
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <a href="/ap/betaal-advertensie/@a.Id" class="mp-btn mp-btn-primary mp-btn-xs">
+                                                Verleng
+                                            </a>
+                                        }
+
+                                        <button type="button" class="mp-btn mp-btn-secondary mp-btn-xs" 
+                                                @onclick="() => OpenReceiptsForAd(a)" 
+                                                title="Bekyk alle kwitansies vir hierdie advertensie">
+                                            Kwitansies
+                                        </button>
+
+                                        <a href="/ap/wysig-advertensie/@a.Id" class="mp-btn mp-btn-secondary mp-btn-xs">
+                                            Wysig
+                                        </a>
+
+                                        <button class="mp-btn mp-btn-danger mp-btn-xs" @onclick="() => PromptDelete(a.Id, a.Title)">
+                                            Skrap
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_showDeleteModal)
+{
+    <div class="modal fade show d-block no-print" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content mp-card p-4" style="border: 1px solid var(--accent-gold);">
+                <h4 class="brand-font text-gold mb-3">Bevestig Skrapping van Advertensie</h4>
+                <p class="text-muted mb-4">
+                    Is u seker u wil die advertensie <strong>"@_adTitleToDelete"</strong> permanent verwyder? Hierdie aksie kan nie ongedaan gemaak word nie.
+                </p>
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showDeleteModal = false">Kanselleer</button>
+                    <button type="button" class="mp-btn mp-btn-danger" @onclick="ConfirmDeleteAd">Ja, Skrap Advertensie</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Official Tax Invoice & Receipt Modal -->
+@if (_showInvoiceModal && _selectedAdForInvoice != null)
+{
+    var currentReceipt = _selectedReceiptForInvoice 
+        ?? (_selectedAdForInvoice.PaymentHistory != null && _selectedAdForInvoice.PaymentHistory.Count > 0 
+            ? _selectedAdForInvoice.PaymentHistory.First() 
+            : null);
+
+    var invRef = currentReceipt?.PaymentRef 
+        ?? (!string.IsNullOrWhiteSpace(_selectedAdForInvoice.PaymentRef) && _selectedAdForInvoice.PaymentRef.StartsWith("MP-ADPAY-")
+            ? _selectedAdForInvoice.PaymentRef
+            : $"MP-ADPAY-{_selectedAdForInvoice.Id:D6}");
+
+    var invMonths = currentReceipt?.Months 
+        ?? (_selectedAdForInvoice.LastPaymentMonths > 0 
+            ? _selectedAdForInvoice.LastPaymentMonths 
+            : (_selectedAdForInvoice.TotalPaidAmount > 0 
+                ? (int)Math.Max(1, _selectedAdForInvoice.TotalPaidAmount / 100m) 
+                : Math.Max(1, _selectedAdForInvoice.DurationMonths)));
+
+    var invAmount = currentReceipt?.Amount 
+        ?? (_selectedAdForInvoice.LastPaymentAmount > 0 
+            ? _selectedAdForInvoice.LastPaymentAmount 
+            : _selectedAdForInvoice.TotalPaidAmount);
+
+    var paymentDate = currentReceipt?.PaymentDate 
+        ?? (_selectedAdForInvoice.PaymentDate ?? DateTime.Today);
+
+    var paymentDateFormatted = paymentDate.ToString("dd MMMM yyyy");
+
+    var periodStart = currentReceipt?.PeriodStartDate 
+        ?? _selectedAdForInvoice.LastPaymentStartDate 
+        ?? _selectedAdForInvoice.StartDate;
+
+    var periodEnd = currentReceipt?.PeriodEndDate 
+        ?? _selectedAdForInvoice.LastPaymentEndDate 
+        ?? _selectedAdForInvoice.EndDate;
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.85); z-index: 1065;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content mp-invoice-paper p-4 p-md-5 mp-invoice-scroll" id="adInvoicePrintArea"
+                 style="background-color: #ffffff !important; color: #000000 !important; border: 2px solid #b45309;">
+                <!-- Navigation & Quick Switcher for Multi-Receipts -->
+                @if (_openedFromAllReceipts || (_selectedAdForInvoice.PaymentHistory != null && _selectedAdForInvoice.PaymentHistory.Count > 1))
+                {
+                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom mp-inv-divider flex-wrap gap-2 no-print" style="border-color: #cbd5e1 !important;">
+                        <div>
+                            @if (_openedFromAllReceipts)
+                            {
+                                <button type="button" class="mp-btn mp-inv-btn-close mp-btn-xs d-inline-flex align-items-center gap-1" 
+                                        style="background: #e2e8f0; color: #000000 !important; font-weight: 700; border: 1px solid #94a3b8;" 
+                                        @onclick="BackToAllReceipts">
+                                    &larr; Terug na Alle Kwitansies
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="mp-btn mp-inv-btn-close mp-btn-xs d-inline-flex align-items-center gap-1" 
+                                        style="background: #e2e8f0; color: #000000 !important; font-weight: 700; border: 1px solid #94a3b8;" 
+                                        @onclick="() => OpenReceiptsForAd(_selectedAdForInvoice)">
+                                    🧾 Bekyk Alle Kwitansies
+                                </button>
+                            }
+                        </div>
+
+                        @if (_selectedAdForInvoice.PaymentHistory != null && _selectedAdForInvoice.PaymentHistory.Count > 1)
+                        {
+                            <div class="d-flex align-items-center gap-1 flex-wrap">
+                                <span class="small mp-inv-meta fw-bold me-1" style="color: #000000 !important;">Ander betalings vir hierdie advertensie:</span>
+                                @foreach (var rc in _selectedAdForInvoice.PaymentHistory)
+                                {
+                                    var isCurrent = (rc.PaymentRef == invRef);
+                                    <button type="button" 
+                                            class="btn btn-xs @(isCurrent ? "btn-warning text-dark fw-bold" : "btn-outline-secondary")"
+                                            style="font-size: 11px; padding: 2px 7px; color: #000000 !important; border-color: #94a3b8;"
+                                            @onclick="() => SelectReceiptForInvoice(rc)">
+                                        @rc.PaymentDate.ToString("dd MMM") (@rc.PaymentRef)
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                <!-- Invoice Header -->
+                <div class="d-flex justify-content-between align-items-start border-bottom mp-inv-divider pb-3 mb-3 flex-wrap gap-3" style="border-color: #cbd5e1 !important;">
+                    <div>
+                        <h2 class="brand-font mp-inv-title mb-1" style="font-size: 24px; letter-spacing: 0.5px; color: #000000 !important;">MIKPUNT ADVERTERING</h2>
+                        <div class="small mp-inv-meta" style="color: #000000 !important;">MikPunt Jag- &amp; Ekotoerismeportaal (Edms) Bpk</div>
+                        <div class="small mp-inv-meta" style="color: #000000 !important;">BTW Reg: 4980293810 | Maatskappy Reg: 2026/MIKPUNT/01</div>
+                        <div class="small mp-inv-meta" style="color: #000000 !important;">Pretoria, Gauteng, Suid-Afrika | info@mikpunt.co.za</div>
+                    </div>
+                    <div class="text-md-end">
+                        <span class="badge bg-success px-3 py-2 fs-6 mb-2" style="color: #ffffff !important;">BETAAL IN VOLLE ✅</span>
+                        <div class="fw-bold fs-5 mp-inv-highlight font-monospace" style="color: #000000 !important;">@invRef</div>
+                        <div class="small mp-inv-meta" style="color: #000000 !important;">Uitgereik: @paymentDateFormatted</div>
+                    </div>
+                </div>
+
+                <!-- Client & Campaign Details -->
+                <div class="row g-3 mb-3">
+                    <div class="col-sm-6">
+                        <div class="small mp-inv-label text-uppercase mb-1" style="font-size: 11px; color: #000000 !important; font-weight: 700;">Gefaktureer Aan (Kliënt):</div>
+                        <strong class="fs-6 d-block mp-inv-title" style="color: #000000 !important;">@_selectedAdForInvoice.AdvertiserName</strong>
+                        <div class="small mp-inv-val" style="color: #000000 !important;">Kontak: @(!string.IsNullOrEmpty(_selectedAdForInvoice.ContactNumber) ? _selectedAdForInvoice.ContactNumber : "Geregistreerde Adverteerder")</div>
+                        <div class="small mp-inv-meta" style="color: #000000 !important;">Adverteerder Rekening ID: #@_selectedAdForInvoice.AdvertiserUserId</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="small mp-inv-label text-uppercase mb-1" style="font-size: 11px; color: #000000 !important; font-weight: 700;">Veldtog &amp; Plasing:</div>
+                        <strong class="mp-inv-val d-block fs-6" style="color: #000000 !important;">@_selectedAdForInvoice.Title</strong>
+                        <div class="small mp-inv-meta" style="color: #000000 !important;">Kategorie: @MikpuntApiService.FormatCategory(_selectedAdForInvoice.Category)</div>
+                        <div class="small fw-bold" style="color: #15803d !important;">Betaalde Tydperk: @periodStart.ToString("dd/MM/yyyy") tot @periodEnd.ToString("dd/MM/yyyy")</div>
+                    </div>
+                </div>
+
+                <!-- Invoice Line Items Table -->
+                <div class="table-responsive mb-3">
+                    <table class="table table-bordered align-middle" style="border-color: #cbd5e1 !important; color: #000000 !important;">
+                        <thead>
+                            <tr style="background-color: #f1f5f9 !important; border-bottom: 2px solid #cbd5e1 !important;">
+                                <th style="color: #000000 !important; font-weight: 800; background-color: #f1f5f9 !important;">Beskrywing van Diens</th>
+                                <th class="text-center" style="width: 100px; color: #000000 !important; font-weight: 800; background-color: #f1f5f9 !important;">Aantal</th>
+                                <th class="text-end" style="width: 130px; color: #000000 !important; font-weight: 800; background-color: #f1f5f9 !important;">Tarief</th>
+                                <th class="text-end" style="width: 140px; color: #000000 !important; font-weight: 800; background-color: #f1f5f9 !important;">Totaal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="color: #000000 !important; border-color: #e2e8f0 !important;">
+                                    <strong class="mp-inv-val d-block" style="color: #000000 !important;">Kommersiële Advertensieplasing op MikPunt Markplein</strong>
+                                    <div class="small mp-inv-meta" style="color: #000000 !important;">Doelgerigte bemarking aan jagters en boere (@invMonths @(invMonths == 1 ? "maand" : "maande") geaktiveer / verleng)</div>
+                                </td>
+                                <td class="text-center mp-inv-val" style="color: #000000 !important; border-color: #e2e8f0 !important;">@invMonths @(invMonths == 1 ? "mnd" : "mnde")</td>
+                                <td class="text-end mp-inv-val" style="color: #000000 !important; border-color: #e2e8f0 !important;">R 100.00 / mnd</td>
+                                <td class="text-end fw-bold mp-inv-val" style="color: #000000 !important; border-color: #e2e8f0 !important;">R @invAmount.ToString("N2")</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3" class="text-end fw-bold" style="color: #000000 !important; border-color: #e2e8f0 !important;">Subtotaal:</td>
+                                <td class="text-end mp-inv-val" style="color: #000000 !important; border-color: #e2e8f0 !important;">R @((invAmount / 1.15m).ToString("N2"))</td>
+                            </tr>
+                            <tr>
+                                <td colspan="3" class="text-end fw-bold" style="color: #000000 !important; border-color: #e2e8f0 !important;">BTW (15% Ingesluit):</td>
+                                <td class="text-end mp-inv-val" style="color: #000000 !important; border-color: #e2e8f0 !important;">R @((invAmount - (invAmount / 1.15m)).ToString("N2"))</td>
+                            </tr>
+                            <tr class="fs-5 mp-inv-total-row" style="background-color: #f0fdf4 !important; border-top: 2px solid #86efac !important;">
+                                <td colspan="3" class="text-end fw-bold" style="color: #15803d !important;">Totale Bedrag Betaal:</td>
+                                <td class="text-end fw-bold" style="color: #15803d !important;">R @invAmount.ToString("N2") ZAR</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Invoice Footer & Print Button -->
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-3 border-top mp-inv-divider no-print" style="border-color: #cbd5e1 !important;">
+                    <div class="small mp-inv-meta" style="color: #000000 !important; font-weight: 500;">
+                        Dankie vir u vennootskap met MikPunt! Hierdie dokument dien as amptelike belastingfaktuur &amp; betalingsbewys.
+                    </div>
+                    <div class="d-flex gap-2">
+                        @if (_openedFromAllReceipts)
+                        {
+                            <button type="button" class="mp-btn mp-inv-btn-close" 
+                                    style="background: #e2e8f0; color: #000000 !important; font-weight: 700; border: 1px solid #94a3b8;" 
+                                    @onclick="BackToAllReceipts">
+                                &larr; Terug na Alle Kwitansies
+                            </button>
+                        }
+                        <button type="button" class="mp-btn mp-btn-primary" onclick="window.print()">
+                            🖨️ Druk Kwitansie / Stoor PDF
+                        </button>
+                        <button type="button" class="mp-btn mp-inv-btn-close" 
+                                style="background: #e2e8f0; color: #000000 !important; font-weight: 700; border: 1px solid #94a3b8;" 
+                                @onclick="() => _showInvoiceModal = false">
+                            MAAK TOE
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- All Receipts & Invoices Modal (Per Advertensie) -->
+@if (_showAllReceiptsModal && _selectedAdForReceipts != null)
+{
+    var currentAdReceipts = FilteredAdReceipts.ToList();
+
+    <div class="modal fade show d-block no-print" tabindex="-1" style="background: rgba(0,0,0,0.85); z-index: 1060;">
+        <div class="modal-dialog modal-dialog-centered modal-xl">
+            <div class="modal-content mp-card mp-receipts-modal-content p-4 p-md-5" style="border: 2px solid var(--accent-gold); max-height: 90vh; overflow-y: auto;">
+                <div class="d-flex justify-content-between align-items-start mb-3 pb-3 border-bottom border-secondary flex-wrap gap-2">
+                    <div>
+                        <h2 class="brand-font text-gold mb-1">🧾 Alle Kwitansies vir: @_selectedAdForReceipts.Title</h2>
+                        <p class="text-muted small mb-0">
+                            Borg: <strong class="text-gold">@_selectedAdForReceipts.AdvertiserName</strong> &bull; 
+                            Kategorie: <span class="mp-badge mp-badge-warning" style="font-size: 10.5px;">@MikpuntApiService.FormatCategory(_selectedAdForReceipts.Category)</span> &bull; 
+                            Veldtog ID: #@_selectedAdForReceipts.Id
+                        </p>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-dark border border-secondary text-gold px-3 py-2">
+                            @AdReceipts.Count @(AdReceipts.Count == 1 ? "Kwitansie" : "Kwitansies")
+                        </span>
+                        <span class="badge bg-success px-3 py-2 fs-6" style="color: #ffffff !important;">
+                            Totaal: R @AdReceipts.Sum(r => r.Amount).ToString("N2")
+                        </span>
+                        <button type="button" class="btn-close btn-close-white ms-2" @onclick="() => _showAllReceiptsModal = false"></button>
+                    </div>
+                </div>
+
+                <!-- Search Input for Receipts (if multi) -->
+                @if (AdReceipts.Count > 1)
+                {
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <div class="mp-search-box w-100">
+                                <span class="mp-search-icon">🔍</span>
+                                <input type="text" 
+                                       class="mp-search-input" 
+                                       placeholder="Soek volgens faktuurnommer, veldtog of kategorie..." 
+                                       @bind="_receiptSearchQuery" 
+                                       @bind:event="oninput" />
+                                @if (!string.IsNullOrWhiteSpace(_receiptSearchQuery))
+                                {
+                                    <button type="button" class="mp-search-clear" 
+                                            @onclick='() => _receiptSearchQuery = ""'>✕</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- Receipts Table -->
+                @if (!currentAdReceipts.Any())
+                {
+                    <div class="text-center py-5 text-muted">
+                        <div class="fs-1 mb-2">🧾</div>
+                        <h5>Geen kwitansies vir hierdie advertensie gevind nie</h5>
+                        <p class="small">
+                            @(string.IsNullOrWhiteSpace(_receiptSearchQuery)
+                                ? "Sodra hierdie advertensie betaal of verleng word, sal die kwitansies en belastingfakture hier verskyn."
+                                : "Geen kwitansies pas by u soekterm nie.")
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive mb-4">
+                        <table class="table align-middle mb-0 mp-receipts-table" style="border-color: var(--border-color);">
+                            <thead>
+                                <tr class="mp-receipts-th-row">
+                                    <th class="mp-receipt-th" style="color: #ffffff !important;">Kwitansie / Faktuurnommer</th>
+                                    <th class="mp-receipt-th" style="color: #ffffff !important;">Datum Uitgereik</th>
+                                    <th class="mp-receipt-th" style="color: #ffffff !important;">Advertensie &amp; Kategorie</th>
+                                    <th class="mp-receipt-th" style="color: #ffffff !important;">Tydperk</th>
+                                    <th class="mp-receipt-th text-end" style="color: #ffffff !important;">Bedrag</th>
+                                    <th class="mp-receipt-th text-center" style="color: #ffffff !important;">Status</th>
+                                    <th class="mp-receipt-th text-end" style="color: #ffffff !important;">Aksie</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var rc in currentAdReceipts)
+                                {
+                                    <tr class="mp-receipts-tr">
+                                        <td>
+                                            <strong class="font-monospace mp-receipt-text-white" style="color: #ffffff !important;">@rc.PaymentRef</strong>
+                                        </td>
+                                        <td>
+                                            <div class="mp-receipt-text-white" style="color: #ffffff !important;">@rc.PaymentDate.ToString("dd MMMM yyyy")</div>
+                                            <div class="mp-receipt-text-white" style="font-size: 11px; color: #ffffff !important;">@rc.PaymentDate.ToString("HH:mm")</div>
+                                        </td>
+                                        <td>
+                                            <strong class="mp-receipt-text-white d-block" style="color: #ffffff !important;">@rc.AdTitle</strong>
+                                            <div class="mp-receipt-text-white" style="font-size: 11px; color: #ffffff !important;">
+                                                @MikpuntApiService.FormatCategory(rc.Category)
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="mp-receipt-text-white" style="color: #ffffff !important;">@rc.Months @(rc.Months == 1 ? "maand" : "maande")</div>
+                                            <div class="mp-receipt-text-white" style="font-size: 11px; color: #ffffff !important;">
+                                                @rc.PeriodStartDate.ToString("dd/MM/yy") &ndash; @rc.PeriodEndDate.ToString("dd/MM/yy")
+                                            </div>
+                                        </td>
+                                        <td class="text-end fw-bold mp-receipt-text-white" style="color: #ffffff !important;">
+                                            R @rc.Amount.ToString("N2")
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-success" style="font-size: 10.5px; color: #ffffff !important;">Betaal ✅</span>
+                                        </td>
+                                        <td class="text-end">
+                                            <button type="button" class="mp-btn mp-btn-primary mp-btn-xs text-nowrap" 
+                                                    style="color: #ffffff !important;"
+                                                    @onclick="() => OpenReceiptFromList(rc)">
+                                                Bekyk / Druk 🖨️
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <div class="d-flex justify-content-between align-items-center pt-3 border-top border-secondary flex-wrap gap-2">
+                    <div class="small text-muted">
+                        Kwitansies word veilig bewaar en kan te eniger tyd besigtig of as amptelike PDF/drukstuk afgelaai word.
+                    </div>
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showAllReceiptsModal = false">
+                        Maak Toe
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AdvertisementModel> _ads = new();
+    private string _filter = "All";
+    private string _searchQuery = string.Empty;
+    private string _sortBy = "Newest";
+    private string _notificationMsg = string.Empty;
+
+    // Delete state
+    private bool _showDeleteModal = false;
+    private int _adIdToDelete = 0;
+    private string _adTitleToDelete = string.Empty;
+
+    // Invoice state
+    private bool _showInvoiceModal = false;
+    private AdvertisementModel? _selectedAdForInvoice;
+    private AdPaymentReceiptModel? _selectedReceiptForInvoice;
+    private bool _openedFromAllReceipts = false;
+
+    // All Receipts state (per advertensie)
+    private bool _showAllReceiptsModal = false;
+    private string _receiptSearchQuery = string.Empty;
+    private AdvertisementModel? _selectedAdForReceipts;
+
+    /// <summary>Opens the "all receipts for this ad" modal, scoped to a single ad's payment history.</summary>
+    public void OpenReceiptsForAd(AdvertisementModel ad)
+    {
+        _selectedAdForReceipts = ad;
+        _receiptSearchQuery = string.Empty;
+        _showAllReceiptsModal = true;
+    }
+
+    /// <summary>Flattened view of one payment/receipt, joined back to its parent ad for display in the receipts table/invoice.</summary>
+    public class UserAdReceiptViewItem
+    {
+        public int AdId { get; set; }
+        public string AdTitle { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public string AdvertiserName { get; set; } = string.Empty;
+        public string PaymentRef { get; set; } = string.Empty;
+        public DateTime PaymentDate { get; set; }
+        public int Months { get; set; }
+        public decimal Amount { get; set; }
+        public DateTime PeriodStartDate { get; set; }
+        public DateTime PeriodEndDate { get; set; }
+        public AdvertisementModel Ad { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Receipts for the currently selected ad (_selectedAdForReceipts), one per
+    /// PaymentHistory entry if present; falls back to synthesizing a single receipt from
+    /// the ad's own TotalPaidAmount/PaymentRef fields for ads that predate the
+    /// PaymentHistory list being added, so older paid ads still show a receipt.
+    /// </summary>
+    private List<UserAdReceiptViewItem> AdReceipts
+    {
+        get
+        {
+            var list = new List<UserAdReceiptViewItem>();
+            var ad = _selectedAdForReceipts;
+            if (ad == null) return list;
+
+            if (ad.PaymentHistory != null && ad.PaymentHistory.Count > 0)
+            {
+                foreach (var rc in ad.PaymentHistory)
+                {
+                    list.Add(new UserAdReceiptViewItem
+                    {
+                        AdId = ad.Id,
+                        AdTitle = ad.Title,
+                        Category = ad.Category,
+                        AdvertiserName = ad.AdvertiserName,
+                        PaymentRef = !string.IsNullOrWhiteSpace(rc.PaymentRef) ? rc.PaymentRef : $"MP-ADPAY-{ad.Id:D6}",
+                        PaymentDate = rc.PaymentDate,
+                        Months = rc.Months > 0 ? rc.Months : 1,
+                        Amount = rc.Amount > 0 ? rc.Amount : 100m,
+                        PeriodStartDate = rc.PeriodStartDate,
+                        PeriodEndDate = rc.PeriodEndDate,
+                        Ad = ad
+                    });
+                }
+            }
+            else if ((ad.PaymentStatus == "Betaal / Aktief" || ad.PaymentStatus == "Active") && (ad.TotalPaidAmount > 0 || !string.IsNullOrWhiteSpace(ad.PaymentRef)))
+            {
+                list.Add(new UserAdReceiptViewItem
+                {
+                    AdId = ad.Id,
+                    AdTitle = ad.Title,
+                    Category = ad.Category,
+                    AdvertiserName = ad.AdvertiserName,
+                    PaymentRef = !string.IsNullOrWhiteSpace(ad.PaymentRef) ? ad.PaymentRef : $"MP-ADPAY-{ad.Id:D6}",
+                    PaymentDate = ad.PaymentDate ?? ad.StartDate,
+                    Months = ad.LastPaymentMonths > 0 ? ad.LastPaymentMonths : (int)Math.Max(1, ad.TotalPaidAmount / 100m),
+                    Amount = ad.LastPaymentAmount > 0 ? ad.LastPaymentAmount : ad.TotalPaidAmount,
+                    PeriodStartDate = ad.LastPaymentStartDate ?? ad.StartDate,
+                    PeriodEndDate = ad.LastPaymentEndDate ?? ad.EndDate,
+                    Ad = ad
+                });
+            }
+            return list.OrderByDescending(r => r.PaymentDate).ThenByDescending(r => r.PaymentRef).ToList();
+        }
+    }
+
+    /// <summary>AdReceipts filtered by _receiptSearchQuery (ref/title/category/advertiser name) - backs the receipts-table search box.</summary>
+    private IEnumerable<UserAdReceiptViewItem> FilteredAdReceipts
+    {
+        get
+        {
+            var receipts = AdReceipts.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(_receiptSearchQuery))
+            {
+                var q = _receiptSearchQuery.Trim();
+                receipts = receipts.Where(r =>
+                    r.PaymentRef.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                    r.AdTitle.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                    r.Category.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                    r.AdvertiserName.Contains(q, StringComparison.OrdinalIgnoreCase)
+                );
+            }
+            return receipts;
+        }
+    }
+
+    /// <summary>Ads scoped to the signed-in advertiser; Admin sees every ad unfiltered (dashboard doubles as an admin ad-overview when opened by an Admin account).</summary>
+    private IEnumerable<AdvertisementModel> UserScopedAds
+    {
+        get
+        {
+            var list = _ads.AsEnumerable();
+            if (!Auth.HasRole("Admin"))
+            {
+                int? currentUserId = Auth.CurrentUser?.UserId;
+                if (currentUserId.HasValue && currentUserId.Value > 0)
+                {
+                    list = list.Where(a => a.AdvertiserUserId == currentUserId.Value);
+                }
+            }
+            return list;
+        }
+    }
+
+    private List<AdvertisementModel> ExpiringSoonAds =>
+        UserScopedAds.Where(a => a.IsActive && a.EndDate >= DateTime.Today && a.EndDate <= DateTime.Today.AddDays(7)).ToList();
+
+    private int TotalImpressions => UserScopedAds.Sum(a => a.ImpressionsCount);
+    private int TotalClicks => UserScopedAds.Sum(a => a.ClicksCount);
+    private double OverallCtr => TotalImpressions > 0 ? ((double)TotalClicks / TotalImpressions * 100) : 0.0;
+    private decimal TotalInvestment => UserScopedAds.Sum(a =>
+    {
+        if (a.PaymentHistory != null && a.PaymentHistory.Count > 0)
+        {
+            return a.PaymentHistory.Sum(p => p.Amount);
+        }
+        return a.TotalPaidAmount;
+    });
+
+    /// <summary>Opens the printable tax-invoice modal for an ad, defaulting to its most recent payment when a specific receipt isn't given.</summary>
+    private void OpenInvoiceModal(AdvertisementModel ad, AdPaymentReceiptModel? specificReceipt = null)
+    {
+        _selectedAdForInvoice = ad;
+        _selectedAdForReceipts = ad;
+        _selectedReceiptForInvoice = specificReceipt 
+            ?? (ad.PaymentHistory != null && ad.PaymentHistory.Count > 0 ? ad.PaymentHistory.First() : null);
+        _openedFromAllReceipts = false;
+        _showInvoiceModal = true;
+    }
+
+    /// <summary>Drills from the "all receipts for this ad" table into the invoice view for one specific past payment (tracks _openedFromAllReceipts so the invoice modal can show a "back" button).</summary>
+    private void OpenReceiptFromList(UserAdReceiptViewItem item)
+    {
+        _selectedAdForInvoice = item.Ad;
+        _selectedAdForReceipts = item.Ad;
+        _selectedReceiptForInvoice = new AdPaymentReceiptModel
+        {
+            PaymentRef = item.PaymentRef,
+            PaymentDate = item.PaymentDate,
+            Months = item.Months,
+            Amount = item.Amount,
+            PeriodStartDate = item.PeriodStartDate,
+            PeriodEndDate = item.PeriodEndDate
+        };
+        _openedFromAllReceipts = true;
+        _showAllReceiptsModal = false;
+        _showInvoiceModal = true;
+    }
+
+    /// <summary>Closes the invoice modal and reopens the per-ad receipts list it was opened from.</summary>
+    private void BackToAllReceipts()
+    {
+        _showInvoiceModal = false;
+        if (_selectedAdForInvoice != null)
+        {
+            _selectedAdForReceipts = _selectedAdForInvoice;
+        }
+        _showAllReceiptsModal = true;
+    }
+
+    /// <summary>Switches which past payment the invoice modal is currently displaying, via the "other payments" quick-switcher buttons.</summary>
+    private void SelectReceiptForInvoice(AdPaymentReceiptModel receipt)
+    {
+        _selectedReceiptForInvoice = receipt;
+    }
+
+    private decimal _adMonthlyPrice = 100m;
+
+    /// <summary>Loads the flat ad price, redirects the legacy /ap/ads route, and loads the advertiser's ads.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        _adMonthlyPrice = (await Api.GetPublicSettingsAsync()).AdMonthlyPrice;
+
+        // If accessed via /ap/advertensies (or legacy /ap/ads), redirect to /ap/paneelbord
+        var relativeUri = Nav.ToBaseRelativePath(Nav.Uri);
+        if (relativeUri.StartsWith("ap/ads", StringComparison.OrdinalIgnoreCase) || relativeUri.StartsWith("ap/advertensies", StringComparison.OrdinalIgnoreCase))
+        {
+            Nav.NavigateTo("/ap/paneelbord", replace: true);
+        }
+
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-runs the data load when auth state changes (e.g. login completes after this page rendered its "please sign in" gate) — subscribed in OnInitializedAsync, unsubscribed in Dispose.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Cache-then-network load: renders instantly from Api's in-memory ad cache if warm, then refreshes from the API and re-renders.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("AP") || Auth.HasRole("Admin")))
+        {
+            int? currentUserId = Auth.CurrentUser?.UserId;
+            bool isAdmin = Auth.HasRole("Admin");
+            int? effectiveUserId = isAdmin ? (int?)null : currentUserId;
+
+            // 1. Fast-path: immediately load from in-memory cache with 0 delay
+            var cached = Api.GetCachedAds(userId: effectiveUserId);
+            if (cached != null && cached.Count > 0)
+            {
+                _ads = FilterAdsForScope(cached, effectiveUserId, currentUserId, isAdmin);
+            }
+
+            // 2. Refresh from API in background
+            try
+            {
+                var all = await Api.GetAdsAsync(userId: effectiveUserId);
+                if (all != null && all.Count > 0)
+                {
+                    _ads = FilterAdsForScope(all, effectiveUserId, currentUserId, isAdmin);
+                    // The shared ads cache may lack this user's receipts - load them for this circuit.
+                    await Api.RefreshAdPaymentHistoryAsync(_ads);
+                    StateHasChanged();
+                }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Re-applies advertiser-ownership scoping to a freshly-fetched ad list (the API call itself already scopes by userId, but this is a defensive second filter).</summary>
+    private List<AdvertisementModel> FilterAdsForScope(List<AdvertisementModel> all, int? effectiveUserId, int? currentUserId, bool isAdmin)
+    {
+        if (!isAdmin && currentUserId.HasValue && currentUserId.Value > 0)
+        {
+            return all.Where(a => a.AdvertiserUserId == currentUserId.Value).ToList();
+        }
+        return all;
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>UserScopedAds narrowed by the active filter tab (All/Active/Pending), the search box, and the chosen sort order — feeds the campaigns table directly.</summary>
+    private List<AdvertisementModel> FilteredAds
+    {
+        get
+        {
+            var list = UserScopedAds;
+
+            // 1. Status Filter Tab
+            if (_filter == "Active")
+                list = list.Where(a => a.IsActive && a.EndDate >= DateTime.Today);
+            else if (_filter == "Pending")
+                list = list.Where(a => !a.IsActive || a.PaymentStatus == "Pending Payment" || a.EndDate < DateTime.Today);
+
+            // 2. Search Query Filter
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var q = _searchQuery.Trim();
+                list = list.Where(a => 
+                    (a.Title?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.AdvertiserName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.Category?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (a.PaymentRef?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                );
+            }
+
+            // 3. Sorting
+            list = _sortBy switch
+            {
+                "ExpiringSoon" => list.OrderBy(a => a.EndDate),
+                "MostViews" => list.OrderByDescending(a => a.ImpressionsCount),
+                "MostClicks" => list.OrderByDescending(a => a.ClicksCount),
+                "HighestInvestment" => list.OrderByDescending(a => a.TotalPaidAmount),
+                _ => list.OrderByDescending(a => a.Id)
+            };
+
+            return list.ToList();
+        }
+    }
+
+    /// <summary>Opens the delete-confirmation modal for a given ad, deferring the actual delete until confirmed.</summary>
+    private void PromptDelete(int id, string title)
+    {
+        _adIdToDelete = id;
+        _adTitleToDelete = title;
+        _showDeleteModal = true;
+    }
+
+    /// <summary>Deletes the ad selected via PromptDelete and reloads the list. Admin can delete any ad (userId passed as null bypasses ownership check server-side); a non-admin deletes only their own.</summary>
+    private async Task ConfirmDeleteAd()
+    {
+        if (_adIdToDelete > 0)
+        {
+            int? userId = Auth.HasRole("Admin") ? (int?)null : Auth.CurrentUser?.UserId;
+            await Api.DeleteAdAsync(_adIdToDelete, userId: userId);
+            _notificationMsg = $"Die advertensie '{_adTitleToDelete}' is suksesvol verwyder.";
+            _showDeleteModal = false;
+            _adIdToDelete = 0;
+            _adTitleToDelete = string.Empty;
+            await LoadDataAsync();
+        }
+    }
+}

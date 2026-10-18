@@ -1,0 +1,154 @@
+@* The hunters on one booking. The main hunter (who pays) sees everyone with their emails and, once the
+   booking is confirmed, adds hunters up to the booking's hunter count or removes them. An added hunter
+   sees the roster (no emails) and can leave the trip. All rules are enforced by the WebAPI
+   (api/bookings/{id}/hunters); this panel only reflects what the server allows. *@
+@inject MikpuntApiService Api
+
+<div class="mp-card p-3 mb-4" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <h6 class="text-gold fw-bold mb-0">🎯 Jagters op hierdie bespreking</h6>
+        @if (_roster != null)
+        {
+            <span class="mp-badge">@(_roster.Hunters.Count) / @_roster.MaxHunters jagters</span>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="small text-muted">Laai jagters...</div>
+    }
+    else if (_roster == null)
+    {
+        <div class="small text-muted">Kon nie die jagters laai nie.</div>
+    }
+    else
+    {
+        <ul class="list-unstyled mb-2">
+            @foreach (var h in _roster.Hunters)
+            {
+                <li class="d-flex justify-content-between align-items-center gap-2 py-1 border-bottom border-secondary">
+                    <div class="small">
+                        <strong>@h.Name</strong>
+                        @if (h.IsYou) { <span class="text-muted"> (jy)</span> }
+                        @if (!string.IsNullOrWhiteSpace(h.Email)) { <div class="text-muted">@h.Email</div> }
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        @if (h.IsMainHunter)
+                        {
+                            <span class="mp-badge mp-badge-warning">Hoofjagter</span>
+                        }
+                        else if (h.Status == "Pending")
+                        {
+                            <span class="mp-badge" title="Uitgenooi - word gekoppel sodra hulle as jagter registreer en hul e-pos verifieer">Uitgenooi</span>
+                        }
+                        else
+                        {
+                            <span class="mp-badge mp-badge-success">Gekoppel</span>
+                        }
+                        @if (!h.IsMainHunter && (_roster.CanManage || h.IsYou))
+                        {
+                            <button class="mp-btn mp-btn-danger mp-btn-sm py-0 px-2" style="font-size: 11px;" disabled="@_busy"
+                                    @onclick="() => Remove(h)">@(h.IsYou ? "Verlaat jag" : "Verwyder")</button>
+                        }
+                    </div>
+                </li>
+            }
+        </ul>
+
+        @if (_roster.CanManage && _roster.OpenSlots > 0)
+        {
+            <div class="small text-muted mb-2">
+                Voeg die ander jagters by (nog @_roster.OpenSlots plek@(_roster.OpenSlots == 1 ? "" : "ke") oop). Slegs jagters kan bygevoeg word,
+                nie waarnemers nie. Wie nog nie 'n MikPunt-rekening het nie, kry 'n uitnodiging per e-pos.
+            </div>
+            <div class="row g-2">
+                <div class="col-md-5"><input class="mp-form-control" placeholder="Naam en van" maxlength="200" @bind="_name" /></div>
+                <div class="col-md-5"><input class="mp-form-control" type="email" placeholder="E-posadres" maxlength="255" @bind="_email" /></div>
+                <div class="col-md-2 d-grid"><button class="mp-btn mp-btn-primary mp-btn-sm" disabled="@_busy" @onclick="Add">Voeg by</button></div>
+            </div>
+        }
+        else if (_roster.CanManage)
+        {
+            <div class="small text-muted">Al die jagterplekke op hierdie bespreking is gevul.</div>
+        }
+        else if (_roster.CallerIsMainHunter && _roster.MaxHunters > 1)
+        {
+            <div class="small text-muted">Jy kan die ander jagters byvoeg sodra die bespreking bevestig is.</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <div class="small mt-2 @(_messageIsError ? "text-danger" : "text-success")">@_message</div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int BookingId { get; set; }
+
+    /// <summary>Raised after the signed-in hunter left the trip (the caller should reload its list).</summary>
+    [Parameter] public EventCallback OnLeft { get; set; }
+
+    private BookingHuntersModel? _roster;
+    private bool _loading = true;
+    private bool _busy;
+    private string _name = string.Empty;
+    private string _email = string.Empty;
+    private string? _message;
+    private bool _messageIsError;
+    private int _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor == BookingId) return;
+        _loadedFor = BookingId;
+        _message = null;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        _roster = await Api.GetBookingHuntersAsync(BookingId);
+        _loading = false;
+    }
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_email))
+        {
+            Show("Vul die naam en e-posadres in.", error: true);
+            return;
+        }
+        _busy = true;
+        var (ok, message) = await Api.AddBookingHunterAsync(BookingId, _name.Trim(), _email.Trim());
+        Show(message, error: !ok);
+        if (ok)
+        {
+            _name = string.Empty;
+            _email = string.Empty;
+            await Load();
+        }
+        _busy = false;
+    }
+
+    private async Task Remove(BookingHunterModel hunter)
+    {
+        _busy = true;
+        var (ok, message) = await Api.RemoveBookingHunterAsync(BookingId, hunter.CompanionId);
+        Show(message, error: !ok);
+        _busy = false;
+        if (ok && hunter.IsYou)
+        {
+            await OnLeft.InvokeAsync();
+            return;
+        }
+        if (ok) await Load();
+    }
+
+    private void Show(string message, bool error)
+    {
+        _message = message;
+        _messageIsError = error;
+    }
+}

@@ -1,0 +1,577 @@
+@* PJ ("Uitruster"/outfitter) landing dashboard at /pj/dashboard. Gated to the PJ role
+   (or Admin): shows the PJ's document-verification status, an advertising-subscription
+   banner, aggregate stats over their published packages/team/bookings, quick-nav cards,
+   and previews of recent inbound bookings and published packages. Data is reloaded from
+   MikpuntApiService on init, on auth-state change, and whenever Api.OnPackagesChanged
+   fires (e.g. after editing a package on another page). *@
+@page "/pj/paneelbord"
+@page "/pj/dashboard"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>PJ Uitrusterportaal &amp; Ekspedisies | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die Uitruster (PJ) Portaal is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/pj/paneelbord" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PJ") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Uitruster (PJ) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Uitruster (PJ)</strong> nie. U kan hierdie rol op u profiel aktiveer om pasgemaakte ekspedisies te bou en spanne te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PJ Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="no-print">
+        <!-- Header Section -->
+        <div class="d-flex justify-content-between align-items-center mb-4 gap-3 flex-wrap">
+            <div class="me-3">
+                <h1 class="brand-font text-gold mb-1">Uitruster (PJ) Portaal &amp; Ekspedisies</h1>
+                <p class="text-muted mb-0 small">Bou samengestelde ekspedisie-pakkette, rekruteer spanne (PH, VG, Boere) en bestuur inkomende jagterbesprekings.</p>
+                <AiHelperLinks RoleCode="PJ" />
+            </div>
+
+            <div class="d-flex gap-2 flex-shrink-0 align-items-center flex-wrap">
+                <a href="/soek-span" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                    Netwerk &amp; Werwing ↗
+                </a>
+                <a href="/pj/span" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                    Bestuur Span
+                </a>
+                <a href="/pj/skedule" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">
+                    📅 Span Skedule Matrix
+                </a>
+                <a href="/pj/pakkette" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    + Bou Nuwe Pakket
+                </a>
+            </div>
+        </div>
+
+        @if (_myUserRoleId > 0)
+        {
+            <DocumentManager UserRoleId="_myUserRoleId" RoleCode="PJ" />
+        }
+
+        @if (!string.IsNullOrEmpty(_notificationMsg))
+        {
+            <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+                <div>@_notificationMsg</div>
+                <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+            </div>
+        }
+
+        <!-- Pending Bookings Alert Banner -->
+        @if (PendingBookingsCount > 0)
+        {
+            <div class="alert alert-warning p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2"
+                 style="background: rgba(217, 119, 6, 0.18); border: 1.5px solid #f59e0b; color: #fef3c7; border-radius: 8px;">
+                <div class="d-flex align-items-center gap-3">
+                    <div style="font-size: 24px;">⚠️</div>
+                    <div>
+                        <strong class="d-block" style="color: #ffffff; font-size: 15px;">
+                            Kennisgewing: @PendingBookingsCount @(PendingBookingsCount == 1 ? "bespreking wag" : "besprekings wag") op u goedkeuring en PH/VG-spantoewysing!
+                        </strong>
+                        <div class="small" style="color: #e5e7eb;">
+                            Wys 'n Professionele Jagter (PH) en opsionele Videograaf (VG) toe om die amptelike ekspedisie-bewys uit te reik.
+                        </div>
+                    </div>
+                </div>
+                <a href="/pj/besprekings" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    Bestuur Besprekings Nou &rarr;
+                </a>
+            </div>
+        }
+
+        <!-- Policy Banner (Styled like AP Dashboard) -->
+        <div class="p-3 rounded mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3 mp-pricing-banner"
+             style="background: rgba(35, 20, 10, 0.88); border: 1.5px solid #d97706; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <div class="d-flex align-items-center gap-3">
+                <div style="color: #f59e0b;">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+                </div>
+                <div>
+                    <strong class="d-block text-white fw-bold" style="font-size: 16px; color: #ffffff !important;">MikPunt Ekspedisie Standaard: Vaste PH-Toewysing &amp; Kwaliteitversekering</strong>
+                    <div class="small" style="color: #e5e7eb;">
+                        Pakkette word sonder gidse saamgestel. Sodra 'n jagter bespreek, kies u 'n verpligte PH en opsionele VG uit u gekeurde span.
+                    </div>
+                </div>
+            </div>
+            <a href="/soek-span" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">Bou U Span &rarr;</a>
+        </div>
+
+        <!-- Monthly Advertising Subscription Status Banner -->
+        <div class="alert p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2"
+             style="background: @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "rgba(16, 185, 129, 0.14)" : (_subscription.HasPaidActivePeriod ? "rgba(245, 158, 11, 0.14)": "rgba(107, 114, 128, 0.14)")); border: 1.5px solid @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "#10b981" : (_subscription.HasPaidActivePeriod ? "#f59e0b" : "#6b7280")); color: #ffffff; border-radius: 8px;">
+            <div class="d-flex align-items-center gap-3">
+                <div style="font-size: 24px;">⭐</div>
+                <div>
+                    <strong class="d-block" style="color: #ffffff; font-size: 15px;">
+                        @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                        {
+                            <span>Uitruster (PJ) Advertensie-Subskripsie: <strong class="text-success">Aktief op /browse ⭐</strong></span>
+                        }
+                        else if (_subscription.HasPaidActivePeriod)
+                        {
+                            <span>Uitruster (PJ) Advertensie-Subskripsie: <strong class="text-warning">Tydelik Gedeaktiveer (Betaalde Tydperk Geldig)</strong></span>
+                        }
+                        else
+                        {
+                            <span>Uitruster (PJ) Advertensie-Subskripsie: <strong class="text-muted">Geen Aktiewe Intekening</strong></span>
+                        }
+                    </strong>
+                    <div class="small" style="color: #e5e7eb;">
+                        @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                        {
+                            <span>U Uitruster profiel en pakkette word amptelik gereklameer op <code>/browse</code>. Geldig tot <strong>@_subscription.ExpiryDate.ToString("dd MMM yyyy")</strong> (@_subscription.DaysRemaining dae oor).</span>
+                        }
+                        else if (_subscription.HasPaidActivePeriod)
+                        {
+                            <span>U betaalde tydperk is nog geldig tot <strong>@_subscription.ExpiryDate.ToString("dd MMM yyyy")</strong> (@_subscription.DaysRemaining dae oor). Klik "Heraktiveer Advertensie" om te vertoon sonder betaling.</span>
+                        }
+                        else
+                        {
+                            <span>U profiel is tans nie gereklameer nie. Klik "Aktiveer Advertensie" om u verlangde tydperk op die betalingsbladsy te kies.</span>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                @if (_subscription.HasPaidActivePeriod)
+                {
+                    <a href="/betaling?type=subscription&role=PJ" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                        ➕ Verleng Advertensie
+                    </a>
+                }
+                <button class="mp-btn @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "mp-btn-secondary" : "mp-btn-primary") mp-btn-sm text-nowrap" @onclick="HandleSubscriptionAction">
+                    @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                    {
+                        <span>Deaktiveer Advertensie ⏸️</span>
+                    }
+                    else if (_subscription.HasPaidActivePeriod)
+                    {
+                        <span>Heraktiveer Advertensie ▶️</span>
+                    }
+                    else
+                    {
+                        <span>Aktiveer Advertensie ⭐</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        <!-- Stat Metrics Row 1: 4 Cards -->
+        <div class="mp-grid-4 mb-3">
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_packages.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Gepubliseerde Pakkette</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">@_packages.Count(p => p.IsPublished && p.IsMarketplaceVisible) aktief op mark</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_teamMembers.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Aktiewe Spanlede</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">
+                    @_teamMembers.Count(m => m.Role == "PH") PHs | @_teamMembers.Count(m => m.Role == "VG") VGs
+                </div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-warning font-bold">@_bookings.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Pakket Besprekings</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">
+                    <span class="text-warning">@PendingBookingsCount afwagtend</span> | <span class="text-success">@ApprovedBookingsCount goedgekeur</span>
+                </div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-success font-bold text-nowrap">@Money.Format(TotalExpeditionRevenue, Money.PackageCurrency)</div>
+                <div class="small text-muted text-uppercase fw-bold">Totale Ekspedisie Omset</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Goedgekeurde ekspedisies</div>
+            </div>
+        </div>
+
+        <!-- Stat Metrics Row 2: Centralized 3 Cards -->
+        <div class="d-flex justify-content-center gap-3 flex-wrap mb-4">
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-gold font-bold">@TotalAvailableSlots</div>
+                <div class="small text-muted text-uppercase fw-bold">Beskikbare Jagter Slots</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Oor alle aktiewe pakkette</div>
+            </div>
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-gold font-bold">@PhAssignmentCoverage.ToString("F0")%</div>
+                <div class="small text-muted text-uppercase fw-bold">PH Gids-Dekking</div>
+                <div class="small text-success mt-1" style="font-size: 11px;">
+                    @(PhAssignmentCoverage >= 100 ? "100% Wetlik Voldoen ⭐" : $"{ApprovedWithPhCount} van {ApprovedBookingsCount} gedek")
+                </div>
+            </div>
+            <div class="mp-card text-center" style="min-width: 240px; max-width: 320px; flex: 1 1 240px;">
+                <div class="fs-2 text-success font-bold text-nowrap">@Money.Format(AverageBookingValue, Money.PackageCurrency)</div>
+                <div class="small text-muted text-uppercase fw-bold">Gemiddelde Ekspedisiewaarde</div>
+                <div class="small text-muted mt-1" style="font-size: 11px;">Per goedgekeurde bespreking</div>
+            </div>
+        </div>
+
+        <!-- Quick Action Navigation Cards (Flex-wrapped and overflow-safe) -->
+        <div class="mp-grid mb-4">
+            <a href="/pj/pakkette" class="mp-card text-decoration-none h-100" style="border: 2px solid var(--accent-gold); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Pakket-Bouer</h3>
+                    <span class="badge bg-warning text-dark">Pakkette &amp; Spesies</span>
+                </div>
+                <p class="text-muted small mb-0">Skep en wysig pasgemaakte jagekspedisies in @Money.PackageCurrencySymbol met gekoppelde span-wildsplase.</p>
+            </a>
+
+            <a href="/soek-span" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Netwerk &amp; Werwing</h3>
+                    <span class="badge bg-secondary text-light">Soek PH, VG &amp; Boer</span>
+                </div>
+                <p class="text-muted small mb-0">Blaai deur geregistreerde PH gidse, videograwe en wildsplase soos op LinkedIn.</p>
+            </a>
+
+            <a href="/pj/span" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Bestuur My Span</h3>
+                    <span class="badge bg-secondary text-light">@_teamMembers.Count Lede</span>
+                </div>
+                <p class="text-muted small mb-0">Bestuur u vaste span van gidse, videograwe en boere en bekyk uitnodigings.</p>
+            </a>
+
+            <a href="/pj/besprekings" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color); overflow: hidden;">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
+                    <h3 class="brand-font text-gold mb-0" style="font-size: 1.15rem; line-height: 1.25;">Pakket Besprekings</h3>
+                    @if (PendingBookingsCount > 0)
+                    {
+                        <span class="badge bg-danger">@PendingBookingsCount Nuut</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary text-light">@_bookings.Count Besprekings</span>
+                    }
+                </div>
+                <p class="text-muted small mb-0">Keur jagter-besprekings goed, wys spanlede toe en reik ekspedisie-bewyse uit.</p>
+            </a>
+        </div>
+
+        <!-- Recent Inbound Bookings Preview -->
+        <div class="mp-card mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h3 class="brand-font text-gold mb-1">Onlangse Ekspedisie Besprekings</h3>
+                    <p class="text-muted small mb-0">Die mees onlangse inkomende navrae en besprekings van jagters.</p>
+                </div>
+                <a href="/pj/besprekings" class="mp-btn mp-btn-secondary mp-btn-sm">Bekyk Alle Besprekings &rarr;</a>
+            </div>
+
+            @if (_bookings.Count == 0)
+            {
+                <div class="text-center p-4 text-muted">
+                    Geen besprekingsversoeke vir u pakkette gevind nie. Sodra 'n jagter 'n pakket bespreek, sal dit hier verskyn.
+                </div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Pakket</th>
+                                <th>Jagter</th>
+                                <th>Datums</th>
+                                <th>Toegewese Span</th>
+                                <th>Totaal</th>
+                                <th>Status</th>
+                                <th>Aksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in _bookings.Take(5))
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@(string.IsNullOrWhiteSpace(b.PackageTitle) ? "Jagekspedisie" : b.PackageTitle)</strong>
+                                    </td>
+                                    <td>
+                                        <strong>@b.HunterName</strong>
+                                        <div class="small text-muted">@b.HunterCount Jagters</div>
+                                    </td>
+                                    <td class="small">
+                                        @b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")
+                                    </td>
+                                    <td class="small">
+                                        @if (!string.IsNullOrWhiteSpace(b.AssignedPhName))
+                                        {
+                                            <div>🎯 PH: @b.AssignedPhName</div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-warning">Geen PH</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(b.AssignedVgName))
+                                        {
+                                            <div>🎥 VG: @b.AssignedVgName</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <strong class="text-gold">@Money.Format(b.TotalPrice, b.PriceBreakdown?.Currency)</strong>
+                                    </td>
+                                    <td>
+                                        @if (b.Status == "Approved")
+                                        {
+                                            <span class="mp-badge mp-badge-success">Goedgekeur</span>
+                                        }
+                                        else if (b.Status == "Paid")
+                                        {
+                                            <span class="mp-badge mp-badge-success">Betaal</span>
+                                        }
+                                        else if (b.Status == "Completed")
+                                        {
+                                            <span class="mp-badge mp-badge-info">Voltooi</span>
+                                        }
+                                        else if (b.Status == "Pending")
+                                        {
+                                            <span class="mp-badge mp-badge-warning">Afwagtend</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mp-badge mp-badge-danger">Van hand gewys</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <a href="@(b.Status == "Pending" ? "/pj/besprekings" : $"/pj/besprekings?openVoucher={b.Id}")" class="mp-btn mp-btn-secondary mp-btn-sm">
+                                            @(b.Status == "Pending" ? "Wys Toe 🤝" : "Bekyk 📜")
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        <!-- Published Packages Preview -->
+        <div class="mp-card">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h3 class="brand-font text-gold mb-1">Gepubliseerde Ekspedisie-Pakkette</h3>
+                    <p class="text-muted small mb-0">U aktiewe pakkette beskikbaar vir jagters op die markplein (in @Money.PackageCurrencySymbol).</p>
+                </div>
+                <a href="/pj/pakkette" class="mp-btn mp-btn-secondary mp-btn-sm">Bestuur Alle Pakkette &rarr;</a>
+            </div>
+            @if (_packages.Count == 0)
+            {
+                <div class="text-center p-4 text-muted">
+                    U het tans geen ekspedisie-pakkette nie. Klik op "+ Bou Nuwe Pakket" om te begin.
+                </div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Titel</th>
+                                <th>Streek / Provinsie</th>
+                                <th>Duur</th>
+                                <th>Beskikbare Slots</th>
+                                <th>Vanaf Tarief (@Money.PackageCurrencySymbol)</th>
+                                <th>Status</th>
+                                <th>Aksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in _packages.Take(5))
+                            {
+                                <tr>
+                                    <td><strong>@p.Title</strong></td>
+                                    <td class="small text-muted">@p.Province</td>
+                                    <td><span class="small text-muted">Deur jagter bepaal</span></td>
+                                    <td>
+                                        @if (p.AvailableSlots <= 0)
+                                        {
+                                            <span class="badge bg-danger">Vol Bespreek</span>
+                                        }
+                                        else
+                                        {
+                                            <span>@p.AvailableSlots Slots</span>
+                                        }
+                                    </td>
+                                    <td><strong class="text-gold">Vanaf @Money.Format(p.PricePerHunter, Money.PackageCurrency)</strong></td>
+                                    <td>
+                                        @if (!p.IsMarketplaceVisible)
+                                        {
+                                            <span class="mp-badge mp-badge-warning" title="Nog nie op die markplein sigbaar nie: dokumente wag op goedkeuring.">Wag op goedkeuring</span>
+                                        }
+                                        else if (p.IsPublished)
+                                        {
+                                            <span class="mp-badge mp-badge-success">Aktief</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mp-badge mp-badge-warning">Onaktief</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <a href="/pj/pakkette" class="mp-btn mp-btn-secondary mp-btn-sm">Wysig</a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<HuntingPackageModel> _packages = new();
+    private List<TeamMemberResponse> _teamMembers = new();
+    private List<BookingModel> _bookings = new();
+    private string _notificationMsg = string.Empty;
+    private int _myUserRoleId = 0;
+
+    /// <summary>Count of bookings still awaiting the PJ's approval/team-assignment.</summary>
+    private int PendingBookingsCount => _bookings.Count(b => b.Status == "Pending");
+    /// <summary>Bookings that have cleared PJ approval, in any post-approval status (Approved/Paid/Completed).</summary>
+    private int ApprovedBookingsCount => _bookings.Count(b => b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed");
+    /// <summary>Sum of TotalPrice across all approved-or-later bookings.</summary>
+    private decimal TotalExpeditionRevenue => _bookings.Where(b => b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed").Sum(b => InPackageCurrency(b));   // every quote counted in the package currency
+    /// <summary>Sum of remaining hunter slots across published packages only.</summary>
+    private int TotalAvailableSlots => _packages.Where(p => p.IsPublished).Sum(p => p.AvailableSlots);
+    /// <summary>Approved-or-later bookings that already have a PH guide assigned - used for the legal-compliance coverage stat.</summary>
+    private int ApprovedWithPhCount => _bookings.Count(b => (b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed") && b.AssignedPhUserId.HasValue && b.AssignedPhUserId.Value > 0);
+    /// <summary>Percentage of approved bookings that have a PH assigned; defaults to 100% when there are no approved bookings yet (nothing to be non-compliant about).</summary>
+    private double PhAssignmentCoverage => ApprovedBookingsCount > 0
+        ? (double)ApprovedWithPhCount / ApprovedBookingsCount * 100.0
+        : 100.0;
+    /// <summary>Average revenue per approved booking; falls back to the average package list price when there's no booking history yet, so the stat card isn't just "$0".</summary>
+    private decimal AverageBookingValue => ApprovedBookingsCount > 0
+        ? TotalExpeditionRevenue / ApprovedBookingsCount
+        : (_packages.Count > 0 ? _packages.Average(p => p.PricePerHunter) : 0);
+
+    /// <summary>Subscribes to auth/package change events (so the dashboard stays live without a manual refresh) and loads initial data.</summary>
+    private decimal _usdToZar = 18m;
+
+    /// <summary>A booking's total in the package currency (a quote's own currency, else the package currency).</summary>
+    private decimal InPackageCurrency(BookingModel b)
+    {
+        string cur = b.PriceBreakdown?.Currency ?? Money.PackageCurrency;
+        if (Money.IsZar(cur) == Money.IsZar(Money.PackageCurrency)) return b.TotalPrice;
+        return Money.IsZar(cur) ? b.TotalPrice / _usdToZar : b.TotalPrice * _usdToZar;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _usdToZar = Math.Max(0.01m, (await Api.GetPublicSettingsAsync()).UsdToZarRate);
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        Api.OnPackagesChanged += HandlePackagesChanged;
+        await LoadDataAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-fetches dashboard data when MikpuntApiService reports a package was created/edited/deleted elsewhere, and repaints.</summary>
+    private void HandlePackagesChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Re-fetches dashboard data on login/logout so the role-gated view updates immediately.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    private RoleSubscriptionModel _subscription = new();
+
+    /// <summary>
+    /// Loads this PJ's packages, team, bookings, advertising subscription, and PJ
+    /// user-role id (needed by DocumentManager) - a no-op if the caller isn't
+    /// authenticated with the PJ/Admin role. Admins see every PJ's packages
+    /// unfiltered; a regular PJ sees only their own (OrganiserUserId == myUserId),
+    /// with a fallback for OrganiserUserId == 0 matching userId 1 (legacy/unowned
+    /// packages attributed to the first seeded user).
+    /// </summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _packages = Auth.HasRole("Admin") ? await Api.GetPackagesAsync() : await Api.GetMyPackagesAsync();
+            _teamMembers = await Api.GetPjTeamMembersAsync(myUserId);
+            _bookings = await Api.GetBookingsForPjAsync(myUserId);
+            _subscription = await Api.GetRoleSubscriptionAsync(myUserId, "PJ");
+
+            var profileResult = await Api.GetProfileAsync(myUserId);
+            _myUserRoleId = profileResult.Data?.Roles.FirstOrDefault(r => r.RoleCode == "PJ")?.Id ?? 0;
+        }
+    }
+
+    /// <summary>
+    /// Toggles the PJ's /browse advertising visibility, or routes to the payment page
+    /// if there's no paid period to toggle. Deactivate/reactivate just flips IsActive
+    /// (no charge, since the paid period is still valid); starting fresh always goes
+    /// through Payment.razor since that's where a period is actually purchased.
+    /// </summary>
+    private async Task HandleSubscriptionAction()
+    {
+        if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+        {
+            _subscription.IsActive = false;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(_subscription);
+            if (!saved) { _subscription.IsActive = !_subscription.IsActive; _notificationMsg = saveError ?? "Kon nie die advertensie opdateer nie."; }
+        }
+        else if (_subscription.HasPaidActivePeriod)
+        {
+            _subscription.IsActive = true;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(_subscription);
+            if (!saved) { _subscription.IsActive = !_subscription.IsActive; _notificationMsg = saveError ?? "Kon nie die advertensie opdateer nie."; }
+        }
+        else
+        {
+            Nav.NavigateTo("/betaling?type=subscription&role=PJ");
+        }
+    }
+
+    /// <summary>Unsubscribes from the auth/package events wired up in OnInitializedAsync to avoid leaking this component into their invocation lists.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+        Api.OnPackagesChanged -= HandlePackagesChanged;
+    }
+}
+

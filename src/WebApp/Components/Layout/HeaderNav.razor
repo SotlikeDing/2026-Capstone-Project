@@ -1,0 +1,592 @@
+@* Global site header, rendered once by MainLayout on every page. Combines: static
+   desktop/mobile nav links, the light/dark theme toggle (ThemeService), the notification
+   bell (polls MikpuntApiService.GetNotificationSummaryAsync every 10s while logged in,
+   aggregating unread chats + pending team invites + pending PJ booking requests + generic
+   system notifications into one badge count), and the account dropdown (role-based portal
+   links driven by Auth.HasRole, built from the JWT claims AuthService parsed on login). *@
+@inject AuthService Auth
+@inject ThemeService Theme
+@inject MikpuntApiService Api
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+<header class="mp-header">
+    <div class="mp-header-inner">
+        <!-- Brand Logo Image -->
+        <a href="/" class="mp-brand">
+            <img src="images/Mik-Punt_Logo_Vertikaal.png" alt="MikPunt Logo" style="height: 42px; width: auto; object-fit: contain; border-radius: 6px;" />
+            <span>MikPunt</span>
+        </a>
+
+        <!-- Main Desktop Nav Links with Icons -->
+        <ul class="mp-nav-links">
+            <li>
+                <NavLink class="mp-nav-item" href="/markplein" Match="NavLinkMatch.Prefix">
+                    <svg class="mp-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    <span>Jag</span>
+                </NavLink>
+            </li>
+            <li>
+                <NavLink class="mp-nav-item" href="/advertensies" Match="NavLinkMatch.Prefix">
+                    <svg class="mp-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                    <span>Dienste</span>
+                </NavLink>
+            </li>
+            <li>
+                <NavLink class="mp-nav-item" href="/rolle">
+                    <svg class="mp-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg>
+                    <span>Rolle</span>
+                </NavLink>
+            </li>
+            <li>
+                <NavLink class="mp-nav-item" href="/oor-ons">
+                    <svg class="mp-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    <span>Oor Ons</span>
+                </NavLink>
+            </li>
+            <li>
+                <NavLink class="mp-nav-item" href="/kontak">
+                    <svg class="mp-nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    <span>Kontak</span>
+                </NavLink>
+            </li>
+        </ul>
+
+        <!-- Right Side User & Theme Controls -->
+        <div class="mp-user-controls">
+            <!-- Theme Switcher (Icons Only - No Words) -->
+            <button class="mp-theme-toggle" @onclick="ToggleTheme" title="Verander tema (Sonsopkoms / Sterrenag)">
+                @if (Theme.CurrentTheme == "dark")
+                {
+                    <!-- Moon Icon for Dark Mode -->
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                }
+                else
+                {
+                    <!-- Sun Icon for Light Mode -->
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                }
+            </button>
+
+            <!-- Notification Bell Icon (Immediately Left of Profile) -->
+            @if (Auth.IsAuthenticated)
+            {
+                <div class="position-relative d-flex align-items-center">
+                    <button class="mp-theme-toggle position-relative" @onclick="ToggleNotifications" title="Kennisgewings">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                        </svg>
+                        @if (_notificationCount > 0)
+                        {
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 10px; padding: 2px 5px;">
+                                @_notificationCount
+                            </span>
+                        }
+                    </button>
+
+                    @if (_notificationsOpen)
+                    {
+                        <div class="mp-dropdown-menu show position-absolute end-0 p-3 mp-notif-dropdown" style="width: 320px; z-index: 1200; top: 110%; right: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary">
+                                <span class="fw-bold mp-notif-title small">🔔 Kennisgewings</span>
+                                @if (_notificationCount > 0)
+                                {
+                                    <span class="badge bg-danger" style="font-size: 10px;">@_notificationCount nuut</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary" style="font-size: 10px;">Opgedateer</span>
+                                }
+                            </div>
+
+                            <a href="/boodskappe" class="d-flex justify-content-between align-items-center py-2 text-decoration-none border-bottom border-secondary small mp-notif-row" @onclick='() => _notificationsOpen = false'>
+                                <span class="mp-notif-text">💬 Kletsgesprekke</span>
+                                @if (_unreadChats > 0)
+                                {
+                                    <span class="badge bg-danger">@_unreadChats</span>
+                                }
+                                else
+                                {
+                                    <span class="mp-notif-empty">0</span>
+                                }
+                            </a>
+
+                            <a href="/uitnodigings" class="d-flex justify-content-between align-items-center py-2 text-decoration-none border-bottom border-secondary small mp-notif-row" @onclick='() => _notificationsOpen = false'>
+                                <span class="mp-notif-text">🤝 Span-Uitnodigings</span>
+                                @if (_pendingInvites > 0)
+                                {
+                                    <span class="badge bg-warning text-dark">@_pendingInvites</span>
+                                }
+                                else
+                                {
+                                    <span class="mp-notif-empty">0</span>
+                                }
+                            </a>
+
+                            @if (Auth.HasRole("PJ"))
+                            {
+                                <a href="/pj/besprekings" class="d-flex justify-content-between align-items-center py-2 text-decoration-none border-bottom border-secondary small mp-notif-row" @onclick='() => _notificationsOpen = false'>
+                                    <span class="mp-notif-text">📅 Ekspedisie Besprekings</span>
+                                    @if (_pendingBookings > 0)
+                                    {
+                                        <span class="badge bg-info text-dark">@_pendingBookings</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-notif-empty">0</span>
+                                    }
+                                </a>
+                            }
+
+                            <a href="/kennisgewings" class="d-flex justify-content-between align-items-center py-2 text-decoration-none small mp-notif-row" @onclick='() => _notificationsOpen = false'>
+                                <span class="mp-notif-text">🔔 Stelsel Kennisgewings</span>
+                                @if (_systemNotifications > 0)
+                                {
+                                    <span class="badge bg-warning text-dark">@_systemNotifications</span>
+                                }
+                                else
+                                {
+                                    <span class="mp-notif-empty">0</span>
+                                }
+                            </a>
+
+                            @if (_recentNotifications.Any())
+                            {
+                                <div class="mt-2 pt-2 border-top border-secondary">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="fw-bold mp-notif-title" style="font-size: 11px;">Onlangs Ontvang:</span>
+                                    </div>
+                                    <div class="d-flex flex-column gap-1" style="max-height: 160px; overflow-y: auto;">
+                                        @foreach (var notif in _recentNotifications.Take(3))
+                                        {
+                                            <div class="p-2 rounded border border-secondary small mp-notif-row"
+                                                 style="cursor: pointer; font-size: 11px; background: rgba(255,255,255,0.03);"
+                                                 @onclick="() => HandleNotificationClick(notif)">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <strong class="@(notif.IsRead ? "text-muted" : "text-gold")">@notif.Title</strong>
+                                                    @if (!notif.IsRead)
+                                                    {
+                                                        <span class="badge bg-danger" style="font-size: 8px; padding: 1px 4px;">Nuut</span>
+                                                    }
+                                                </div>
+                                                <div class="text-truncate text-muted mt-1" style="max-width: 270px;">@notif.Message</div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="mt-2 pt-2 border-top border-secondary text-center">
+                                <a href="/kennisgewings" class="text-gold small text-decoration-none fw-bold" @onclick='() => _notificationsOpen = false'>
+                                    Bekyk Alle Kennisgewings &rarr;
+                                </a>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- Account Dropdown -->
+            <div class="mp-dropdown">
+                <button class="mp-btn mp-btn-secondary mp-btn-sm d-flex align-items-center gap-2" @onclick="ToggleDropdown">
+                    @if (Auth.IsAuthenticated && !string.IsNullOrEmpty(Auth.CurrentUser?.ProfilePictureUrl))
+                    {
+                        <img src="@Auth.CurrentUser.ProfilePictureUrl" alt="Profiel" class="rounded-circle" style="width: 24px; height: 24px; object-fit: cover; border: 1.5px solid var(--accent-gold);" />
+                    }
+                    else
+                    {
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    }
+
+                    @if (Auth.IsAuthenticated)
+                    {
+                        <span>@(string.IsNullOrWhiteSpace(Auth.CurrentUser?.FirstName) || Auth.CurrentUser?.FirstName == "Lid" ? "My Rekening" : Auth.CurrentUser?.FirstName)</span>
+                        <span class="mp-badge ms-1">@Auth.CurrentUser?.Roles.Count Rolle</span>
+                    }
+                    else
+                    {
+                        <span>Teken In / Registreer</span>
+                    }
+                    <small>▼</small>
+                </button>
+
+                @if (_dropdownOpen)
+                {
+                    <div class="mp-dropdown-menu" @onclick="CloseDropdown">
+                        @if (!Auth.IsAuthenticated)
+                        {
+                            <a href="/teken-in" class="mp-dropdown-item">Teken in</a>
+                            <a href="/registreer" class="mp-dropdown-item">Registreer</a>
+                        }
+                        else
+                        {
+                            <div class="px-3 py-2 border-bottom border-secondary d-flex align-items-center gap-2 mb-2" style="background: rgba(255,255,255,0.03);">
+                                @if (!string.IsNullOrEmpty(Auth.CurrentUser?.ProfilePictureUrl))
+                                {
+                                    <img src="@Auth.CurrentUser.ProfilePictureUrl" alt="Profiel" class="rounded-circle" style="width: 38px; height: 38px; object-fit: cover; border: 1.5px solid var(--accent-gold);" />
+                                }
+                                else
+                                {
+                                    <div class="mp-brand-logo rounded-circle d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; font-size: 16px;">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    </div>
+                                }
+                                <div class="overflow-hidden">
+                                    <div class="fw-bold text-gold small text-truncate">@Auth.CurrentUser?.FullName</div>
+                                    <div class="text-muted text-truncate" style="font-size: 11px;">@Auth.CurrentUser?.Email</div>
+                                </div>
+                            </div>
+                            <a href="/profiel" class="mp-dropdown-item">My Profiel</a>
+                            <div class="mp-dropdown-divider"></div>
+                            
+                            <!-- Dynamic Role Portals -->
+                            @if (Auth.HasRole("Jagter"))
+                            {
+                                <a href="/jagter/paneelbord" class="mp-dropdown-item">Jagterportaal</a>
+                            }
+                            @if (Auth.HasRole("Boer"))
+                            {
+                                <a href="/boer/paneelbord" class="mp-dropdown-item">Grondeienaar (Boer) Portaal</a>
+                            }
+                            @if (Auth.HasRole("PJ"))
+                            {
+                                <a href="/pj/paneelbord" class="mp-dropdown-item">Uitruster (PJ) Portaal</a>
+                            }
+                            @if (Auth.HasRole("PH"))
+                            {
+                                <a href="/ph/paneelbord" class="mp-dropdown-item">Professionele Jagter (PH) Portaal</a>
+                            }
+                            @if (Auth.HasRole("VG"))
+                            {
+                                <a href="/vg/paneelbord" class="mp-dropdown-item">Videograaf (VG) Portaal</a>
+                            }
+                            @if (Auth.HasRole("AP"))
+                            {
+                                <a href="/ap/paneelbord" class="mp-dropdown-item">Adverteerder (AP) Portaal</a>
+                            }
+                            @if (Auth.HasRole("PJ") || Auth.HasRole("PH") || Auth.HasRole("VG") || Auth.HasRole("Boer") || Auth.HasRole("AP") || Auth.HasRole("Admin"))
+                            {
+                                <a href="/ki-helper" class="mp-dropdown-item">✨ AI-Helper (Prysoptimering)</a>
+                            }
+                            @if (Auth.HasRole("Admin"))
+                            {
+                                <a href="/administrasie" class="mp-dropdown-item">Administrasieportaal</a>
+                            }
+
+                            <div class="mp-dropdown-divider"></div>
+                            
+                            <a href="/boodskappe" class="mp-dropdown-item d-flex justify-content-between align-items-center">
+                                <span>Kletse</span>
+                                @if (_unreadChats > 0)
+                                {
+                                    <span class="badge bg-danger ms-2" style="font-size: 10px;">@_unreadChats</span>
+                                }
+                            </a>
+                            
+                            <a href="/uitnodigings" class="mp-dropdown-item d-flex justify-content-between align-items-center">
+                                <span>Span Uitnodigings</span>
+                                @if (_pendingInvites > 0)
+                                {
+                                    <span class="badge bg-warning text-dark ms-2" style="font-size: 10px;">@_pendingInvites</span>
+                                }
+                            </a>
+
+                            @if (Auth.HasRole("PJ"))
+                            {
+                                <a href="/pj/besprekings" class="mp-dropdown-item d-flex justify-content-between align-items-center">
+                                    <span>Besprekingsversoeke</span>
+                                    @if (_pendingBookings > 0)
+                                    {
+                                        <span class="badge bg-info text-dark ms-2" style="font-size: 10px;">@_pendingBookings</span>
+                                    }
+                                </a>
+                            }
+
+                            <a href="/soek-span" class="mp-dropdown-item d-flex justify-content-between align-items-center">
+                                <span>Stelsel Kennisgewings</span>
+                                @if (_systemNotifications > 0)
+                                {
+                                    <span class="badge bg-warning text-dark ms-2" style="font-size: 10px;">@_systemNotifications</span>
+                                }
+                            </a>
+
+                            <div class="mp-dropdown-divider"></div>
+                            <button type="button" class="mp-dropdown-item text-danger border-0 bg-transparent w-100 text-start" @onclick="HandleLogout">
+                                Teken uit
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Mobile Toggle -->
+            <button class="mp-mobile-toggle" @onclick="ToggleMobileDrawer">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Mobile Drawer -->
+    <div class="mp-mobile-drawer @(_mobileDrawerOpen ? "open" : "")">
+        <ul class="list-unstyled mb-0">
+            <li class="py-2"><a href="/markplein" @onclick="CloseMobile">Jag (Markplein)</a></li>
+            <li class="py-2"><a href="/advertensies" @onclick="CloseMobile">Dienste</a></li>
+            <li class="py-2"><a href="/rolle" @onclick="CloseMobile">Rolle</a></li>
+            <li class="py-2"><a href="/oor-ons" @onclick="CloseMobile">Oor Ons</a></li>
+            <li class="py-2"><a href="/kontak" @onclick="CloseMobile">Kontak</a></li>
+            @if (Auth.IsAuthenticated)
+            {
+                <li class="py-2 text-gold border-top border-secondary mt-2 pt-2"><strong>Portale:</strong></li>
+                @if (Auth.HasRole("Jagter")) { <li class="py-1 ps-3"><a href="/jagter/paneelbord" @onclick="CloseMobile">Jagterportaal</a></li> }
+                @if (Auth.HasRole("Boer")) { <li class="py-1 ps-3"><a href="/boer/paneelbord" @onclick="CloseMobile">Grondeienaar (Boer) Portaal</a></li> }
+                @if (Auth.HasRole("PJ")) { <li class="py-1 ps-3"><a href="/pj/paneelbord" @onclick="CloseMobile">Uitruster (PJ) Portaal</a></li> }
+                @if (Auth.HasRole("PH"))
+                {
+                    <li class="py-1 ps-3"><a href="/ph/paneelbord" @onclick="CloseMobile">Professionele Jagter (PH) Portaal</a></li>
+                }
+                @if (Auth.HasRole("VG")) { <li class="py-1 ps-3"><a href="/vg/paneelbord" @onclick="CloseMobile">Videograaf (VG) Portaal</a></li> }
+                @if (Auth.HasRole("AP")) { <li class="py-1 ps-3"><a href="/ap/paneelbord" @onclick="CloseMobile">Adverteerder (AP) Portaal</a></li> }
+                @if (Auth.HasRole("PJ") || Auth.HasRole("PH") || Auth.HasRole("VG") || Auth.HasRole("Boer") || Auth.HasRole("AP") || Auth.HasRole("Admin")) { <li class="py-1 ps-3"><a href="/ki-helper" @onclick="CloseMobile">✨ AI-Helper</a></li> }
+                @if (Auth.HasRole("Admin")) { <li class="py-1 ps-3"><a href="/administrasie" @onclick="CloseMobile">Administrasieportaal</a></li> }
+            }
+        </ul>
+    </div>
+</header>
+
+@code {
+    private bool _dropdownOpen = false;
+    private bool _mobileDrawerOpen = false;
+    private bool _notificationsOpen = false;
+
+    private int _unreadChats = 0;
+    private int _pendingInvites = 0;
+    private int _pendingBookings = 0;
+    private int _systemNotifications = 0;
+    /// <summary>Combined badge count shown on the bell icon - the sum of every notification category tracked below.</summary>
+    private int _notificationCount => _unreadChats + _pendingInvites + _pendingBookings + _systemNotifications;
+    private List<UserNotificationDto> _recentNotifications = new();
+
+    private CancellationTokenSource? _pollCts;
+
+    /// <summary>Subscribes to auth/theme/notification change events; actual data loading is deferred to OnAfterRenderAsync since it needs JS interop for session restore first.</summary>
+    protected override void OnInitialized()
+    {
+        Auth.OnAuthStateChanged += OnStateChanged;
+        Theme.OnThemeChanged += OnStateChanged;
+        Api.OnNotificationsChanged += OnStateChanged;
+    }
+
+    /// <summary>First-render-only: restores theme/session, loads the initial notification summary, then starts the 10s poll loop.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Theme.InitializeThemeAsync(JS);
+            await Auth.InitializeAsync(JS, Api);
+            await LoadNotificationsAsync();
+            StateHasChanged();
+            StartPolling();
+        }
+    }
+
+    /// <summary>
+    /// Runs a fire-and-forget background loop (Task.Run + PeriodicTimer, not a Blazor
+    /// Timer) that re-fetches the notification summary every 10s while the user is
+    /// logged in, so the bell badge stays live without a full page refresh. Cancelled
+    /// via _pollCts on Dispose or if StartPolling is ever called again.
+    /// </summary>
+    private void StartPolling()
+    {
+        _pollCts?.Cancel();
+        _pollCts = new CancellationTokenSource();
+        var token = _pollCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+                while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
+                {
+                    if (Auth.IsAuthenticated)
+                    {
+                        await LoadNotificationsAsync();
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch { }
+        }, token);
+    }
+
+    /// <summary>Handler for Auth/Theme/Api change events - reloads notifications and re-renders. Deliberately not `async void` (see inline note) since this is wired directly to C# events, not a Blazor lifecycle method.</summary>
+    private void OnStateChanged()
+    {
+        // NEVER use async void in Blazor — unhandled exceptions kill the circuit.
+        // Use InvokeAsync with full try/catch isolation instead.
+        InvokeAsync(async () =>
+        {
+            try
+            {
+                await LoadNotificationsAsync();
+                StateHasChanged();
+            }
+            catch { /* silently swallow — notification failure must never crash the circuit */ }
+        });
+    }
+
+    /// <summary>Fetches the aggregated notification counts for the current user. Requests admin-inclusive PJ-booking counts when the user is PJ or Admin (Admin sees the same booking-request queue for oversight).</summary>
+    private async Task LoadNotificationsAsync()
+    {
+        if (Auth.IsAuthenticated && Auth.CurrentUser != null)
+        {
+            try
+            {
+                var isPj = Auth.HasRole("PJ") || Auth.HasRole("Admin");
+                var summary = await Api.GetNotificationSummaryAsync(Auth.CurrentUser.UserId, isPj);
+                _unreadChats = summary.unreadChats;
+                _pendingInvites = summary.pendingInvites;
+                _pendingBookings = summary.pendingBookings;
+                _systemNotifications = summary.systemNotifications;
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Opens/closes the account dropdown; opening it closes the notification panel since only one popover should be visible at a time.</summary>
+    private void ToggleDropdown()
+    {
+        _dropdownOpen = !_dropdownOpen;
+        if (_dropdownOpen) _notificationsOpen = false;
+    }
+
+    private void CloseDropdown() => _dropdownOpen = false;
+
+    /// <summary>Opens/closes the notification panel, fetching the latest 3 recent notifications on open (closes the account dropdown for the same reason as ToggleDropdown).</summary>
+    private async Task ToggleNotifications()
+    {
+        _notificationsOpen = !_notificationsOpen;
+        if (_notificationsOpen)
+        {
+            _dropdownOpen = false;
+            if (Auth.IsAuthenticated && Auth.CurrentUser != null)
+            {
+                try
+                {
+                    _recentNotifications = await Api.GetUserNotificationsAsync(Auth.CurrentUser.UserId, 1);
+                }
+                catch { }
+            }
+        }
+    }
+
+    /// <summary>Marks a recent-notification entry read (server-confirmed, see inline note) and navigates to its ActionUrl, falling back to /profile if none was set.</summary>
+    private async Task HandleNotificationClick(UserNotificationDto notif)
+    {
+        _notificationsOpen = false;
+        try
+        {
+            if (!notif.IsRead)
+            {
+                // Only update local state once the server confirms the read - marking
+                // it read (and decrementing the badge) on a failed/unauthorized call
+                // would drift from server state: the badge count would silently
+                // recover on the next poll, looking like a phantom re-notification.
+                bool marked = await Api.MarkNotificationAsReadAsync(notif.NotificationId);
+                if (marked)
+                {
+                    notif.IsRead = true;
+                    if (_systemNotifications > 0) _systemNotifications--;
+                }
+            }
+        }
+        catch { }
+
+        var url = string.IsNullOrWhiteSpace(notif.ActionUrl) ? "/kennisgewings" : notif.ActionUrl;
+        Nav.NavigateTo(url);
+    }
+
+    /// <summary>Opens/closes the slide-out mobile nav drawer (hidden on desktop widths via CSS).</summary>
+    private void ToggleMobileDrawer() => _mobileDrawerOpen = !_mobileDrawerOpen;
+    private void CloseMobile() => _mobileDrawerOpen = false;
+
+    /// <summary>Flips light/dark theme and persists the choice via ThemeService's JS interop.</summary>
+    private async Task ToggleTheme()
+    {
+        await Theme.ToggleThemeAsync(JS);
+    }
+
+    /// <summary>Clears the session (AuthService, including its browser-storage copy) and redirects home.</summary>
+    private async Task HandleLogout()
+    {
+        await Auth.LogoutAsync(JS);
+        Nav.NavigateTo("/");
+    }
+
+    /// <summary>Stops the polling loop and unsubscribes from all three change events to avoid leaking handlers when this header instance is torn down.</summary>
+    public void Dispose()
+    {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+        Auth.OnAuthStateChanged -= OnStateChanged;
+        Theme.OnThemeChanged -= OnStateChanged;
+        Api.OnNotificationsChanged -= OnStateChanged;
+    }
+}
+
+<style>
+    /* In Light Mode ONLY, notifications dropdown text is pure black */
+    [data-theme="light"] .mp-notif-dropdown,
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown {
+        background: #ffffff !important;
+        border: 1.5px solid #d97706 !important;
+        color: #000000 !important;
+    }
+    [data-theme="light"] .mp-notif-dropdown .mp-notif-title,
+    [data-theme="light"] .mp-notif-dropdown .mp-notif-text,
+    [data-theme="light"] .mp-notif-dropdown .mp-notif-empty,
+    [data-theme="light"] .mp-notif-dropdown a,
+    [data-theme="light"] .mp-notif-dropdown span:not(.badge),
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown .mp-notif-title,
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown .mp-notif-text,
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown .mp-notif-empty,
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown a,
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown span:not(.badge) {
+        color: #000000 !important;
+    }
+    [data-theme="light"] .mp-notif-dropdown .border-secondary,
+    .mikpunt-app-container:not([data-theme="dark"]) .mp-notif-dropdown .border-secondary {
+        border-color: #e5e7eb !important;
+    }
+
+    /* In Dark Mode, notifications dropdown text is light */
+    [data-theme="dark"] .mp-notif-dropdown {
+        background: #1c1c1e !important;
+        border: 1px solid var(--accent-gold) !important;
+    }
+    [data-theme="dark"] .mp-notif-dropdown .mp-notif-title {
+        color: var(--accent-gold) !important;
+    }
+    [data-theme="dark"] .mp-notif-dropdown .mp-notif-text,
+    [data-theme="dark"] .mp-notif-dropdown a {
+        color: #f0f4f8 !important;
+    }
+    [data-theme="dark"] .mp-notif-dropdown .mp-notif-empty {
+        color: #94a3b8 !important;
+    }
+</style>
+

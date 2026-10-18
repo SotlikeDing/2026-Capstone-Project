@@ -1,0 +1,110 @@
+@* Public farm directory/search page (route: /searchfarms), no auth required. Loads
+   all farms from the API once on init and filters client-side by keyword/province/max
+   daily rate. Note: Nav is injected but unused - dead injection, harmless. *@
+@page "/soek-plase"
+@page "/searchfarms"
+@inject MikpuntApiService Api
+@inject NavigationManager Nav
+
+<PageTitle>Deursoek Plase | MikPunt</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h1 class="brand-font text-gold mb-1">Gids van Geverifieerde Plase</h1>
+        <p class="text-muted mb-0">Vind die perfekte jagplaas met wildspesies inventaris en dagtariewe.</p>
+    </div>
+
+    <a href="/boer/nuwe-plaas" class="mp-btn mp-btn-secondary mp-btn-sm">+ Lys Jou Plaas (Boer)</a>
+</div>
+
+<!-- Filters -->
+<div class="mp-card mb-4">
+    <div class="row g-3">
+        <div class="col-md-4">
+            <label class="mp-form-label">Sleutelwoord / Plaasnaam</label>
+            <input type="text" class="mp-form-control" placeholder="bv. Gemsbokpan, Thabazimbi..." @bind="_query" @bind:event="oninput" />
+        </div>
+
+        <div class="col-md-4">
+            <label class="mp-form-label">Provinsie</label>
+            <select class="mp-form-control" @bind="_province">
+                <option value="">Alle Provinsies</option>
+                <option value="Limpopo">Limpopo</option>
+                <option value="Northern Cape">Noord-Kaap</option>
+                <option value="Free State">Vrystaat</option>
+                <option value="Eastern Cape">Oos-Kaap</option>
+                <option value="Mpumalanga">Mpumalanga</option>
+                <option value="North West">Noordwes</option>
+                <option value="KwaZulu-Natal">KwaZulu-Natal</option>
+                <option value="Western Cape">Wes-Kaap</option>
+            </select>
+        </div>
+
+        <div class="col-md-4">
+            <label class="mp-form-label">Maksimum Dagtarief per Jagter (ZAR)</label>
+            <input type="number" class="mp-form-control" placeholder="1500" @bind="_maxDailyRate" />
+        </div>
+    </div>
+</div>
+
+<!-- Farm List Grid -->
+<div class="mp-grid">
+    @foreach (var farm in FilteredFarms)
+    {
+        <div class="mp-card d-flex flex-column h-100">
+            <div style="height: 180px; overflow: hidden; border-radius: 10px;" class="mb-3">
+                <img src="@(farm.ImageUrls.FirstOrDefault() ?? "images/savanna_sunrise.jpg")" alt="@farm.Name" style="width: 100%; height: 100%; object-fit: cover;" />
+            </div>
+
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <h3 class="brand-font text-gold mb-0">@farm.Name</h3>
+                <span class="mp-badge mp-badge-success">R @farm.DailyRateHunter.ToString("N0") / dag</span>
+            </div>
+
+            <p class="text-muted small mb-2">@farm.NearestTown, @farm.Province | Grootte: @farm.SizeHectares.ToString("N0") Ha</p>
+            <p class="text-muted fs-6 mb-3 flex-grow-1">@farm.Description</p>
+
+            <div class="mb-3">
+                <div class="small text-gold fw-bold mb-1">Beskikbare Wild:</div>
+                <div class="d-flex flex-wrap gap-1">
+                    @foreach (var sp in farm.GameInventory)
+                    {
+                        <span class="mp-badge" title="Manlik: R@sp.PriceMale | Trofee: R@sp.PriceTrophy">
+                            @sp.SpeciesName (@sp.AvailableCount)
+                        </span>
+                    }
+                </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-auto">
+                <a href="/plaas/@farm.Id" class="mp-btn mp-btn-primary flex-grow-1 text-center">
+                    Sien Plaas Besonderhede &rarr;
+                </a>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<FarmModel> _farms = new();
+    private string _query = string.Empty;
+    private string _province = string.Empty;
+    private decimal? _maxDailyRate;
+
+    /// <summary>Loads the full farm list once; all filtering below is client-side, so the list isn't re-fetched as filters change.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        _farms = await Api.GetFarmsAsync();
+    }
+
+    /// <summary>Excludes inactive farms ("Inaktief"/"Inactive" status or the IsActive flag) and unnamed placeholder rows plus the keyword/province/max-rate filters, all optional.</summary>
+    private IEnumerable<FarmModel> FilteredFarms => _farms.Where(f =>
+        !string.Equals(f.Status, "Inaktief", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(f.Status, "Inactive", StringComparison.OrdinalIgnoreCase) &&   // the value the database actually stores
+        !string.IsNullOrWhiteSpace(f.Name) &&
+        f.IsActive &&
+        (string.IsNullOrWhiteSpace(_query) || f.Name.Contains(_query, StringComparison.OrdinalIgnoreCase) || f.NearestTown.Contains(_query, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrWhiteSpace(_province) || f.Province.Equals(_province, StringComparison.OrdinalIgnoreCase)) &&
+        (!_maxDailyRate.HasValue || f.DailyRateHunter <= _maxDailyRate.Value)
+    );
+}

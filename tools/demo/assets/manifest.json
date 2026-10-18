@@ -1,0 +1,46 @@
+{
+  "files": [
+    {
+      "glob": "farms/**/*.jpg",
+      "minimum": 16,
+      "purpose": "farm and lodge photos (two per farm)",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md"
+    },
+    {
+      "glob": "hunt/hunter/*.jpg",
+      "minimum": 8,
+      "purpose": "hunter hunt photos",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md"
+    },
+    {
+      "glob": "hunt/ph/*.jpg",
+      "minimum": 4,
+      "purpose": "PH hunt photos",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md"
+    },
+    {
+      "glob": "hunt/vg/*.mp4",
+      "minimum": 2,
+      "purpose": "VG clips up to 30 seconds",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md; clips rendered from Commons photos with ffmpeg"
+    },
+    {
+      "glob": "trophies/kudu.jpg",
+      "minimum": 1,
+      "purpose": "approved kudu trophy",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md"
+    },
+    {
+      "glob": "trophies/*-*.jpg",
+      "minimum": 19,
+      "purpose": "one photo per demo trophy, by species",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md"
+    },
+    {
+      "glob": "ads/*.jpg",
+      "minimum": 8,
+      "purpose": "one picture per demo advert",
+      "source": "Wikimedia Commons (public domain / CC BY / CC BY-SA); per-file author and licence in ATTRIBUTION.md"
+    }
+  ]
+}

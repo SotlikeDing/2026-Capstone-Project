@@ -1,0 +1,97 @@
+@* Farm photos on the create/edit farm pages. Works on the farm's ImageUrls list in place:
+   new photos are resized in the browser (max 1200x800 JPEG) and added as data URLs, existing
+   ones stay as the plaasfoto/... paths the API handed out. The first photo is the main photo
+   on the farm, its packages and the marketplace. The shared placeholder is not shown. *@
+
+<div class="d-flex flex-wrap gap-3 mb-3">
+    @foreach (var photo in Visible)
+    {
+        var current = photo;
+        bool isMain = current == Visible.First();
+        <div class="position-relative" style="width: 150px; height: 100px; border-radius: 8px; overflow: hidden; border: 2px solid @(isMain ? "var(--accent-gold)" : "var(--border-subtle)");">
+            <img src="@current" alt="Plaasfoto" style="width: 100%; height: 100%; object-fit: cover;" />
+            @if (isMain)
+            {
+                <span class="mp-badge position-absolute top-0 start-0 m-1" style="font-size: 0.65rem;">Hooffoto</span>
+            }
+            <div class="position-absolute bottom-0 end-0 m-1 d-flex gap-1">
+                @if (!isMain)
+                {
+                    <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" style="padding: 2px 6px;" title="Maak hooffoto" @onclick="() => MakeMain(current)">&#9733;</button>
+                }
+                <button type="button" class="mp-btn mp-btn-secondary mp-btn-sm" style="padding: 2px 6px;" title="Verwyder" @onclick="() => Remove(current)">&#10005;</button>
+            </div>
+        </div>
+    }
+    @if (Visible.Count < MaxPhotos)
+    {
+        <label class="d-flex align-items-center justify-content-center text-muted small" style="width: 150px; height: 100px; border-radius: 8px; border: 2px dashed var(--border-subtle); cursor: pointer;">
+            <InputFile OnChange="OnSelected" multiple accept="image/jpeg,image/png,image/webp" class="d-none" />
+            + Voeg foto's by
+        </label>
+    }
+</div>
+<p class="small text-muted mb-0">Tot @MaxPhotos foto's van die plaas, lodge of veld (JPG, PNG of WebP, hoogstens 5 MB elk). Die eerste foto is die hooffoto.</p>
+@if (!string.IsNullOrEmpty(_message))
+{
+    <p class="small mt-1 mb-0 @(_isError ? "text-danger" : "text-success")">@_message</p>
+}
+
+@code {
+    private const int MaxPhotos = 6;
+
+    /// <summary>The farm's ImageUrls; edited in place.</summary>
+    [Parameter, EditorRequired] public List<string> Photos { get; set; } = new();
+
+    private string _message = string.Empty;
+    private bool _isError;
+
+    private List<string> Visible => Photos.Where(p => !p.Contains("savanna_sunrise", StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private async Task OnSelected(InputFileChangeEventArgs e)
+    {
+        Photos.RemoveAll(p => p.Contains("savanna_sunrise", StringComparison.OrdinalIgnoreCase));
+        int added = 0;
+        _isError = false;
+        _message = "Besig om foto's te verwerk...";
+        foreach (var file in e.GetMultipleFiles(MaxPhotos))
+        {
+            if (Photos.Count >= MaxPhotos)
+            {
+                _message = $"'n Plaas kan hoogstens {MaxPhotos} foto's hê.";
+                _isError = true;
+                break;
+            }
+            if (file.Size > 5 * 1024 * 1024)
+            {
+                _message = $"'{file.Name}' is groter as 5 MB en is oorgeslaan.";
+                _isError = true;
+                continue;
+            }
+            try
+            {
+                var resized = await file.RequestImageFileAsync("image/jpeg", 1200, 800);
+                using var stream = resized.OpenReadStream(5 * 1024 * 1024);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                Photos.Add($"data:image/jpeg;base64,{Convert.ToBase64String(buffer.ToArray())}");
+                added++;
+            }
+            catch (Exception ex)
+            {
+                _message = $"Kon nie '{file.Name}' verwerk nie: {ex.Message}";
+                _isError = true;
+            }
+        }
+        if (!_isError)
+            _message = added > 0 ? $"{added} foto('s) bygevoeg. Onthou om die plaas te stoor." : string.Empty;
+    }
+
+    private void MakeMain(string photo)
+    {
+        Photos.Remove(photo);
+        Photos.Insert(0, photo);
+    }
+
+    private void Remove(string photo) => Photos.Remove(photo);
+}

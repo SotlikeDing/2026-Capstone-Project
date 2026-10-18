@@ -1,0 +1,275 @@
+@* /boer/create-farm - form for a Boer (farmer)/Admin to list a new hunting farm: basic
+   details, daily rates, and an ad-hoc game species price/quota inventory built up client-side
+   before a single SaveFarmAsync POST. Gated inline (not via [Authorize]) so unauthenticated or
+   wrong-role visitors see an explanatory card instead of being redirected away. *@
+@page "/boer/nuwe-plaas"
+@page "/boer/create-farm"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Lys 'n Nuwe Plaas | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie aksie is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/boer/nuwe-plaas" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Boer") && !Auth.HasRole("Farmer") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Boer Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Boer (Grondeienaar)</strong> nie. U kan hierdie rol op u profiel aktiveer om plase op MikPunt te lys.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Boer Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row justify-content-center">
+        <div class="col-md-9 col-lg-8">
+            <div class="mp-card p-4">
+                <h1 class="brand-font text-gold mb-2">Lys 'n Nuwe Jagplaas</h1>
+                <p class="text-muted mb-4">Voer jou plaas se besonderhede, dagtariewe, fasiliteite en wildspesies pryslys in.</p>
+
+                @if (!string.IsNullOrEmpty(_saveError))
+                {
+                    <div class="alert alert-danger p-2 small mb-3">@_saveError</div>
+                }
+
+                <EditForm Model="_farm" OnValidSubmit="SaveFarm">
+                    <!-- Basic Details -->
+                    <h4 class="brand-font text-gold mb-3">1. Basiese Plaas Besonderhede</h4>
+                    <div class="mp-form-group">
+                        <label class="mp-form-label">Plaasnaam</label>
+                        <InputText @bind-Value="_farm.Name" class="mp-form-control" placeholder="bv. Bosveld Jaglodge" />
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 mp-form-group">
+                            <label class="mp-form-label">Provinsie</label>
+                            <InputSelect @bind-Value="_farm.Province" class="mp-form-control">
+                                <option value="Limpopo">Limpopo</option>
+                                <option value="Northern Cape">Noord-Kaap</option>
+                                <option value="Free State">Vrystaat</option>
+                                <option value="Eastern Cape">Oos-Kaap</option>
+                                <option value="Mpumalanga">Mpumalanga</option>
+                                <option value="North West">Noordwes</option>
+                                <option value="KwaZulu-Natal">KwaZulu-Natal</option>
+                                <option value="Western Cape">Wes-Kaap</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-4 mp-form-group">
+                            <label class="mp-form-label">Naaste Dorp</label>
+                            <InputText @bind-Value="_farm.NearestTown" class="mp-form-control" placeholder="Thabazimbi" />
+                        </div>
+                        <div class="col-md-4 mp-form-group">
+                            <label class="mp-form-label">Grootte (Hektaar)</label>
+                            <InputNumber @bind-Value="_farm.SizeHectares" class="mp-form-control" placeholder="3500" />
+                        </div>
+                    </div>
+
+                    <div class="mp-form-group">
+                        <label class="mp-form-label">Beskrywing</label>
+                        <InputTextArea @bind-Value="_farm.Description" class="mp-form-control" rows="3" placeholder="Beskryf die plaas, habitatte, skietranges en verblyfervaring..." />
+                    </div>
+
+                    <!-- Daily Rates -->
+                    <h4 class="brand-font text-gold mb-3 mt-4">2. Dagtariewe &amp; Fasiliteite</h4>
+                    <div class="row">
+                        <div class="col-md-6 mp-form-group">
+                            <label class="mp-form-label">Jagter Dagtarief (ZAR)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text mp-input-group-text text-gold">R</span>
+                                <InputNumber @bind-Value="_farm.DailyRateHunter" class="mp-form-control" placeholder="1200" />
+                                <span class="input-group-text mp-input-group-text text-muted">/ dag</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mp-form-group">
+                            <label class="mp-form-label">Nie-Jagter Dagtarief (ZAR)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text mp-input-group-text text-gold">R</span>
+                                <InputNumber @bind-Value="_farm.DailyRateObserver" class="mp-form-control" placeholder="600" />
+                                <span class="input-group-text mp-input-group-text text-muted">/ dag</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Game Species Inventory -->
+                    <h4 class="brand-font text-gold mb-3 mt-4">3. Wildspesies Pryslys &amp; Kwotas</h4>
+                    <div class="p-3 border rounded mb-3" style="border-color: var(--border-color) !important;">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-3">
+                                <label class="small text-muted">Spesie Naam</label>
+                                <input type="text" class="mp-form-control" placeholder="bv. Kudu / Rooibok" @bind="_newSpecies.SpeciesName" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="small text-muted">Bul / Manlik (R)</label>
+                                <input type="number" class="mp-form-control" @bind="_newSpecies.PriceMale" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="small text-muted">Koei / Vroulik (R)</label>
+                                <input type="number" class="mp-form-control" @bind="_newSpecies.PriceFemale" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="small text-muted">Trofee Bykoste (R)</label>
+                                <input type="number" class="mp-form-control" @bind="_newSpecies.PriceTrophy" />
+                            </div>
+                            <div class="col-md-3 mt-2">
+                                <label class="small text-muted">Beskikbare Kwota</label>
+                                <input type="number" class="mp-form-control" @bind="_newSpecies.AvailableCount" />
+                            </div>
+                            <div class="col-md-9 mt-2">
+                                <button type="button" class="mp-btn mp-btn-secondary w-100" @onclick="AddSpecies">+ Voeg Wildspesie By Pryslys</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (_farm.GameInventory.Count > 0)
+                    {
+                        <div class="mb-4">
+                            <h6 class="brand-font text-gold">Gelysde Spesies Inventaris:</h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var s in _farm.GameInventory)
+                                {
+                                    <span class="mp-badge mp-badge-info p-2">
+                                        <strong>@s.SpeciesName</strong>: M: R @s.PriceMale.ToString("N0") | V: R @s.PriceFemale.ToString("N0") | Trofee: R @s.PriceTrophy.ToString("N0") (Kwota: @s.AvailableCount)
+                                        <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 10px;" @onclick="() => RemoveSpecies(s)"></button>
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <h4 class="brand-font text-gold mb-3 mt-4">4. Plaasfoto's</h4>
+                    <FarmPhotoPicker Photos="_farm.ImageUrls" />
+
+                    <div class="d-flex justify-content-end gap-2 mt-4">
+                        <a href="/boer/plase" class="mp-btn mp-btn-secondary">Kanselleer</a>
+                        <button type="submit" class="mp-btn mp-btn-primary">Publiseer Plaas op Markplein &rarr;</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private FarmModel _farm = new();
+    private GameSpeciesInventoryModel _newSpecies = new() { AvailableCount = 15 };
+
+    /// <summary>Subscribes to auth-state changes (role/session can resolve after first render) and seeds the form.</summary>
+    protected override void OnInitialized()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        InitFarm();
+    }
+
+    /// <summary>Re-seeds the form when auth state changes, e.g. once the user's session finishes loading after initial render.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(() =>
+        {
+            InitFarm();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Pre-fills the new-farm form with the current user's identity plus placeholder
+    /// starter values (default rates, amenities, a stock image) the user is expected to edit.
+    /// The WebAPI makes the caller the owner from their sign-in token, whatever is sent here.
+    /// </summary>
+    private void InitFarm()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Boer") || Auth.HasRole("Farmer") || Auth.HasRole("Admin")))
+        {
+            _farm.FarmerUserId = Auth.CurrentUser?.UserId ?? 0;
+            var role = Auth.CurrentUser?.Roles.FirstOrDefault(r => AuthService.SameRole(r.RoleCode, "FARMER"));
+            _farm.FarmerUserRoleId = role?.Id ?? 0;
+            _farm.FarmerName = Auth.CurrentUser?.FullName ?? string.Empty;
+            _farm.DailyRateHunter = 1400m;
+            _farm.DailyRateObserver = 700m;
+            _farm.Amenities = new List<string> { "Lodge", "Slagfasiliteite", "Koelkamer", "Spoorsnyers", "WiFi" };
+            _farm.ImageUrls = new List<string>();
+        }
+    }
+
+    /// <summary>Appends the in-progress species row to the farm's inventory (client-side only until SaveFarm), then resets the input row.</summary>
+    private void AddSpecies()
+    {
+        if (!string.IsNullOrWhiteSpace(_newSpecies.SpeciesName))
+        {
+            _farm.GameInventory.Add(new GameSpeciesInventoryModel
+            {
+                SpeciesName = _newSpecies.SpeciesName,
+                PriceMale = _newSpecies.PriceMale,
+                PriceFemale = _newSpecies.PriceFemale,
+                PriceTrophy = _newSpecies.PriceTrophy,
+                AvailableCount = _newSpecies.AvailableCount > 0 ? _newSpecies.AvailableCount : 10
+            });
+            _newSpecies = new GameSpeciesInventoryModel { AvailableCount = 15 };
+        }
+    }
+
+    /// <summary>Removes a species row from the in-progress inventory.</summary>
+    private void RemoveSpecies(GameSpeciesInventoryModel item)
+    {
+        _farm.GameInventory.Remove(item);
+    }
+
+    private string _saveError = string.Empty;
+
+    /// <summary>Persists the farm via a single API call; on failure shows a generic retry message rather than the underlying error (SaveFarmAsync collapses failures to a bool).</summary>
+    private async Task SaveFarm()
+    {
+        _saveError = string.Empty;
+        // Same rules the WebAPI enforces: farms are listed publicly.
+        var name = _farm.Name?.Trim() ?? string.Empty;
+        if (name.Length < 3 || name.Length > 100 || !name.Any(char.IsLetter))
+        {
+            _saveError = "Die plaasnaam moet 3 tot 100 karakters wees en letters bevat.";
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(_farm.Description) && _farm.Description.Trim().Length < 20)
+        {
+            _saveError = "Beskryf die plaas in ten minste 20 karakters.";
+            return;
+        }
+        if (_farm.SizeHectares <= 0)
+        {
+            _saveError = "Die plaasgrootte moet groter as 0 wees.";
+            return;
+        }
+        bool ok = await Api.SaveFarmAsync(_farm);
+        if (ok)
+        {
+            Nav.NavigateTo("/boer/plase");
+        }
+        else
+        {
+            _saveError = "Kon nie die plaas stoor nie. Kontroleer u internetverbinding en probeer weer.";
+        }
+    }
+
+    /// <summary>Unsubscribes from auth-state changes to avoid a leaked event-handler reference once this component is torn down.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

@@ -1,0 +1,25 @@
+@* Quick-access links from a role dashboard to the AI Helper (/ki-helper): the packet maker / price optimiser for the role, and
+   Smart Teaming for every role except AP (advertisers do not take part in field teams). *@
+
+<div class="d-flex gap-2 flex-wrap mt-2">
+    <a href="/ki-helper?role=@RoleCode" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">✨ @PriceLabel</a>
+    @if (RoleCode != "AP")
+    {
+        <a href="/ki-helper?role=@RoleCode&tab=team" class="mp-btn mp-btn-secondary mp-btn-sm text-nowrap">🤝 Slim Spanbou</a>
+    }
+</div>
+
+@code {
+    /// <summary>PJ, PH, VG, Boer or AP.</summary>
+    [Parameter] public string RoleCode { get; set; } = "PJ";
+
+    private string PriceLabel => RoleCode switch
+    {
+        "PJ" => "AI-Pakketmaker",
+        "PH" => "AI-Tariefadvies",
+        "VG" => "AI-Videopakketmaker",
+        "Boer" => "AI-Plaastariewe",
+        "AP" => "AI-Advertensiehulp",
+        _ => "AI-Helper"
+    };
+}

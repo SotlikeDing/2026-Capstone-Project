@@ -1,0 +1,219 @@
+@* VG (Videographer) role's service-package management page (route: /vg/packages),
+   gated to the VG/Admin role. Lets a VG create/list their videography service offerings
+   (equipment, region, daily rate) that PJ packages and public listings pull from.
+   Nav is injected but unused - dead injection, harmless. *@
+@page "/vg/pakkette"
+@page "/vg/packages"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject AiDraftHandoff Handoff
+@implements IDisposable
+
+<PageTitle>VG Video Pakkette | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/vg/pakkette" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("VG") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Videograaf (VG) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Videograaf (VG)</strong> nie. U kan hierdie rol op u profiel aktiveer om videodienste te publiseer.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer VG Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Bestuur VG Video Pakkette</h1>
+            <p class="text-muted mb-0">Skep verfilming en hommeltuig video pakkette vir ekspedisies.</p>
+        </div>
+
+        <button class="mp-btn mp-btn-primary mp-btn-sm" @onclick="() => _showCreate = !_showCreate">
+            @(_showCreate ? "Sien Pakkette" : "+ Skep Nuwe Video Pakket")
+        </button>
+    </div>
+
+    @if (_showCreate)
+    {
+        <div class="mp-card p-4 mb-4 border-warning">
+            <h3 class="brand-font text-gold mb-3">Skep Videografie Pakket</h3>
+            @if (!string.IsNullOrEmpty(_aiNotice))
+            {
+                <div class="alert alert-info py-2 small mb-3">✨ @_aiNotice</div>
+            }
+            @if (!string.IsNullOrEmpty(_saveError))
+            {
+                <div class="alert alert-danger p-2 small mb-3">@_saveError</div>
+            }
+            <EditForm Model="_pkg" OnValidSubmit="SavePackage">
+                <div class="row g-3">
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label">Pakket Titel</label>
+                        <InputText @bind-Value="_pkg.Title" class="mp-form-control" placeholder="4K Filmiese Safari & Hommeltuigfilm" />
+                    </div>
+                    <div class="col-md-6 mp-form-group">
+                        <label class="mp-form-label">Dagtarief (ZAR)</label>
+                        <InputNumber @bind-Value="_pkg.DailyRate" class="mp-form-control" placeholder="3500" />
+                    </div>
+                </div>
+
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Streek Gedek</label>
+                    <InputText @bind-Value="_pkg.RegionCovered" class="mp-form-control" placeholder="Landwyd in Suid-Afrika" />
+                </div>
+
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Beskrywing van Verfilming &amp; Redigering</label>
+                    <InputTextArea @bind-Value="_pkg.Description" class="mp-form-control" rows="3" placeholder="Insluitende 4K hommeltuig beelde, hoë gehalte mikrofoon klank en 10min dokumentêr..." />
+                </div>
+
+                <div class="mp-form-group">
+                    <label class="mp-form-label">Kameras &amp; Hommeltuie Verskaf</label>
+                    <InputText @bind-Value="_pkg.EquipmentProvided" class="mp-form-control" placeholder="Sony A7S III, DJI Mavic 3 Cine, Draadlose Mikrofone" />
+                </div>
+
+                <div class="d-flex justify-content-end gap-2 mt-3">
+                    <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showCreate = false">Kanselleer</button>
+                    <button type="submit" class="mp-btn mp-btn-primary">Stoor VG Pakket</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_vgPackages.Count > 0)
+    {
+        <PackageFilterBar State="_filter" OnChanged="StateHasChanged" RegionOptions="Regions" RegionLabel="Streek"
+                              PriceLabel="dagtarief" SearchPlaceholder="Soek op titel, beskrywing, streek of dienste..."
+                              Total="_vgPackages.Count" Shown="Filtered.Count" />
+    }
+
+    <div class="mp-grid">
+        @foreach (var p in Filtered)
+        {
+            <div class="mp-card">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <h3 class="brand-font text-gold mb-0">@p.Title</h3>
+                    <span class="mp-badge mp-badge-success text-nowrap">R @p.DailyRate.ToString("N0") / dag</span>
+                </div>
+                <p class="text-muted small mb-2">Streek: @p.RegionCovered</p>
+                <p class="text-muted fs-6 mb-3">@p.Description</p>
+                <div class="small text-muted mb-2"><strong>Toerusting:</strong> @p.EquipmentProvided</div>
+                <a class="mp-btn mp-btn-secondary mp-btn-sm" href="/ki-helper?role=VG&vgPackageId=@p.Id">✨ Optimeer met AI</a>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<ServicePackageModel> _vgPackages = new();
+    private readonly PackageFilterState _filter = new();
+
+    private static readonly PackageFilterFields<ServicePackageModel> FilterFields = new()
+    {
+        Id = p => p.Id,
+        Title = p => p.Title,
+        Price = p => p.DailyRate,
+        Text = p => new[] { p.Title, p.Description, p.RegionCovered, p.EquipmentProvided }.Concat(p.ServicesIncluded),
+        Region = p => (p.RegionCovered ?? string.Empty).Split(new[] { ',', ';', '/' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+    };
+    private List<string> Regions => PackageFilterState.Options(_vgPackages.SelectMany(FilterFields.Region!));
+    private List<ServicePackageModel> Filtered => _filter.Apply(_vgPackages, FilterFields).ToList();
+    private bool _showCreate = false;
+    private ServicePackageModel _pkg = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Unsubscribes from Auth's event to avoid a stale-callback leak once this component is disposed.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>
+    /// Loads this VG's packages and pre-fills the create-form's identity fields
+    /// (ProviderUserId/Name/RoleCode) from the signed-in user. The `?? 5` / hardcoded
+    /// name fallback is a defensive placeholder that should never trigger here (this
+    /// branch only runs when Auth.IsAuthenticated is true) - not a live bug.
+    /// </summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("VG") || Auth.HasRole("Admin")))
+        {
+            var userId = Auth.CurrentUser?.UserId ?? 0;
+            _vgPackages = await Api.GetVgPackagesAsync(userId);
+            _pkg.ProviderUserId = userId;
+            _pkg.ProviderName = Auth.CurrentUser?.FullName ?? "Dirk Coetzee (VG)";
+            _pkg.RoleCode = "VG";
+            ApplyAiDraft();
+        }
+    }
+
+    private string _aiNotice = string.Empty;
+
+    /// <summary>Opens the create form pre-filled with a video package built in the AI Helper, once. Nothing is saved until the VG clicks save.</summary>
+    private void ApplyAiDraft()
+    {
+        var d = Handoff.Take("VG");
+        if (d == null) return;
+        _showCreate = true;
+        if (!string.IsNullOrWhiteSpace(d.Title)) _pkg.Title = d.Title;
+        if (!string.IsNullOrWhiteSpace(d.Description)) _pkg.Description = d.Description;
+        if (d.Price is > 0) _pkg.DailyRate = d.Price.Value;
+        if (!string.IsNullOrWhiteSpace(d.Province)) _pkg.RegionCovered = d.Province;
+        _aiNotice = $"Ingevul deur die AI-Helper (dagtarief = pakketprys gedeel deur {d.DurationDays ?? 1} dae) - kontroleer en klik dan stoor.";
+    }
+
+    private string _saveError = string.Empty;
+
+    private async Task SavePackage()
+    {
+        _saveError = string.Empty;
+        bool ok = await Api.SaveVgPackageAsync(_pkg);
+        if (!ok)
+        {
+            _saveError = "Kon nie die pakket stoor nie. Kontroleer u internetverbinding en probeer weer.";
+            return;
+        }
+        _showCreate = false;
+        _aiNotice = string.Empty;
+        _pkg = new();
+        // Re-populate ProviderUserId/ProviderName/RoleCode on the fresh _pkg (and
+        // refetch the list) - resetting to new() alone left those identity fields at
+        // their default (ProviderUserId=0), so creating a second package in the same
+        // session without a full page reload silently submitted it with VgId=0.
+        await LoadDataAsync();
+    }
+}

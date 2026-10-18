@@ -1,0 +1,140 @@
+@* Public landing/marketing page (route: "/"). Static role-overview content plus a
+   one-time "account deleted" success banner shown when redirected here with
+   ?deleted=true (see UserProfile.razor's delete-account flow / ProfileController).
+   Nav and Api are injected but unused in this file - dead injections, harmless. *@
+@page "/"
+@inject NavigationManager Nav
+@inject MikpuntApiService Api
+@inject AuthService Auth
+
+<PageTitle>MikPunt | Suid-Afrikaanse Jag &amp; Ekotoerisme Bestuursplatform</PageTitle>
+
+@if (AccountDeleted)
+{
+    <div class="alert alert-success d-flex align-items-center gap-2 mb-4 p-3 rounded" style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); color: #86efac;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+        <div>
+            <strong>Rekening Geskrap:</strong> U MikPunt-gebruikersrekening en alle verwante data is suksesvol en permanent verwyder.
+        </div>
+    </div>
+}
+
+<div class="mp-hero">
+    <h1>Die Omvattende Suid-Afrikaanse Jag &amp; Ekotoerisme Ekosisteem</h1>
+    <p>
+        MikPunt verbind Jagters, Plaaseienaars (Boere), Uitrusters (PJ), Professionele Jagters (PH), Videograwe en Adverteerders in een veilige, moderne stelsel.
+    </p>
+    <div class="d-flex justify-content-center gap-3 flex-wrap">
+        <a href="/markplein" class="mp-btn mp-btn-primary">Verken Jagpakkette</a>
+        <a href="/rolle" class="mp-btn mp-btn-secondary">Verduideliking van Rolle</a>
+    </div>
+</div>
+
+<!-- Service Overview Grid -->
+<h2 class="mb-4 text-center text-gold brand-font">Verken Ons Dienste</h2>
+<div class="mp-grid mb-5">
+    <div class="mp-card d-flex flex-column h-100">
+        <h3 class="brand-font text-gold mb-2">Jagter (Jagter)</h3>
+        <p class="text-muted flex-grow-1" style="font-size: 14px; line-height: 1.6;">
+            Bespreek pasgemaakte ekspedisies, bestuur jou digitale permit-wallet en genereer amptelike SAPS 520-vuurwapeninvoerdokumente vir 'n stresvrye jagervaring.
+        </p>
+        <div class="mt-auto pt-3">
+            <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm w-100 text-center fw-bold">MEER INLIGTING</a>
+        </div>
+    </div>
+
+    <div class="mp-card d-flex flex-column h-100">
+        <h3 class="brand-font text-gold mb-2">Plaaseienaar (Boer)</h3>
+        <p class="text-muted flex-grow-1" style="font-size: 14px; line-height: 1.6;">
+            Lys jou plaas, bestuur jou wildspesies-inventaris en dagtariewe intyds, en keur inkomende jag- en ekotoerisme-besprekings maklik goed.
+        </p>
+        <div class="mt-auto pt-3">
+            <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm w-100 text-center fw-bold">MEER INLIGTING</a>
+        </div>
+    </div>
+
+    <div class="mp-card d-flex flex-column h-100">
+        <h3 class="brand-font text-gold mb-2">Uitruster (PJ)</h3>
+        <p class="text-muted flex-grow-1" style="font-size: 14px; line-height: 1.6;">
+            Bou pasgemaakte ekspedisie-pakkette met alles ingesluit, werf en bestuur jou span van PH-gidse en videograwe, en bemark aan plaaslike en internasionale jagters.
+        </p>
+        <div class="mt-auto pt-3">
+            <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm w-100 text-center fw-bold">MEER INLIGTING</a>
+        </div>
+    </div>
+
+    <div class="mp-card d-flex flex-column h-100">
+        <h3 class="brand-font text-gold mb-2">Professionele Jagter (PH)</h3>
+        <p class="text-muted flex-grow-1" style="font-size: 14px; line-height: 1.6;">
+            Bied jou gespesialiseerde gids- en veldvaardighede aan, sluit aan by uitruster-spanne, en bestuur jou ekspedisieskedule en kliënteverhoudinge.
+        </p>
+        <div class="mt-auto pt-3">
+            <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm w-100 text-center fw-bold">MEER INLIGTING</a>
+        </div>
+    </div>
+
+    <div class="mp-card d-flex flex-column h-100">
+        <h3 class="brand-font text-gold mb-2">Videograaf (VG)</h3>
+        <p class="text-muted flex-grow-1" style="font-size: 14px; line-height: 1.6;">
+            Verfilm asemrowende 4K- en hommeltuig-video-opnames van ekspedisies, bied pasgemaakte produksiepakkette aan en lewer onvergeetlike herinneringe aan kliënte.
+        </p>
+        <div class="mt-auto pt-3">
+            <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm w-100 text-center fw-bold">MEER INLIGTING</a>
+        </div>
+    </div>
+
+    <div class="mp-card d-flex flex-column h-100">
+        <h3 class="brand-font text-gold mb-2">Adverteerder (AP)</h3>
+        <p class="text-muted flex-grow-1" style="font-size: 14px; line-height: 1.6;">
+            Bemark jou jaggereedskap, vuurwapens, optika, taksidermie, 4x4-voertuie en buitelugdienste direk aan 'n aktiewe gemeenskap van jagters en plaaseienaars.
+        </p>
+        <div class="mt-auto pt-3">
+            <a href="/rolle" class="mp-btn mp-btn-secondary mp-btn-sm w-100 text-center fw-bold">MEER INLIGTING</a>
+        </div>
+    </div>
+</div>
+
+<!-- 3-Step Process Guide -->
+<div class="mp-card mb-5 text-center p-5" style="background: rgba(43, 24, 12, 0.14);">
+    <h2 class="brand-font mb-4 text-gold">Hoe MikPunt Werk in 3 Stappe</h2>
+    <div class="row g-4 text-start">
+        <div class="col-md-4">
+            <div class="p-3 border border-secondary rounded h-100">
+                <div class="fs-4 text-gold mb-2 fw-bold">1. Kies Jou Rol</div>
+                <p style="font-size: 14px; color: var(--text-muted);">Registreer as Jagter, Boer, PJ, PH, Videograaf of Adverteerder. Jy kan verskeie rolle gelyktydig op jou profiel aktief hê.</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="p-3 border border-secondary rounded h-100">
+                <div class="fs-4 text-gold mb-2 fw-bold">2. Soek &amp; Bou Ekspedisie</div>
+                <p style="font-size: 14px; color: var(--text-muted);">Vind die regte plaas, kies jou wildspesies, of bou 'n volle ekspedisie met gids- en videodienste.</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="p-3 border border-secondary rounded h-100">
+                <div class="fs-4 text-gold mb-2 fw-bold">3. Veilige Betaling &amp; Permit</div>
+                <p style="font-size: 14px; color: var(--text-muted);">Voltooi jou bespreking, kry outomatiese permitte en SAPS 520 vuurwapendokumente gereed vir jou jag.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Account Signup CTA Banner -->
+<div class="mp-card text-center p-5" style="border: 2px solid var(--accent-gold);">
+    <h2 class="brand-font text-gold mb-3">Klaar om jou volgende jagavontuur te beplan?</h2>
+    <p class="mb-4" style="color: var(--text-muted);">Skep vandag nog jou gratis rekening en kry toegang tot Suid-Afrika se mees omvattende jag- en ekotoerisme netwerk.</p>
+    @if (Auth.IsAuthenticated)
+    {
+        <a href="/profiel" class="mp-btn mp-btn-primary">Gaan na My Profiel &rarr;</a>
+    }
+    else
+    {
+        <a href="/registreer" class="mp-btn mp-btn-primary">Registreer Nou Gratis</a>
+    }
+</div>
+
+@code {
+    /// <summary>True when navigated here as "/?deleted=true" right after a successful account deletion, to show a one-time confirmation banner.</summary>
+    [SupplyParameterFromQuery(Name = "deleted")]
+    public bool AccountDeleted { get; set; }
+}

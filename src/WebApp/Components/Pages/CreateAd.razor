@@ -1,0 +1,498 @@
+@* Advertiser (AP) "create ad" form at /ap/create-ad, step 1 of 2 (details here, payment
+   on the next page at /ap/pay-ad/{id}). Requires the "AP" or "Admin" role. Images are
+   client-side resized then base64-encoded into data: URLs stored directly on the ad
+   model (no separate file/blob storage) - fine for a capstone-scale image count, but
+   not how a production app would store ad images. *@
+@page "/ap/nuwe-advertensie"
+@page "/ap/create-ad"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject AiDraftHandoff Handoff
+@implements IDisposable
+
+<PageTitle>Plaas Advertensie | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/ap/nuwe-advertensie" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("AP") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Adverteerder (AP) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Adverteerder (AP)</strong> nie. U kan hierdie rol op u profiel aktiveer om advertensies te plaas.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer AP Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row justify-content-center">
+        <div class="col-md-9 col-lg-8">
+            <div class="mp-card p-4 p-md-5" id="createAdTop">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <a href="/ap/paneelbord" class="text-muted small text-decoration-none">&larr; Terug na Advertensies</a>
+                        <h1 class="brand-font text-gold mb-0 mt-1">Plaas 'n Nuwe Advertensie</h1>
+                    </div>
+                    <span class="mp-badge mp-badge-warning py-2 px-3">
+                        Stap 1 van 2: Advertensie Inligting
+                    </span>
+                </div>
+                
+                <p class="text-muted mb-4">
+                    Adverteer jou toerusting, vervoer, gewere of taksidermie aan duisende geregistreerde jagters en boere op MikPunt.
+                </p>
+
+                <!-- Pricing Notice Banner -->
+                <div class="p-3 rounded mb-4 d-flex align-items-start gap-3" style="background: rgba(217, 119, 6, 0.08); border: 1px solid var(--border-color);">
+                    <div class="text-gold mt-1">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    </div>
+                    <div class="small">
+                        <strong class="text-gold">Advertering Fooi: R@_adMonthlyPrice.ToString("N0") per maand</strong>
+                        <div class="text-muted">
+                            Elke advertensie wat geplaas word vereis 'n fooi van <strong>R@_adMonthlyPrice.ToString("N0")/maand</strong> voordat dit lewendig gaan. U sal in die volgende stap u tydsduur kan kies en die betaling kan voltooi.
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_errorMsg))
+                {
+                    <div class="alert alert-danger py-3 px-3 small mb-4 d-flex align-items-center gap-2" id="adErrorMessage">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        <span>@_errorMsg</span>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_aiNotice))
+                {
+                    <div class="alert alert-info py-2 small mb-3">✨ @_aiNotice</div>
+                }
+                <EditForm Model="_ad" OnValidSubmit="ProceedToPayment">
+                    <DataAnnotationsValidator />
+
+                    <div class="mp-form-group mb-3">
+                        <label class="mp-form-label">Advertensie Titel <span class="text-danger">*</span></label>
+                        <InputText @bind-Value="_ad.Title" class="mp-form-control" placeholder="bv. Swarovski Optik EL 10x42 Rangefinder Verkykers" />
+                        <small class="text-muted" style="font-size: 11px;">Kies 'n duidelike, treffende titel wat u produk of diens beskryf.</small>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Kategorie <span class="text-danger">*</span></label>
+                            <InputSelect @bind-Value="_ad.Category" class="mp-form-control">
+                                <option value="Toerusting">Toerusting &amp; Optika</option>
+                                <option value="Taksidermie">Taksidermie &amp; Montage</option>
+                                <option value="Vervoer">Vervoer &amp; Logistiek</option>
+                                <option value="Akkommodasie">Akkommodasie &amp; Jagkampe</option>
+                                <option value="Vuurwapens">Vuurwapens &amp; Ammunisie</option>
+                                <option value="Ander">Ander (Spesifiseer pasgemaak)</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Borg / Besigheidsnaam <span class="text-danger">*</span></label>
+                            <InputText @bind-Value="_ad.AdvertiserName" class="mp-form-control" placeholder="bv. Bushveld Outfitters SA" />
+                        </div>
+                    </div>
+
+                    @if (_ad.Category == "Ander")
+                    {
+                        <div class="mp-form-group mb-3 mp-status-banner">
+                            <label class="mp-form-label small">Spesifiseer Ander Kategorie <span class="text-danger">*</span></label>
+                            <InputText @bind-Value="_customCategory" class="mp-form-control" placeholder="bv. Wildvoeding, Voertuie, Veldopleiding, Jaghonde" />
+                        </div>
+                    }
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Kontaknommer <span class="text-danger">*</span></label>
+                            <InputText @bind-Value="_ad.ContactNumber" class="mp-form-control" placeholder="bv. +27 82 123 4567" />
+                            <small class="text-muted" style="font-size: 11px;">Verpligtend sodat belangstellendes u direk kan kontak.</small>
+                        </div>
+                        <div class="col-md-6 mp-form-group mb-0">
+                            <label class="mp-form-label">Teiken Webtuiste URL <span class="text-muted small fw-normal">(Opsioneel)</span></label>
+                            <InputText @bind-Value="_ad.TargetUrl" class="mp-form-control" placeholder="bv. https://www.bushveldoptics.co.za (opsioneel)" />
+                            <small class="text-muted" style="font-size: 11px;">Skakel na u webtuiste of sosiale media bladsy indien beskikbaar.</small>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4 mp-form-group mb-0">
+                            <label class="mp-form-label">Plasingstipe</label>
+                            <InputSelect @bind-Value="_ad.PlacementType" class="mp-form-control">
+                                <option value="Banner">Banier (Standaard)</option>
+                                <option value="Spotlight">Kollig</option>
+                                <option value="Featured">Uitgelig</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-4 mp-form-group mb-0">
+                            <label class="mp-form-label">Dorp / Stad <span class="text-muted small fw-normal">(Opsioneel)</span></label>
+                            <InputText @bind-Value="_ad.AddressCity" class="mp-form-control" placeholder="bv. Polokwane" />
+                        </div>
+                        <div class="col-md-4 mp-form-group mb-0">
+                            <label class="mp-form-label">Provinsie / Streek <span class="text-muted small fw-normal">(Opsioneel)</span></label>
+                            <InputText @bind-Value="_ad.AddressRegion" class="mp-form-control" placeholder="bv. Limpopo" />
+                        </div>
+                    </div>
+
+                    <div class="mp-form-group mb-4">
+                        <label class="mp-form-label">Beskrywing van Produk / Aanbod <span class="text-danger">*</span></label>
+                        <InputTextArea @bind-Value="_ad.Description" class="mp-form-control" rows="3" placeholder="Beskryf die spesifikasies, afslag vir lede, of diensbesonderhede..." />
+                    </div>
+
+                    <!-- Multiple Image Upload Component -->
+                    <div class="mp-gallery-box mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                            <label class="mp-form-label mb-0">
+                                Advertensie Prente / Galery <span class="text-danger">*</span>
+                            </label>
+                            <span class="small text-muted">@_ad.ImageUrls.Count @(_ad.ImageUrls.Count == 1 ? "prent opgelaai" : "prente opgelaai")</span>
+                        </div>
+                        <p class="text-muted small mb-3">
+                            Laai een of meer hoëgehalte prente (produkte, toerusting, uitsigte) vanaf u toestel op (PNG, JPG, WebP - Maks 5 MB elk). Die eerste prent sal dien as die hoofbanier.
+                        </p>
+
+                        @if (_ad.ImageUrls != null && _ad.ImageUrls.Count > 0)
+                        {
+                            <div class="row g-3 mb-3">
+                                @for (int i = 0; i < _ad.ImageUrls.Count; i++)
+                                {
+                                    var imgUrl = _ad.ImageUrls[i];
+                                    var index = i;
+                                    <div class="col-6 col-md-4 col-lg-3">
+                                        <div class="position-relative rounded overflow-hidden border border-secondary shadow-sm" style="height: 160px; background: #111;">
+                                            <img src="@imgUrl" alt="Prent @(index + 1)" style="width: 100%; height: 100%; object-fit: cover;" />
+                                            
+                                            @if (index == 0)
+                                            {
+                                                <span class="badge bg-warning text-dark position-absolute top-0 start-0 m-2 shadow-sm font-bold" style="font-size: 11px;">
+                                                    ★ Hoofprent
+                                                </span>
+                                            }
+
+                                            <div class="position-absolute bottom-0 start-0 end-0 p-1 d-flex justify-content-between align-items-center gap-1" style="background: rgba(0, 0, 0, 0.75);">
+                                                @if (index > 0)
+                                                {
+                                                    <button type="button" class="btn btn-xs btn-outline-light py-0 px-2 small" style="font-size: 10px;" @onclick="() => SetAsPrimary(imgUrl)">
+                                                        Maak Hoof
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <span></span>
+                                                }
+                                                <button type="button" class="btn btn-xs btn-danger py-0 px-2 small" style="font-size: 10px;" @onclick="() => RemoveImage(imgUrl)">
+                                                    ✕ Verwyder
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <div class="d-flex align-items-center gap-3 flex-wrap">
+                            <InputFile id="adImageInput" OnChange="HandleImagesSelected" multiple accept="image/*" class="d-none" />
+                            <label for="adImageInput" class="mp-btn mp-btn-secondary cursor-pointer m-0 d-inline-flex align-items-center gap-2">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                                @(_ad.ImageUrls == null || _ad.ImageUrls.Count == 0 ? "Kies & Laai Prente Op..." : "+ Voeg Nog Prente By...")
+                            </label>
+                            @if (!string.IsNullOrEmpty(_uploadStatusMsg))
+                            {
+                                <span class="small text-gold">@_uploadStatusMsg</span>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="d-flex justify-content-between align-items-center pt-3 border-top border-secondary flex-wrap gap-2">
+                        <a href="/ap/paneelbord" class="mp-btn mp-btn-secondary">Kanselleer</a>
+                        <button type="submit" class="mp-btn mp-btn-primary py-2 px-4 fw-bold" disabled="@_isSubmitting">
+                            @if (_isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Besig om te stoor...</span>
+                            }
+                            else
+                            {
+                                <span>Gaan Voort na Betaling &rarr; (R@_adMonthlyPrice.ToString("N0")/mnd)</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private AdvertisementModel _ad = new();
+    private bool _isSubmitting = false;
+    private string _errorMsg = string.Empty;
+    private string _customCategory = string.Empty;
+    private string _uploadStatusMsg = string.Empty;
+
+    private decimal _adMonthlyPrice = 100m;
+
+    protected override void OnInitialized()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        InitAdModel();
+    }
+
+    /// <summary>Loads the live admin-configured monthly ad price (shown throughout the form) separately from OnInitialized, since it needs an async API call.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        _adMonthlyPrice = (await Api.GetPublicSettingsAsync()).AdMonthlyPrice;
+    }
+
+    /// <summary>Re-seeds the ad model's default AP-owner fields when auth state changes (e.g. login completes after this page already rendered its "please sign in" state).</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(() =>
+        {
+            InitAdModel();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Seeds a blank ad model with the current AP's identity/contact defaults and Pending-Payment defaults, ready for the form to bind against.</summary>
+    private void InitAdModel()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("AP") || Auth.HasRole("Admin")))
+        {
+            _ad.AdvertiserUserId = Auth.CurrentUser?.UserId ?? 0;
+            if (string.IsNullOrWhiteSpace(_ad.AdvertiserName) || _ad.AdvertiserName == "Bushveld Outfitters SA")
+            {
+                _ad.AdvertiserName = !string.IsNullOrWhiteSpace(Auth.CurrentUser?.FullName) ? Auth.CurrentUser.FullName : "Geregistreerde Borg";
+            }
+            if (string.IsNullOrWhiteSpace(_ad.ContactNumber))
+            {
+                _ad.ContactNumber = Auth.CurrentUser?.Phone ?? string.Empty;
+            }
+            _ad.Category = "Toerusting";
+            _ad.ImageUrls = new();
+            _ad.DurationMonths = 1;
+            _ad.MonthlyRate = 100m;
+            _ad.TotalPaidAmount = 100m;
+            _ad.IsActive = false;
+            _ad.PaymentStatus = "Pending Payment";
+            _ad.StartDate = DateTime.Today;
+            _ad.EndDate = DateTime.Today.AddMonths(1);
+            ApplyAiDraft();
+        }
+    }
+
+    private AiAppliedDraft? _aiDraft;
+    private string _aiNotice = string.Empty;
+
+    /// <summary>Pre-fills headline, text and category from the AI Helper. Kept in a field and re-applied because InitAdModel re-runs on auth changes.</summary>
+    private void ApplyAiDraft()
+    {
+        _aiDraft ??= Handoff.Take("AP", 0);
+        if (_aiDraft is not { } d) return;
+        if (!string.IsNullOrWhiteSpace(d.Title)) _ad.Title = d.Title;
+        if (!string.IsNullOrWhiteSpace(d.Description)) _ad.Description = d.Description;
+        if (!string.IsNullOrWhiteSpace(d.AdCategory)) _ad.Category = d.AdCategory;
+        _aiNotice = "Ingevul deur die AI-Helper - kontroleer, voeg 'n prent by en gaan dan voort.";
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+
+    /// <summary>Resizes each selected image client-side to max 1200x800 and appends it to ImageUrls as a base64 data: URL. Silently skips any file over 5MB (surfacing an error per skipped file) rather than rejecting the whole batch.</summary>
+    private async Task HandleImagesSelected(InputFileChangeEventArgs e)
+    {
+        var files = e.GetMultipleFiles(10);
+        if (files == null || files.Count == 0) return;
+
+        int added = 0;
+        _uploadStatusMsg = "Besig om prente te verwerk...";
+
+        foreach (var file in files)
+        {
+            if (file.Size > 5 * 1024 * 1024)
+            {
+                _errorMsg = $"Lêer '{file.Name}' is groter as 5 MB en is oorgeslaan.";
+                continue;
+            }
+
+            try
+            {
+                var format = file.ContentType;
+                if (string.IsNullOrWhiteSpace(format)) format = "image/png";
+
+                var resized = await file.RequestImageFileAsync(format, 1200, 800);
+                using var stream = resized.OpenReadStream(5 * 1024 * 1024);
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                var base64 = Convert.ToBase64String(ms.ToArray());
+                var dataUrl = $"data:{format};base64,{base64}";
+
+                if (!_ad.ImageUrls.Contains(dataUrl))
+                {
+                    _ad.ImageUrls.Add(dataUrl);
+                    added++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _errorMsg = $"Kon nie '{file.Name}' oplaai nie: {ex.Message}";
+            }
+        }
+
+        _uploadStatusMsg = added > 0 ? $"{added} prent(e) suksesvol bygevoeg." : string.Empty;
+    }
+
+    /// <summary>Moves an image to index 0, making it the "main" banner image (image order in the list is the display order, index 0 is always the primary).</summary>
+    private void SetAsPrimary(string imgUrl)
+    {
+        if (_ad.ImageUrls.Contains(imgUrl))
+        {
+            _ad.ImageUrls.Remove(imgUrl);
+            _ad.ImageUrls.Insert(0, imgUrl);
+        }
+    }
+
+    /// <summary>Removes an uploaded image from the gallery.</summary>
+    private void RemoveImage(string imgUrl)
+    {
+        _ad.ImageUrls.Remove(imgUrl);
+        if (_ad.ImageUrls.Count == 0)
+        {
+            _uploadStatusMsg = string.Empty;
+        }
+    }
+
+    /// <summary>Scrolls back to the top of the form so a validation error banner (rendered near the top) is visible after a failed submit further down the page.</summary>
+    private async Task ScrollToTopAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("window.scrollTo", 0, 0);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Client-side validates the ad form, then saves it as an inactive/Pending-Payment
+    /// ad and navigates to the payment step. Actual activation only happens once
+    /// payment succeeds on the next page - this call just reserves the ad record.
+    /// </summary>
+    private async Task ProceedToPayment()
+    {
+        _errorMsg = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_ad.Title))
+        {
+            _errorMsg = "Voer asseblief 'n advertensietitel in.";
+            await ScrollToTopAsync();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_ad.Category))
+        {
+            _errorMsg = "Kies asseblief 'n kategorie.";
+            await ScrollToTopAsync();
+            return;
+        }
+
+        if (_ad.Category == "Ander")
+        {
+            if (string.IsNullOrWhiteSpace(_customCategory))
+            {
+                _errorMsg = "Spesifiseer asseblief u pasgemaakte kategorie.";
+                await ScrollToTopAsync();
+                return;
+            }
+            _ad.Category = _customCategory.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(_ad.AdvertiserName))
+        {
+            _errorMsg = "Voer asseblief 'n borg- of maatskappynaam in.";
+            await ScrollToTopAsync();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_ad.ContactNumber))
+        {
+            _errorMsg = "Kontaknommer is verpligtend.";
+            await ScrollToTopAsync();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_ad.Description))
+        {
+            _errorMsg = "Voer asseblief 'n beskrywing vir die advertensie in.";
+            await ScrollToTopAsync();
+            return;
+        }
+
+        if (_ad.ImageUrls == null || _ad.ImageUrls.Count == 0)
+        {
+            _errorMsg = "Laai asseblief ten minste een prent vir die advertensie op.";
+            await ScrollToTopAsync();
+            return;
+        }
+
+        _isSubmitting = true;
+
+        try
+        {
+            _ad.AdvertiserUserId = Auth.CurrentUser?.UserId ?? _ad.AdvertiserUserId;
+            if (_ad.AdvertiserUserId <= 0)
+            {
+                _errorMsg = "U moet aangemeld wees met 'n geldige AP rekening om 'n advertensie te plaas.";
+                await ScrollToTopAsync();
+                return;
+            }
+
+            _ad.IsActive = false;
+            _ad.PaymentStatus = "Pending Payment";
+            _ad.StartDate = DateTime.Today;
+            _ad.EndDate = DateTime.Today.AddMonths(Math.Max(1, _ad.DurationMonths));
+            if (string.IsNullOrWhiteSpace(_ad.TargetUrl))
+            {
+                _ad.TargetUrl = "#";
+            }
+
+            var saved = await Api.SaveAdAsync(_ad);
+            Nav.NavigateTo($"/ap/betaal-advertensie/{saved.Id}");
+        }
+        catch (Exception ex)
+        {
+            _errorMsg = $"Kon nie advertensie stoor nie: {ex.Message}";
+            await ScrollToTopAsync();
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}
+
+

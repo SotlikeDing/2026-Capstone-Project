@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  webapi:
+    image: gitlab.akademia.ac.za:5050/rkw/nswiw370/2026/span2/webapi:latest
+    container_name: webapi-prod
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      # VG media from the website is relayed to MobileAPI (needs InternalApi__Key in the env file).
+      - InternalApi__MobileApiBaseUrl=http://mobileapi:80
+      # AI Helper: the LLM is a hosted API - set AiHelper__Llm__Provider and AiHelper__Llm__ApiKey in .env.prod.
+    ports:
+      - "8081:80"
+    volumes:
+      # Retrained price-model bundles (uploaded via retrain.py --upload) survive redeploys here.
+      - ai_models:/data/ai-models
+    networks:
+      - span2_prod
+
+  mobileapi:
+    image: gitlab.akademia.ac.za:5050/rkw/nswiw370/2026/span2/mobileapi:latest
+    container_name: mobileapi-prod
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      # App team ratings are relayed to WebAPI (needs InternalApi__Key in the env file).
+      - InternalApi__WebApiBaseUrl=http://webapi:80
+      - ASPNETCORE_URLS=http://+:80
+      - Kestrel__Endpoints__Http__Url=http://+:80
+    ports:
+      - "8082:80"
+    volumes:
+      - mobileapi_trophy_photos:/app/Data/TrophyPhotos
+      - mobileapi_shared_booking:/data/shared-booking
+      - mobileapi_youtube_keys:/data/youtube-keys
+    networks:
+      - span2_prod
+
+  webapp:
+    image: gitlab.akademia.ac.za:5050/rkw/nswiw370/2026/span2/webapp:latest
+    container_name: webapp-prod
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ApiBaseUrl=http://webapi:80
+    ports:
+      - "8080:80"
+    depends_on:
+      - webapi
+      - mobileapi
+    networks:
+      - span2_prod
+
+volumes:
+  ai_models:
+  mobileapi_trophy_photos:
+  mobileapi_shared_booking:
+  mobileapi_youtube_keys:
+
+networks:
+  span2_prod:
+    driver: bridge

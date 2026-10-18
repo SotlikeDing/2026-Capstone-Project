@@ -1,0 +1,48 @@
+{
+  "_comment": "Published 2026/27 South African outfitter pricing (USD) used to anchor the bootstrap training data and to ground the LLM. 'assumed' entries are NOT sourced: they are modelling assumptions that real MikPunt data should overwrite - the training pipeline reports them as such in model_card.json and the API marks the affected answers as low confidence.",
+  "currency": "USD",
+  "sources": {
+    "gaspare": "https://www.gasparespaniosafaris.co.za/hunting-price-list/ (updated 2026-04-04)",
+    "bgha": "https://biggamehuntingadventures.com/south-africa-hunting-price-list/ (2026-2027)",
+    "asky": "https://www.africanskyhunting.co.za/pricelist.php (updated 2026-05-21)",
+    "video": "Published filming quotes: Dirk Pieters Films, HP Productions, Sun Africa Safaris, Africa Wild Productions, iGala Productions, Big Game Hunting Adventures, African Sky Hunting (2025-2026)"
+  },
+  "dailyRatePerHunterUsd": {
+    "_note": "Includes licensed PH, trackers, lodge, all meals, field preparation of trophies, hunting permits. Published: 1x1 = 380 (gaspare) / 500 (bgha) / 435 (asky); 2x1 = 350 (gaspare) / 400 (bgha) / 335 (asky).",
+    "oneByOne": { "min": 380, "max": 500, "mean": 438 },
+    "twoByOne": { "min": 335, "max": 400, "mean": 362 }
+  },
+  "observerDailyRateUsd": {
+    "_note": "Non-hunter: 280 (bgha), 250 (asky), 170 own room / 116 sharing (gaspare). The ratio to the hunter rate is the portable number.",
+    "min": 116, "max": 280,
+    "ratioToHunterRate": { "min": 0.33, "max": 0.70, "typical": 0.55 }
+  },
+  "videographyUsdPerDay": {
+    "min": 300, "max": 480, "typical": 380,
+    "uhd4kUpgradePerDay": 150,
+    "note": "Quotes range 300-480/day (median ~380), editing/teaser often included. BGHA: 2,800 for 8 days and 3,850 for 11 days (a flat 350/day, no long-stay discount). African Sky: 480/day."
+  },
+  "addOns": {
+    "airportTransferPerPersonUsd": 170,
+    "preOrPostSafariNightUsd": 200,
+    "note": "Gaspare lists return airport transport at 170 per person (min 3 persons); BGHA and African Sky include the Johannesburg transfer in the daily rate."
+  },
+  "packagesUsd": {
+    "note": "African Sky all-in packages are priced at a 10% discount on daily rate + trophy fees: 5-day beginner's bushveld 3,915 (1x1) / 3,555 (2x1); 7-day bushveld 9,828 / 9,288; 14-day 14,459 / 13,289; 21-day 24,930 / 23,130. BGHA 8-day buffalo package 16,530 (1x1). Buffalo needs a minimum of 7 hunting days (gaspare)."
+  },
+  "domestic": {
+    "_note": "No published domestic (ZAR, local-hunter) price list could be verified: two Afrikaans lists (Hexrivier Safaris, Ocram Game Farm) were unreachable. The ONLY datapoint is a search-result snippet of ~R1,000 per person per night incl. meals; it is consistent with the platform's own defaults (farm daily rate R850-R1,400, PH standard rate R2,800). Everything in the 'domestic' market segment is therefore ASSUMED and reported as low confidence."
+  },
+  "assumed": {
+    "_note": "Unsourced assumptions - overwrite with real data.",
+    "trophyTierMultipliers": { "female": 0.40, "male": 0.65, "trophy": 1.00 },
+    "phShareOfDailyRate": "0.35-0.45 of the all-in daily rate",
+    "phDangerousGameMultiplier": 1.8,
+    "domesticVsInternationalMultipliers": { "FARM_DAILY_RATE": 0.16, "SPECIES_FEE": 0.25, "PJ_PACKAGE": 0.30, "PH_RATE": 0.85, "VG_PACKAGE": 0.55 },
+    "provinceMultipliers": {
+      "limpopo": 1.00, "north_west": 0.97, "gauteng": 1.05, "mpumalanga": 1.03, "free_state": 0.94,
+      "northern_cape": 0.96, "eastern_cape": 0.95, "western_cape": 1.04, "kwazulu_natal": 1.02
+    },
+    "seasonMultipliers": { "peak_may_aug": 1.06, "off_dec_feb": 0.96, "other": 1.00 }
+  }
+}

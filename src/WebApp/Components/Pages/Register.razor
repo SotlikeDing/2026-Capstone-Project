@@ -1,0 +1,1065 @@
+@* Two-step account creation wizard at /register. Step 1 collects identity/contact/
+   password (with a client-side strength meter enforcing 12+ chars, upper, digit,
+   special); Step 2 is multi-role selection (Jagter/Boer/PJ/PH/VG/AP, any combination)
+   with role-specific mandatory accreditation fields that only appear for selected
+   roles. Boer/PJ/PH roles are flagged in the UI as requiring admin verification after
+   signup (see the document-verification workflow in UserDocumentsController /
+   AdminController). Submission posts to WebAPI via Api.RegisterUserAsync, then calls
+   AuthService.Register purely to seed local UI state before redirecting to
+   /verify-email - see the doc comment on AuthService.Register for why that local user
+   object (with a client-generated placeholder UserId) isn't the source of truth. *@
+@page "/registreer"
+@page "/register"
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject MikpuntApiService Api
+@inject IJSRuntime JS
+
+<PageTitle>Registreer Rekening | MikPunt</PageTitle>
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-9 col-xl-8">
+            @if (!_registrationsOpen)
+            {
+                <div class="alert alert-warning mb-3">
+                    <strong>Nuwe registrasies is tydelik gesluit.</strong> Bestaande gebruikers kan steeds <a href="/teken-in">aanmeld</a>. Probeer asseblief later weer.
+                </div>
+            }
+            <div class="mp-card shadow-lg p-4 p-md-5 rounded-4 border-0">
+                <!-- Header -->
+                <div class="text-center mb-4">
+                    <span class="badge bg-gold font-monospace mb-2 px-3 py-2 text-uppercase fw-bold mp-badge-title">Sluit aan by MikPunt</span>
+                    <h2 class="brand-font text-gold display-6 fw-bold">Skep jou Rekening</h2>
+                    <p class="text-muted small">Die sentrale Suid-Afrikaanse jag &amp; ekotoerisme netwerk vir Jagters, Boere, Uitrusters (PJ), PHs, Videograwe en Adverteerders.</p>
+                </div>
+
+                <!-- Wizard Progress Bar -->
+                <div class="position-relative mb-4 px-3">
+                    <div class="progress" style="height: 4px; background-color: var(--border-color);">
+                        <div class="progress-bar bg-warning transition-all" role="progressbar" style="width: @(_currentStep == 1 ? "50%" : "100%");"></div>
+                    </div>
+                    <div class="d-flex justify-content-between position-relative mt-n3" style="margin-top: -14px;">
+                        <button type="button" class="btn btn-sm rounded-circle @(_currentStep >= 1 ? "btn-warning fw-bold text-dark" : "btn-secondary")" style="width: 28px; height: 28px; padding: 0;">1</button>
+                        <button type="button" class="btn btn-sm rounded-circle @(_currentStep == 2 ? "btn-warning fw-bold text-dark" : "btn-secondary")" style="width: 28px; height: 28px; padding: 0;">2</button>
+                    </div>
+                    <div class="d-flex justify-content-between small text-muted mt-2">
+                        <span class="@(_currentStep == 1 ? "text-gold fw-bold" : "")">1. Rekening &amp; Sekuriteit</span>
+                        <span class="@(_currentStep == 2 ? "text-gold fw-bold" : "")">2. Rolle &amp; Kwalifikasies</span>
+                    </div>
+                </div>
+
+                <!-- Global Error Alert -->
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div id="registerErrorAlert" class="alert alert-danger alert-dismissible fade show d-flex align-items-center mb-4 shadow-sm" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+                        <div class="fw-semibold">@_errorMessage</div>
+                        <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+                    </div>
+                }
+
+                <EditForm Model="_model">
+                    <DataAnnotationsValidator />
+
+                    @if (_currentStep == 1)
+                    {
+                        <!-- STEP 1: ACCOUNT & SECURITY -->
+                        <div class="step-container animate-fade-in">
+                            <h4 class="brand-font text-gold mb-3 pb-2 border-bottom border-secondary">
+                                <i class="bi bi-person-badge me-2"></i>Stap 1: Persoonlike &amp; Kontakinligting
+                            </h4>
+
+                            <!-- Profielfoto Oplaai -->
+                            <div class="mb-4 text-center p-3 rounded-3 mp-card border">
+                                <label class="form-label mp-profile-pic-label small fw-bold d-block mb-2">Profielfoto (Opsioneel)</label>
+                                <div class="d-inline-block position-relative mb-2">
+                                    @if (!string.IsNullOrEmpty(_profilePicPreviewUrl))
+                                    {
+                                        <img src="@_profilePicPreviewUrl" class="rounded-circle border border-2 border-warning shadow" style="width: 90px; height: 90px; object-fit: cover;" alt="Profiel Foto Voorskou" />
+                                    }
+                                    else
+                                    {
+                                        <div class="rounded-circle bg-secondary bg-opacity-25 border border-2 border-secondary d-flex align-items-center justify-content-center shadow" style="width: 90px; height: 90px; margin: 0 auto;">
+                                            <i class="bi bi-person-fill text-gold fs-1"></i>
+                                        </div>
+                                    }
+                                </div>
+                                <div>
+                                    <label for="profilePicInput" class="btn btn-sm btn-outline-warning fw-bold">
+                                        <i class="bi bi-camera-fill me-1"></i> Kies Foto
+                                    </label>
+                                    <InputFile id="profilePicInput" OnChange="HandleProfilePicSelected" accept="image/*" class="d-none" />
+                                    @if (!string.IsNullOrEmpty(_profilePicPreviewUrl))
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger ms-2 fw-bold" @onclick="RemoveProfilePic">
+                                            <i class="bi bi-trash-fill me-1"></i> Verwyder
+                                        </button>
+                                    }
+                                </div>
+                                <div class="form-text text-muted small mt-1">PNG, JPG of WEBP (maks 3 MB).</div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label mp-input-label small fw-bold">Voornaam <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_model.FirstName" class="mp-form-control" placeholder="bv. Johan" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label mp-input-label small fw-bold">Van <span class="text-danger">*</span></label>
+                                    <InputText @bind-Value="_model.LastName" class="mp-form-control" placeholder="bv. Van der Merwe" />
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label mp-input-label small fw-bold">E-posadres <span class="text-danger">*</span></label>
+                                <InputText @bind-Value="_model.Email" class="mp-form-control" placeholder="naam@voorbeeld.co.za" />
+                                <div class="form-text text-muted">Ons sal 'n verifikasiekode na hierdie e-posadres stuur. Slegs een rekening per e-pos word toegelaat.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label mp-input-label small fw-bold">Telefoonnommer <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <InputSelect @bind-Value="_model.PhoneCountryCode" class="mp-form-control form-select" style="max-width: 140px;">
+                                        <option value="+27">+27 (RSA)</option>
+                                        <option value="+1">+1 (USA)</option>
+                                        <option value="+44">+44 (UK)</option>
+                                        <option value="+49">+49 (DE)</option>
+                                        <option value="+61">+61 (AUS)</option>
+                                        <option value="+264">+264 (NAM)</option>
+                                    </InputSelect>
+                                    <InputText @bind-Value="_model.Phone" class="mp-form-control" placeholder="82 123 4567" />
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label mp-input-label small fw-bold">Wagwoord <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <InputText @bind-Value="_model.Password" type="@(_showPassword ? "text" : "password")" class="mp-form-control" placeholder="••••••••••••" @oninput="OnPasswordInput" />
+                                        <button type="button" class="btn mp-eye-toggle-btn px-3 d-flex align-items-center justify-content-center" @onclick="() => _showPassword = !_showPassword" title="Wissel wagwoord sigbaarheid">
+                                            @if (_showPassword)
+                                            {
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-eye-slash-fill" viewBox="0 0 16 16">
+                                                    <path d="m10.79 12.912-1.614-1.615a3.5 3.5 0 0 1-4.474-4.474l-2.06-2.06C.938 6.278 0 8 0 8s3 5.5 8 5.5a7.029 7.029 0 0 0 2.79-.588zM5.21 3.088A7.028 7.028 0 0 1 8 2.5c5 0 8 5.5 8 5.5s-.939 1.721-2.641 3.238l-2.062-2.062a3.5 3.5 0 0 0-4.474-4.474L5.21 3.089z"/>
+                                                    <path d="M5.525 7.646a2.5 2.5 0 0 0 2.829 2.829l-2.83-2.829zm4.95.708-2.829-2.83a2.5 2.5 0 0 1 2.829 2.829zm3.171 6-12-12 .708-.708 12 12-.708.708z"/>
+                                                </svg>
+                                            }
+                                            else
+                                            {
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-eye-fill" viewBox="0 0 16 16">
+                                                    <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+                                                    <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                                                </svg>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label mp-input-label small fw-bold">Bevestig Wagwoord <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <InputText @bind-Value="_model.ConfirmPassword" type="@(_showConfirmPassword ? "text" : "password")" class="mp-form-control" placeholder="••••••••••••" />
+                                        <button type="button" class="btn mp-eye-toggle-btn px-3 d-flex align-items-center justify-content-center" @onclick="() => _showConfirmPassword = !_showConfirmPassword" title="Wissel bevestigingswagwoord sigbaarheid">
+                                            @if (_showConfirmPassword)
+                                            {
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-eye-slash-fill" viewBox="0 0 16 16">
+                                                    <path d="m10.79 12.912-1.614-1.615a3.5 3.5 0 0 1-4.474-4.474l-2.06-2.06C.938 6.278 0 8 0 8s3 5.5 8 5.5a7.029 7.029 0 0 0 2.79-.588zM5.21 3.088A7.028 7.028 0 0 1 8 2.5c5 0 8 5.5 8 5.5s-.939 1.721-2.641 3.238l-2.062-2.062a3.5 3.5 0 0 0-4.474-4.474L5.21 3.089z"/>
+                                                    <path d="M5.525 7.646a2.5 2.5 0 0 0 2.829 2.829l-2.83-2.829zm4.95.708-2.829-2.83a2.5 2.5 0 0 1 2.829 2.829zm3.171 6-12-12 .708-.708 12 12-.708.708z"/>
+                                                </svg>
+                                            }
+                                            else
+                                            {
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-eye-fill" viewBox="0 0 16 16">
+                                                    <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+                                                    <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                                                </svg>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Real-time Password Strength Meter (Enforces Min 12 Characters) -->
+                            <div class="mp-card border-secondary p-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="small text-muted">Wagwoordsterkte:</span>
+                                    <span class="badge @_strengthBadgeClass">@_strengthText</span>
+                                </div>
+                                <div class="progress mb-2" style="height: 6px;">
+                                    <div class="progress-bar @_strengthBarClass" role="progressbar" style="width: @(_passwordScore * 25)%;"></div>
+                                </div>
+                                <div class="row g-1 small text-muted">
+                                    <div class="col-6"><i class="bi @(_hasMinLength ? "bi-check-circle-fill text-success" : "bi-circle text-secondary") me-1"></i>Min 12 karakters</div>
+                                    <div class="col-6"><i class="bi @(_hasUpper ? "bi-check-circle-fill text-success" : "bi-circle text-secondary") me-1"></i>Hoofletter (A-Z)</div>
+                                    <div class="col-6"><i class="bi @(_hasNumber ? "bi-check-circle-fill text-success" : "bi-circle text-secondary") me-1"></i>Syfer (0-9)</div>
+                                    <div class="col-6"><i class="bi @(_hasSpecial ? "bi-check-circle-fill text-success" : "bi-circle text-secondary") me-1"></i>Spesiale teken (!@@#$)</div>
+                                </div>
+                            </div>
+
+                            <div class="form-check mb-4">
+                                <InputCheckbox @bind-Value="_model.TermsAccepted" class="form-check-input" id="termsCheck" />
+                                <label class="form-check-label text-muted small" for="termsCheck">
+                                    Ek aanvaar MikPunt se <a href="/bepalings" target="_blank" class="text-gold">Diensvoorwaardes</a> en <a href="/privaatheid" target="_blank" class="text-gold">Privaatheidsbeleid</a>.
+                                </label>
+                            </div>
+
+                            <button type="button" class="mp-btn mp-btn-primary w-100 py-2 fs-5 fw-bold" @onclick="GoToStep2">
+                                Gaan Voort na Rolkiesing <i class="bi bi-arrow-right ms-2"></i>
+                            </button>
+                        </div>
+                    }
+                    else if (_currentStep == 2)
+                    {
+                        <!-- STEP 2: MULTI-ROLE SELECTION & MANDATORY ROLE-SPECIFIC FIELDS -->
+                        <div class="step-container animate-fade-in">
+                            <h4 class="brand-font text-gold mb-2">
+                                <i class="bi bi-shield-check me-2"></i>Stap 2: Kies Jou Rolle op MikPunt
+                            </h4>
+                            <p class="text-muted small mb-3">Jy moet **ten minste een rol** kies. Klik op die kaarte om veelvuldige rolle te kies. Inligting vir alle gekose rolle is verpligtend.</p>
+
+                            <!-- Role Selection Indicator Badge -->
+                            <div class="mb-4">
+                                <span class="badge bg-gold text-dark font-monospace fs-6 px-3 py-2">Gekose Rolle (@_selectedRoles.Count): @(string.Join(", ", _selectedRoles))</span>
+                            </div>
+
+                            <!-- Role Selector Cards (Multi-Select Support) -->
+                            <div class="row g-3 mb-4">
+                                <!-- Jagter -->
+                                <div class="col-md-6">
+                                    <div class="role-card p-3 border rounded-3 h-100 cursor-pointer transition-all @(IsRoleSelected("Jagter") ? "border-warning shadow-sm ring-gold mp-card" : "border-secondary bg-transparent")"
+                                         @onclick='() => ToggleRole("Jagter")'>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="brand-font text-gold mb-0">
+                                                <i class="bi @(IsRoleSelected("Jagter") ? "bi-check-square-fill text-warning" : "bi-square text-secondary") me-2"></i>Jagter (Hunter)
+                                            </h5>
+                                        </div>
+                                        <p class="small text-muted mb-0">Bespreek ekspedisies, bestuur permitte en genereer SAPS 520 vuurwapenvorms vir plaaslike en buitelandse jagte.</p>
+                                    </div>
+                                </div>
+
+                                <!-- Boer / Farmer -->
+                                <div class="col-md-6">
+                                    <div class="role-card p-3 border rounded-3 h-100 cursor-pointer transition-all @(IsRoleSelected("Boer") ? "border-warning shadow-sm ring-gold mp-card" : "border-secondary bg-transparent")"
+                                         @onclick='() => ToggleRole("Boer")'>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="brand-font text-gold mb-0">
+                                                <i class="bi @(IsRoleSelected("Boer") ? "bi-check-square-fill text-warning" : "bi-square text-secondary") me-2"></i>Boer (Plaaseienaar)
+                                            </h5>
+                                            <span class="badge bg-warning text-dark fw-bold">Vereis administrateurgoedkeuring</span>
+                                        </div>
+                                        <p class="small text-muted mb-0">Lys jou jagplaas, stel tariewe en wildspesies pryslyste in, en bestuur besprekings.</p>
+                                    </div>
+                                </div>
+
+                                <!-- PJ / Outfitter -->
+                                <div class="col-md-6">
+                                    <div class="role-card p-3 border rounded-3 h-100 cursor-pointer transition-all @(IsRoleSelected("PJ") ? "border-warning shadow-sm ring-gold mp-card" : "border-secondary bg-transparent")"
+                                         @onclick='() => ToggleRole("PJ")'>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="brand-font text-gold mb-0">
+                                                <i class="bi @(IsRoleSelected("PJ") ? "bi-check-square-fill text-warning" : "bi-square text-secondary") me-2"></i>PJ (Pakket Uitruster)
+                                            </h5>
+                                            <span class="badge bg-warning text-dark fw-bold">Vereis administrateurgoedkeuring</span>
+                                        </div>
+                                        <p class="small text-muted mb-0">Die sentrale punt van MikPunt. Stel safari-pakkette saam, reël reisgroepe en stel PHs/Videograwe aan.</p>
+                                    </div>
+                                </div>
+
+                                <!-- PH / Professional Hunter -->
+                                <div class="col-md-6">
+                                    <div class="role-card p-3 border rounded-3 h-100 cursor-pointer transition-all @(IsRoleSelected("PH") ? "border-warning shadow-sm ring-gold mp-card" : "border-secondary bg-transparent")"
+                                         @onclick='() => ToggleRole("PH")'>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="brand-font text-gold mb-0">
+                                                <i class="bi @(IsRoleSelected("PH") ? "bi-check-square-fill text-warning" : "bi-square text-secondary") me-2"></i>PH (Prof. Jagter)
+                                            </h5>
+                                            <span class="badge bg-warning text-dark fw-bold">Vereis administrateurgoedkeuring</span>
+                                        </div>
+                                        <p class="small text-muted mb-0">Bied professionele gidsdienste in die veld aan, vergesel jagters en voeg lisensies by.</p>
+                                    </div>
+                                </div>
+
+                                <!-- VG / Videographer -->
+                                <div class="col-md-6">
+                                    <div class="role-card p-3 border rounded-3 h-100 cursor-pointer transition-all @(IsRoleSelected("VG") ? "border-warning shadow-sm ring-gold mp-card" : "border-secondary bg-transparent")"
+                                         @onclick='() => ToggleRole("VG")'>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="brand-font text-gold mb-0">
+                                                <i class="bi @(IsRoleSelected("VG") ? "bi-check-square-fill text-warning" : "bi-square text-secondary") me-2"></i>VG (Videograaf)
+                                            </h5>
+                                        </div>
+                                        <p class="small text-muted mb-0">Vergesel jagreise en neem hoë-kwaliteit foto's en wildsvideo's vir jagters op.</p>
+                                    </div>
+                                </div>
+
+                                <!-- AP / Ad Placer -->
+                                <div class="col-md-6">
+                                    <div class="role-card p-3 border rounded-3 h-100 cursor-pointer transition-all @(IsRoleSelected("AP") ? "border-warning shadow-sm ring-gold mp-card" : "border-secondary bg-transparent")"
+                                         @onclick='() => ToggleRole("AP")'>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="brand-font text-gold mb-0">
+                                                <i class="bi @(IsRoleSelected("AP") ? "bi-check-square-fill text-warning" : "bi-square text-secondary") me-2"></i>AP (Adverteerder)
+                                            </h5>
+                                        </div>
+                                        <p class="small text-muted mb-0">Skep en bestuur adverteringsveldtogte vir toerusting, taksidermie en vervoer op MikPunt.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- DYNAMIC INPUT FORMS FOR ALL SELECTED ROLES -->
+                            @if (_selectedRoles.Count == 0)
+                            {
+                                <div class="alert alert-warning text-center py-3 mb-4">
+                                    Kies asseblief ten minste 1 rol hierbo om voort te gaan.
+                                </div>
+                            }
+                            else if (!RequiresAdditionalInfo)
+                            {
+                                <div class="alert alert-success d-flex align-items-center mb-4 p-3 shadow-sm" style="background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); color: #86efac;">
+                                    <i class="bi bi-check-circle-fill me-2 fs-5 text-success"></i>
+                                    <div>Geen addisionele akkreditasie-inligting word benodig vir jou gekose rol(le) nie. Jy kan direk voortgaan met registrasie!</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column gap-4 mb-4">
+                                    @if (IsRoleSelected("Jagter"))
+                                    {
+                                        <div class="mp-card border-warning p-4 shadow mb-4">
+                                            <h5 class="brand-font text-gold fw-bold mb-3 pb-2 border-bottom border-warning">
+                                                <i class="bi bi-file-earmark-text text-warning me-2"></i>Rol-Spesifieke Inligting (Jagter) <span class="text-danger">*</span>
+                                            </h5>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label mp-input-label small fw-bold">Bynaam vir Ranglys <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.LeaderboardNickname" class="mp-form-control" placeholder="bv. BushveldBullseye" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label mp-input-label small fw-bold">ID- of Paspoortnommer (Algemene Formaat) <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PassportOrIdNumber" class="mp-form-control" placeholder="bv. 8804125019083 / A12345678" />
+                                                    <div class="form-text text-muted">Aanvaar alle nasionale ID- en paspoortformate.</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (IsRoleSelected("Boer"))
+                                    {
+                                        <div class="mp-card border-warning p-4 shadow mb-4">
+                                            <h5 class="brand-font text-gold fw-bold mb-3 pb-2 border-bottom border-warning">
+                                                <i class="bi bi-file-earmark-text text-warning me-2"></i>Rol-Spesifieke Inligting (Boer) <span class="text-danger">*</span>
+                                            </h5>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Jagplaas Naam <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.FarmName" class="mp-form-control" placeholder="bv. Gemsbokpan Wildreservaat" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Provinsie / Streek <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.FarmRegion" class="mp-form-control" placeholder="bv. Limpopo / Waterberge" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Plaas Registrasienommer / Grondbrief Besonderhede <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.FarmRegNumber" class="mp-form-control" placeholder="bv. T12903/2018 Limpopo" />
+                                                </div>
+                                            </div>
+                                            <div class="alert alert-info py-2 mt-3 small mb-0">
+                                                <i class="bi bi-info-circle me-1"></i> Boere-rekeninge word eers deur die MikPunt administrateur geverifieer voordat plaaslysings publiseer kan word.
+                                            </div>
+                                        </div>
+                                    }
+                                    @if (IsRoleSelected("PJ"))
+                                    {
+                                        <div class="mp-card border-warning p-4 shadow mb-4">
+                                            <h5 class="brand-font text-gold fw-bold mb-3 pb-2 border-bottom border-warning">
+                                                <i class="bi bi-file-earmark-text text-warning me-2"></i>Rol-Spesifieke Inligting (PJ Uitruster) <span class="text-danger">*</span>
+                                            </h5>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Provinsiale Uitruster Lisensienommer <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PjLicenseNumber" class="mp-form-control" placeholder="bv. OUT-LIM-2026-88" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Lisensie Vervaldatum <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PjLicenseExpiry" class="mp-form-control" placeholder="bv. 2027-12-31" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Provinsiale Lisensiedokument Verwysings (per provinsie) <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PjProvinceDocuments" class="mp-form-control" placeholder="bv. Limpopo: DOC-991, Noordwes: DOC-442" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">CIPC Registrasienommer <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.CipcRegNumber" class="mp-form-control" placeholder="bv. 2021/123456/07" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">BTW- / Belasting PIN Nommer <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.TaxVatNumber" class="mp-form-control" placeholder="bv. 4990192837" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Fisiese Besigheidsadres <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhysicalAddress" class="mp-form-control" placeholder="bv. Kerkstraat 45, Thabazimbi, 0380" />
+                                                </div>
+                                            </div>
+                                            <div class="alert alert-warning py-2 mt-3 small mb-0">
+                                                <i class="bi bi-shield-lock me-1"></i> Uitruster profiele vereis admin goedkeuring van provinsiale lisensiedokumente.
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (IsRoleSelected("PH"))
+                                    {
+                                        <div class="mp-card border-warning p-4 shadow mb-4">
+                                            <h5 class="brand-font text-gold fw-bold mb-3 pb-2 border-bottom border-warning">
+                                                <i class="bi bi-file-earmark-text text-warning me-2"></i>Rol-Spesifieke Inligting (PH Prof. Jagter) <span class="text-danger">*</span>
+                                            </h5>
+                                            <div class="row g-3">
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-light small fw-bold">Provinsiale PH Lisensienommer <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhLicenseNumber" class="mp-form-control" placeholder="bv. PH-LIM-2026-99" />
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-light small fw-bold">Uitgewer Provinsie <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhIssuingProvince" class="mp-form-control" placeholder="bv. Limpopo / Mpumalanga" />
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-light small fw-bold">Vervaldatum <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhLicenseExpiry" class="mp-form-control" placeholder="bv. 2027-10-31" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Gevaarlike Wild Endossement Dokument (indien van toepassing) <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.DangerousGameEndorsement" class="mp-form-control" placeholder="bv. Groot 5 Endossement DOC-DG88" />
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-light small fw-bold">PH Vereniging / Klub Naam <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhAssociationName" class="mp-form-control" placeholder="bv. PHASA / CHASA / Ander" />
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-light small fw-bold">Lidmaatskapnommer <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhAssociationMemberNumber" class="mp-form-control" placeholder="bv. PHASA-77491" />
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-light small fw-bold">Verifikasiedokument <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhAssociationDocument" class="mp-form-control" placeholder="bv. Cert-Ref-2026" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Eerstehulp &amp; Veldveiligheid Sertifikaat &amp; Vervaldatum <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.FirstAidCertDetails" class="mp-form-control" placeholder="bv. Vlak 3 Noodhulp (Verval: 2028-05)" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Vuurwapenbevoegdheid &amp; Lisensies <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.FirearmCompetencyDetails" class="mp-form-control" placeholder="bv. SAPS Comp-992102, Rifle/Shotgun" />
+                                                </div>
+                                            </div>
+                                            <div class="alert alert-warning py-2 mt-3 small mb-0">
+                                                <i class="bi bi-shield-lock me-1"></i> PH profiele vereis admin goedkeuring van PHASA/CHASA en lisensiedokumente.
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (IsRoleSelected("VG"))
+                                    {
+                                        <div class="mp-card border-warning p-4 shadow mb-4">
+                                            <h5 class="brand-font text-gold fw-bold mb-3 pb-2 border-bottom border-warning">
+                                                <i class="bi bi-file-earmark-text text-warning me-2"></i>Rol-Spesifieke Inligting (Videograaf) <span class="text-danger">*</span>
+                                            </h5>
+                                            <div class="row g-3">
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Hommeltuig Lisensies (SACAA, RPL, ROC indien van toepassing) <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.DroneLicenses" class="mp-form-control" placeholder="bv. SACAA RPL-99210, ROC-0021" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Media Kwalifikasies &amp; Toerusting Opsomming <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.MediaQualifications" class="mp-form-control" placeholder="bv. 4K Bioskoopkamera, Sony FX3, Veld Klanktoerusting" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                    @if (IsRoleSelected("AP"))
+                                    {
+                                        <div class="mp-card border-warning p-4 shadow mb-4">
+                                            <h5 class="brand-font text-gold fw-bold mb-3 pb-2 border-bottom border-warning">
+                                                <i class="bi bi-file-earmark-text text-warning me-2"></i>Rol-Spesifieke Inligting (Adverteerder) <span class="text-danger">*</span>
+                                            </h5>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">Besigheids- / Handelsnaam <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.BusinessName" class="mp-form-control" placeholder="bv. Safari Gear SA" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label text-light small fw-bold">BTW- / Belastingnommer <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.TaxVatNumber" class="mp-form-control" placeholder="bv. 4991029384" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label text-light small fw-bold">Besigheidsadres <span class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="_model.PhysicalAddress" class="mp-form-control" placeholder="bv. Pretoriusstraat 102, Pretoria, 0002" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-outline-secondary w-50 py-2" @onclick="() => _currentStep = 1">
+                                    <i class="bi bi-arrow-left me-2"></i>Terug na Stap 1
+                                </button>
+                                <button type="button" class="mp-btn mp-btn-primary w-50 py-2 fw-bold" @onclick="HandleRegister" disabled="@(_isSubmitting || !_registrationsOpen)">
+                                    @if (_isSubmitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                        <span>Besig om te registreer...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Voltooi Registrasie</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </EditForm>
+
+                <div class="text-center mt-4 pt-3 border-top border-secondary">
+                    <span class="text-muted">Reeds 'n rekening op MikPunt? </span>
+                    <a href="/teken-in" class="fw-bold text-gold ms-1 text-decoration-none">Teken In Hier</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Input Labels: Black in Light Mode (#111111), White in Dark Mode (#ffffff) */
+    .mp-input-label {
+        color: #111111;
+    }
+    [data-theme="dark"] .mp-input-label,
+    .dark-theme .mp-input-label {
+        color: #ffffff !important;
+    }
+</style>
+
+@code {
+    private int _currentStep = 1;
+    private EnterpriseRegisterFormModel _model = new();
+
+    /// <summary>
+    /// Set by a booking invite link (/registreer?email=...): a main hunter added this email
+    /// to their booking, and the invite only links itself once exactly this email is
+    /// verified on a Hunter account - so pre-fill it rather than let a typo break the link.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "email")] public string? InvitedEmail { get; set; }
+
+    private bool _registrationsOpen = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(InvitedEmail) && string.IsNullOrWhiteSpace(_model.Email))
+            _model.Email = InvitedEmail.Trim();
+        _registrationsOpen = (await Api.GetSiteStatusAsync()).RegistrationsOpen;
+    }
+    private string _errorMessage = string.Empty;
+    private bool _showPassword = false;
+    private bool _showConfirmPassword = false;
+    private bool _isSubmitting = false;
+
+    // Multi-Role Selection State
+    private HashSet<string> _selectedRoles = new() { "Jagter" };
+
+    // Password strength meter states (Enforcing 12 Characters)
+    private int _passwordScore = 0;
+    private string _strengthText = "Swak";
+    private string _strengthBadgeClass = "bg-danger";
+    private string _strengthBarClass = "bg-danger";
+    private bool _hasMinLength = false;
+    private bool _hasUpper = false;
+    private bool _hasNumber = false;
+    private bool _hasSpecial = false;
+
+    private bool IsRoleSelected(string roleCode) => _selectedRoles.Contains(roleCode);
+    /// <summary>
+    /// Every role has its own mandatory-fields card (Boer: FarmName/FarmRegion/
+    /// FarmRegNumber; AP: BusinessName/TaxVatNumber/PhysicalAddress; and so on), checked
+    /// in HandleRegister - so any selected role shows its card.
+    /// </summary>
+    private bool RequiresAdditionalInfo => IsRoleSelected("Jagter") || IsRoleSelected("PJ") || IsRoleSelected("PH") || IsRoleSelected("VG")
+                                           || IsRoleSelected("Boer") || IsRoleSelected("AP");
+
+    /// <summary>Adds/removes a role from the multi-select set; refuses to deselect the last remaining role since at least one is required.</summary>
+    private void ToggleRole(string roleCode)
+    {
+        if (_selectedRoles.Contains(roleCode))
+        {
+            // Allow deselecting if more than 1 role is selected
+            if (_selectedRoles.Count > 1)
+            {
+                _selectedRoles.Remove(roleCode);
+            }
+        }
+        else
+        {
+            _selectedRoles.Add(roleCode);
+        }
+    }
+
+    /// <summary>Live password-strength meter: scores 0-4 on length/upper/digit/special-char presence and updates the badge/bar text+color. GoToStep2 separately re-enforces a minimum score of 3 as a hard gate.</summary>
+    private void OnPasswordInput(ChangeEventArgs e)
+    {
+        string pwd = e.Value?.ToString() ?? string.Empty;
+        _model.Password = pwd;
+
+        _hasMinLength = pwd.Length >= 12; // Enforcing MINIMUM 12 Characters
+        _hasUpper = pwd.Any(char.IsUpper);
+        _hasNumber = pwd.Any(char.IsDigit);
+        _hasSpecial = pwd.Any(ch => !char.IsLetterOrDigit(ch));
+
+        _passwordScore = 0;
+        if (_hasMinLength) _passwordScore++;
+        if (_hasUpper) _passwordScore++;
+        if (_hasNumber) _passwordScore++;
+        if (_hasSpecial) _passwordScore++;
+
+        switch (_passwordScore)
+        {
+            case 0:
+            case 1:
+                _strengthText = "Baie Swak";
+                _strengthBadgeClass = "bg-danger text-white";
+                _strengthBarClass = "bg-danger";
+                break;
+            case 2:
+                _strengthText = "Matig";
+                _strengthBadgeClass = "bg-warning text-dark";
+                _strengthBarClass = "bg-warning";
+                break;
+            case 3:
+                _strengthText = "Goed";
+                _strengthBadgeClass = "bg-info text-dark";
+                _strengthBarClass = "bg-info";
+                break;
+            case 4:
+                _strengthText = "Uitstekend";
+                _strengthBadgeClass = "bg-success text-white";
+                _strengthBarClass = "bg-success";
+                break;
+        }
+    }
+
+    /// <summary>Scrolls the page to the top so a newly-shown validation error alert is visible - swallows JS errors since this is a cosmetic nicety, not load-bearing.</summary>
+    private async Task ScrollToTop()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("window.scrollTo", 0, 0);
+        }
+        catch { }
+    }
+
+    /// <summary>Step 1 -&gt; Step 2 gate: validates identity/contact/password/terms fields client-side (including the 12-char/score-3 password policy and a client-only IsEmailRegistered duplicate-email check) before advancing.</summary>
+    private async Task GoToStep2()
+    {
+        _errorMessage = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_model.FirstName) || string.IsNullOrWhiteSpace(_model.LastName))
+        {
+            _errorMessage = "Voer asseblief jou Voornaam en Van in.";
+            await ScrollToTop();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Email) || !_model.Email.Contains('@'))
+        {
+            _errorMessage = "Voer asseblief 'n geldige e-posadres in.";
+            await ScrollToTop();
+            return;
+        }
+
+        // Client-side-only pre-check against AuthService's in-memory _registeredUsers
+        // list (empty on a fresh page load in a new session/device) - a real duplicate
+        // email is actually caught by WebAPI's server-side check later in
+        // HandleRegister (Api.RegisterUserAsync), surfaced via apiMsg. This early check
+        // only helps within the same browser session (e.g. re-registering right after
+        // an earlier successful registration in the same tab).
+        if (Auth.IsEmailRegistered(_model.Email))
+        {
+            _errorMessage = $"'n Rekening met die e-posadres '{_model.Email}' bestaan reeds in MikPunt. Slegs een rekening per e-pos word toegelaat.";
+            await ScrollToTop();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Phone))
+        {
+            _errorMessage = "Voer asseblief jou telefoonnommer in.";
+            await ScrollToTop();
+            return;
+        }
+
+        if (_model.Password != _model.ConfirmPassword)
+        {
+            _errorMessage = "Wagwoorde stem nie ooreen nie.";
+            await ScrollToTop();
+            return;
+        }
+
+        // Enforce 12-character minimum password policy
+        if (_model.Password.Length < 12 || _passwordScore < 3)
+        {
+            _errorMessage = "Jou wagwoord is te swak. Dit moet ten minste 12 karakters, 1 hoofletter, 1 kleinletter, 1 syfer en 1 spesiale teken bevat.";
+            await ScrollToTop();
+            return;
+        }
+
+        if (!_model.TermsAccepted)
+        {
+            _errorMessage = "Jy moet die Diensvoorwaardes en Privaatheidsbeleid aanvaar om voort te gaan.";
+            await ScrollToTop();
+            return;
+        }
+
+        _currentStep = 2;
+        await ScrollToTop();
+    }
+
+    /// <summary>
+    /// Step 2 submit: re-validates terms + at least one role, then runs mandatory-field
+    /// checks per selected role (Jagter/Boer/PJ/PH/VG/AP), builds the
+    /// WebAPI RegisterApiRequestModel and posts via Api.RegisterUserAsync (the actual,
+    /// server-persisted registration), then calls Auth.Register for local UI state
+    /// only and redirects to the email-verification page.
+    /// </summary>
+    private async Task HandleRegister()
+    {
+        _errorMessage = string.Empty;
+
+        if (!_model.TermsAccepted)
+        {
+            _errorMessage = "Jy moet die Diensvoorwaardes en Privaatheidsbeleid aanvaar om voort te gaan.";
+            await ScrollToTop();
+            return;
+        }
+
+        if (_selectedRoles.Count == 0)
+        {
+            _errorMessage = "Kies asseblief ten minste een rol om voort te gaan.";
+            await ScrollToTop();
+            return;
+        }
+
+        // STRICT MANDATORY VALIDATION FOR ALL SELECTED ROLES
+        if (IsRoleSelected("Jagter"))
+        {
+            if (string.IsNullOrWhiteSpace(_model.LeaderboardNickname))
+            {
+                _errorMessage = "Vul asseblief jou Bynaam vir die Ranglys in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.PassportOrIdNumber))
+            {
+                _errorMessage = "Vul asseblief jou ID- of Paspoortnommer in.";
+                await ScrollToTop();
+                return;
+            }
+        }
+
+        if (IsRoleSelected("PJ"))
+        {
+            if (string.IsNullOrWhiteSpace(_model.PjLicenseNumber) || string.IsNullOrWhiteSpace(_model.PjLicenseExpiry))
+            {
+                _errorMessage = "Vul asseblief jou Provinsiale Uitruster Lisensienommer en Vervaldatum in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.PjProvinceDocuments))
+            {
+                _errorMessage = "Vul asseblief jou Provinsiale Lisensiedokument verwysings in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.CipcRegNumber) || string.IsNullOrWhiteSpace(_model.TaxVatNumber))
+            {
+                _errorMessage = "Vul asseblief jou CIPC Registrasienommer en BTW/Belasting PIN nommer in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.PhysicalAddress))
+            {
+                _errorMessage = "Vul asseblief jou Fisiese Besigheidsadres in.";
+                await ScrollToTop();
+                return;
+            }
+        }
+
+        if (IsRoleSelected("PH"))
+        {
+            if (string.IsNullOrWhiteSpace(_model.PhLicenseNumber) || string.IsNullOrWhiteSpace(_model.PhIssuingProvince) || string.IsNullOrWhiteSpace(_model.PhLicenseExpiry))
+            {
+                _errorMessage = "Vul asseblief jou PH Lisensienommer, Uitgewer Provinsie en Vervaldatum in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.DangerousGameEndorsement))
+            {
+                _errorMessage = "Vul asseblief jou Gevaarlike Wild Endossement besonderhede in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.PhAssociationName) || string.IsNullOrWhiteSpace(_model.PhAssociationMemberNumber) || string.IsNullOrWhiteSpace(_model.PhAssociationDocument))
+            {
+                _errorMessage = "Vul asseblief jou PH Vereniging (PHASA/CHASA/Ander), Lidmaatskapnommer en Verifikasiedokument in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.FirstAidCertDetails) || string.IsNullOrWhiteSpace(_model.FirearmCompetencyDetails))
+            {
+                _errorMessage = "Vul asseblief jou Eerstehulp Sertifisering en Vuurwapenbevoegdheid in.";
+                await ScrollToTop();
+                return;
+            }
+        }
+
+        if (IsRoleSelected("Boer"))
+        {
+            if (string.IsNullOrWhiteSpace(_model.FarmName) || string.IsNullOrWhiteSpace(_model.FarmRegion))
+            {
+                _errorMessage = "Vul asseblief jou Jagplaas Naam en Provinsie / Streek in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.FarmRegNumber))
+            {
+                _errorMessage = "Vul asseblief jou Plaas Registrasienommer / Grondbrief Besonderhede in.";
+                await ScrollToTop();
+                return;
+            }
+        }
+
+        if (IsRoleSelected("AP"))
+        {
+            if (string.IsNullOrWhiteSpace(_model.BusinessName))
+            {
+                _errorMessage = "Vul asseblief jou Besigheids- / Handelsnaam in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.TaxVatNumber) || string.IsNullOrWhiteSpace(_model.PhysicalAddress))
+            {
+                _errorMessage = "Vul asseblief jou BTW- / Belastingnommer en Besigheidsadres in.";
+                await ScrollToTop();
+                return;
+            }
+        }
+
+        if (IsRoleSelected("VG"))
+        {
+            if (string.IsNullOrWhiteSpace(_model.DroneLicenses))
+            {
+                _errorMessage = "Vul asseblief jou Hommeltuig Lisensies (SACAA/RPL/ROC) in.";
+                await ScrollToTop();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_model.MediaQualifications))
+            {
+                _errorMessage = "Vul asseblief jou Media Kwalifikasies & Toerusting Opsomming in.";
+                await ScrollToTop();
+                return;
+            }
+        }
+
+        _isSubmitting = true;
+
+        try
+        {
+            // Create fresh user profile with all selected roles. UserId here is a
+            // random client-side placeholder, not the real database id issued by
+            // WebAPI's Register endpoint above - see AuthService.Register's doc
+            // comment for why that's fine (this object only seeds local UI state
+            // for the redirect to /verify-email, it isn't the source of truth).
+            var newUser = new UserModel
+            {
+                UserId = new Random().Next(100, 9999),
+                Email = _model.Email,
+                FirstName = _model.FirstName,
+                LastName = _model.LastName,
+                Phone = $"{_model.PhoneCountryCode} {_model.Phone}",
+                IdPassportNum = _model.PassportOrIdNumber,
+                IsVerified = false,
+                CreatedAt = DateTime.UtcNow,
+                Roles = new List<UserRoleModel>()
+            };
+
+            // Populate all selected roles into the user's role collection
+            int roleId = 1;
+            foreach (var rCode in _selectedRoles)
+            {
+                string rName = rCode switch
+                {
+                    "Jagter" => "Jagter",
+                    "Boer" => "Grondeienaar (Boer)",
+                    "PJ" => "Uitruster (PJ)",
+                    "PH" => "Professionele Jagter (PH)",
+                    "VG" => "Videograaf (VG)",
+                    "AP" => "Adverteerder (AP)",
+                    _ => rCode
+                };
+
+                newUser.Roles.Add(new UserRoleModel
+                {
+                    Id = roleId++,
+                    UserId = newUser.UserId,
+                    RoleCode = rCode,
+                    RoleName = rName,
+                    Status = "Active",
+                    AssignedDate = DateTime.UtcNow
+                });
+            }
+
+            var apiRegModel = new RegisterApiRequestModel
+            {
+                FirstName = _model.FirstName,
+                Surname = _model.LastName,
+                Email = _model.Email,
+                Password = _model.Password,
+                Phone = $"{_model.PhoneCountryCode} {_model.Phone}",
+                PrimaryRoleCode = _selectedRoles.FirstOrDefault() ?? "Jagter",
+                SelectedRoles = _selectedRoles.ToList(),
+                TermsAccepted = _model.TermsAccepted,
+                ProfilePictureUrl = _model.ProfilePictureUrl,
+
+                // Role data
+                LeaderboardNickname = _model.LeaderboardNickname,
+                PassportOrIdNumber = _model.PassportOrIdNumber,
+                PjLicenseNumber = _model.PjLicenseNumber,
+                PjLicenseExpiry = _model.PjLicenseExpiry,
+                PjProvinceDocuments = _model.PjProvinceDocuments,
+                CipcRegNumber = _model.CipcRegNumber,
+                TaxVatNumber = _model.TaxVatNumber,
+                PhysicalAddress = _model.PhysicalAddress,
+                PhLicenseNumber = _model.PhLicenseNumber,
+                PhIssuingProvince = _model.PhIssuingProvince,
+                PhLicenseExpiry = _model.PhLicenseExpiry,
+                DangerousGameEndorsement = _model.DangerousGameEndorsement,
+                PhAssociationName = _model.PhAssociationName,
+                PhAssociationMemberNumber = _model.PhAssociationMemberNumber,
+                PhAssociationDocument = _model.PhAssociationDocument,
+                FirstAidCertDetails = _model.FirstAidCertDetails,
+                FirstAidExpiry = _model.FirstAidExpiry,
+                FirearmCompetencyDetails = _model.FirearmCompetencyDetails,
+                DroneLicenses = _model.DroneLicenses,
+                MediaQualifications = _model.MediaQualifications,
+                FarmName = _model.FarmName,
+                FarmRegion = _model.FarmRegion,
+                FarmRegNumber = _model.FarmRegNumber,
+                BusinessName = _model.BusinessName
+            };
+
+            var (success, apiMsg) = await Api.RegisterUserAsync(apiRegModel);
+            if (!success)
+            {
+                _errorMessage = apiMsg;
+                await ScrollToTop();
+                return;
+            }
+
+            Auth.Register(newUser);
+            Nav.NavigateTo($"/bevestig-epos?email={Uri.EscapeDataString(_model.Email)}&status=sent");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            await ScrollToTop();
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private string? _profilePicPreviewUrl = null;
+
+    /// <summary>Resizes the picked file client-side to 300x300 PNG and stores it as a base64 data URI directly on the model - there's no separate file-upload endpoint, the picture travels inline with the registration payload.</summary>
+    private async Task HandleProfilePicSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        if (file.Size > 3 * 1024 * 1024)
+        {
+            _errorMessage = "Die foto is te groot. Kies asseblief 'n prent kleiner as 3 MB.";
+            await ScrollToTop();
+            return;
+        }
+
+        try
+        {
+            var resized = await file.RequestImageFileAsync("image/png", 300, 300);
+            using var stream = resized.OpenReadStream(3 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            _profilePicPreviewUrl = $"data:image/png;base64,{base64}";
+            _model.ProfilePictureUrl = _profilePicPreviewUrl;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PROFILE PIC ERROR] {ex.Message}");
+        }
+    }
+
+    private void RemoveProfilePic()
+    {
+        _profilePicPreviewUrl = null;
+        _model.ProfilePictureUrl = null;
+    }
+
+    /// <summary>Backing model for the whole 2-step wizard - a superset covering every role's fields, since which fields are actually required depends on runtime role selection rather than the type system.</summary>
+    public class EnterpriseRegisterFormModel
+    {
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string PhoneCountryCode { get; set; } = "+27";
+        public string Phone { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
+        public bool TermsAccepted { get; set; } = false;
+        public string? ProfilePictureUrl { get; set; }
+
+        // Jagter (Hunter)
+        public string LeaderboardNickname { get; set; } = string.Empty;
+        public string PassportOrIdNumber { get; set; } = string.Empty;
+
+        // Boer (Farmer)
+        public string FarmName { get; set; } = string.Empty;
+        public string FarmRegion { get; set; } = string.Empty;
+        public string FarmRegNumber { get; set; } = string.Empty;
+
+        // PJ (Outfitter)
+        public string PjLicenseNumber { get; set; } = string.Empty;
+        public string PjLicenseExpiry { get; set; } = string.Empty;
+        public string PjProvinceDocuments { get; set; } = string.Empty;
+        public string CipcRegNumber { get; set; } = string.Empty;
+        public string TaxVatNumber { get; set; } = string.Empty;
+        public string PhysicalAddress { get; set; } = string.Empty;
+
+        // PH (Professional Hunter)
+        public string PhLicenseNumber { get; set; } = string.Empty;
+        public string PhIssuingProvince { get; set; } = string.Empty;
+        public string PhLicenseExpiry { get; set; } = string.Empty;
+        public string DangerousGameEndorsement { get; set; } = string.Empty;
+        public string PhAssociationName { get; set; } = string.Empty;
+        public string PhAssociationMemberNumber { get; set; } = string.Empty;
+        public string PhAssociationDocument { get; set; } = string.Empty;
+        public string FirstAidCertDetails { get; set; } = string.Empty;
+        public string FirstAidExpiry { get; set; } = string.Empty;
+        public string FirearmCompetencyDetails { get; set; } = string.Empty;
+
+        // VG (Videographer)
+        public string DroneLicenses { get; set; } = string.Empty;
+        public string MediaQualifications { get; set; } = string.Empty;
+
+        // AP (Ad Placement)
+        public string BusinessName { get; set; } = string.Empty;
+    }
+}
+

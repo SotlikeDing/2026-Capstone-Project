@@ -1,0 +1,962 @@
+@* Real-time direct-messaging inbox at /messages. Sidebar lists the user's chats
+   (Chats_db-backed, loaded via MikpuntApiService), the right pane shows the active
+   chat's message thread. Live delivery goes through a SignalR connection to
+   WebAPI's ChatHub (ReceiveMessage/UserTyping/UserStoppedTyping/MessagesRead events);
+   if the hub connection fails to establish, the page still works using plain
+   request/response API calls, it just won't get instant push updates until the next
+   action refetches. Supports deep-linking via ?targetUserId= to open (or create) a
+   direct chat with a specific user, e.g. from a "Message" button elsewhere in the app. *@
+@page "/boodskappe"
+@page "/messages"
+@using Microsoft.AspNetCore.SignalR.Client
+@using WebApp.Models
+@using WebApp.Services
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Boodskappe &amp; Kletse | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Boodskappe is slegs beskikbaar vir aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/boodskappe" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Interne Kletse &amp; Boodskappe</h1>
+            <p class="text-muted mb-0">Direkte intydse kommunikasie tussen Jagters, Boere, PH'e, Videograwe en Uitrusters.</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <a href="/soek-span" class="mp-btn mp-btn-secondary mp-btn-sm">
+                + Vind Lede op Netwerk
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_chatOpenError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show mb-3 d-flex justify-content-between align-items-center">
+            <div>@_chatOpenError</div>
+            <div class="d-flex align-items-center gap-2">
+                @if (_chatOpenError.Contains("verval"))
+                {
+                    <a href="/teken-in?returnUrl=/boodskappe" class="mp-btn mp-btn-primary mp-btn-sm">Teken In &rarr;</a>
+                }
+                <button type="button" class="btn-close" @onclick='() => _chatOpenError = ""'></button>
+            </div>
+        </div>
+    }
+
+    <div class="row g-4">
+        <!-- Active Conversations Sidebar -->
+        <div class="col-md-4">
+            <div class="mp-card p-3 d-flex flex-column" style="height: 600px;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="brand-font text-gold mb-0">Gesprekke</h4>
+                    <span class="mp-badge mp-badge-secondary">@_chats.Count</span>
+                </div>
+
+                <div class="flex-grow-1 overflow-auto d-flex flex-column gap-2 pe-1">
+                    @if (_isLoadingChats)
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <div class="spinner-border spinner-border-sm text-gold mb-2" role="status"></div>
+                            <div class="small">Laai gesprekke...</div>
+                        </div>
+                    }
+                    else if (_chats.Count == 0)
+                    {
+                        <div class="text-center py-5 text-muted small">
+                            <div style="font-size: 36px;" class="mb-2">💬</div>
+                            <p class="mb-2">Geen gesprekke tans nie.</p>
+                            <a href="/soek-span" class="mp-btn mp-btn-outline mp-btn-sm">+ Soek Lede</a>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var c in _chats)
+                        {
+                            var isSelected = _activeChat != null && c.Id == _activeChat.Id;
+                            var displayName = GetChatDisplayName(c);
+                            var otherUserId = GetOtherParticipantUserId(c);
+                            <div class="p-3 rounded transition-all d-flex align-items-start gap-2 @(isSelected ? "chat-conv-active" : "chat-conv-inactive")"
+                                 style="cursor: pointer;"
+                                 @onclick="() => SelectChatAsync(c)">
+                                @if (otherUserId > 0)
+                                {
+                                    <div class="mp-avatar-circle mp-avatar-circle-sm mp-avatar-clickable flex-shrink-0" style="cursor: pointer;" title="Bekyk Profiel" @onclick="() => GoToProfile(otherUserId)" @onclick:stopPropagation="true">
+                                        @GetAvatarInitial(c)
+                                    </div>
+                                }
+                                <div class="flex-grow-1" style="min-width: 0;">
+                                    <div class="d-flex justify-content-between align-items-start mb-1">
+                                        <strong class="@(isSelected ? "text-gold" : "text-light") d-block text-truncate" style="max-width: 150px;">
+                                            @displayName
+                                        </strong>
+                                        @if (c.LastMessageTimestamp.HasValue && c.LastMessageTimestamp.Value != DateTime.MinValue)
+                                        {
+                                            <span class="small text-muted" style="font-size: 11px;">
+                                                @(c.LastMessageTimestamp.Value.Date == DateTime.UtcNow.Date
+                                                    ? c.LastMessageTimestamp.Value.ToLocalTime().ToString("HH:mm")
+                                                    : c.LastMessageTimestamp.Value.ToLocalTime().ToString("dd MMM"))
+                                            </span>
+                                        }
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="small text-muted text-truncate" style="max-width: 165px;">
+                                            @(string.IsNullOrWhiteSpace(c.LastMessage) ? "Klik om klets oop te maak..." : c.LastMessage)
+                                        </span>
+                                        @if (c.UnreadCount > 0)
+                                        {
+                                            <span class="badge rounded-pill bg-danger" style="font-size: 10px;">@c.UnreadCount</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Chat Window -->
+        <div class="col-md-8">
+            <div class="mp-card p-4 d-flex flex-column" style="height: 600px;">
+                @if (_activeChat == null)
+                {
+                    <div class="text-center my-auto py-5 text-muted">
+                        <div style="font-size: 48px;" class="mb-2">📬</div>
+                        <h4 class="text-gold mb-1">Geen klets gekies nie</h4>
+                        <p class="small mb-3">Kies 'n gesprek aan die linkerkant of begin 'n nuwe klets via lede-soektog.</p>
+                        <a href="/soek-span" class="mp-btn mp-btn-primary mp-btn-sm">+ Soek Lede</a>
+                    </div>
+                }
+                else
+                {
+                    <!-- Chat Header -->
+                    <div class="pb-3 mb-3 border-bottom border-secondary d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-3">
+                            @{ var activeOtherUserId = GetOtherParticipantUserId(_activeChat); }
+                            <div class="mp-avatar-circle @(activeOtherUserId > 0 ? "mp-avatar-clickable" : "")"
+                                 style="@(activeOtherUserId > 0 ? "cursor: pointer;" : "")"
+                                 title="@(activeOtherUserId > 0 ? "Bekyk Profiel" : "")"
+                                 @onclick="() => GoToProfile(activeOtherUserId)">
+                                @GetAvatarInitial(_activeChat)
+                            </div>
+                            <div>
+                                <h4 class="brand-font text-gold mb-0 @(activeOtherUserId > 0 ? "mp-avatar-clickable" : "")"
+                                    style="@(activeOtherUserId > 0 ? "cursor: pointer;" : "")"
+                                    @onclick="() => GoToProfile(activeOtherUserId)">
+                                    @GetChatDisplayName(_activeChat)
+                                </h4>
+                                <span class="small text-muted">@GetChatSubtitle(_activeChat)</span>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            @if (_connectionState == "Live WebSockets")
+                            {
+                                <span class="mp-badge mp-badge-success d-flex align-items-center gap-1" title="Intydse verbinding aktief via WebSockets">
+                                    <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#22c55e;"></span>
+                                    Intydse Verbinding
+                                </span>
+                            }
+                            else if (_connectionState == "Connecting")
+                            {
+                                <span class="mp-badge mp-badge-warning d-flex align-items-center gap-1" title="Besig om aan te sluit...">
+                                    <span class="spinner-border spinner-border-sm" style="width: 8px; height: 8px;" role="status"></span>
+                                    Verbind...
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="mp-badge mp-badge-danger d-flex align-items-center gap-1" title="Kletsverbinding vanlyn">
+                                    <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ef4444;"></span>
+                                    Ontkoppel
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Messages Scroll Area -->
+                    <div class="flex-grow-1 overflow-auto pe-2 mb-3 d-flex flex-column gap-3 chat-scroll-area">
+                        @if (_isLoadingMessages)
+                        {
+                            <div class="text-center my-auto py-5 text-muted">
+                                <div class="spinner-border text-gold mb-2" role="status"></div>
+                                <p class="small mb-0">Laai boodskappe...</p>
+                            </div>
+                        }
+                        else if (_currentChatMessages.Count == 0)
+                        {
+                            <div class="text-center my-auto py-5 text-muted">
+                                <div style="font-size: 40px;" class="mb-2">💬</div>
+                                <h5 class="text-gold mb-1">Begin die gesprek!</h5>
+                                <p class="small mb-0">Stuur 'n direkte boodskap aan <strong>@GetChatDisplayName(_activeChat)</strong> om te begin reël.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var m in _currentChatMessages)
+                            {
+                                var isMe = m.SenderId == CurrentUserId;
+                                <div class="d-flex flex-column @(isMe ? "align-items-end" : "align-items-start")">
+                                    <div class="p-3 rounded style-bubble @(isMe ? "chat-bubble-me" : "chat-bubble-other")" style="max-width: 80%; word-break: break-word;">
+                                        @m.Content
+                                    </div>
+                                    <div class="d-flex align-items-center gap-1 mt-1 small text-muted" style="font-size: 11px;">
+                                        <span>@m.SentAt.ToLocalTime().ToString("HH:mm")</span>
+                                        @if (isMe)
+                                        {
+                                            var isRead = IsMessageRead(m);
+                                            <span class="@(isRead ? "text-primary fw-bold" : "text-muted")" title="@(isRead ? "Gelees" : "Gestuur")">
+                                                @(isRead ? "✓✓" : "✓")
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (_isOtherUserTyping)
+                            {
+                                <div class="d-flex flex-column align-items-start">
+                                    <div class="p-2 px-3 rounded chat-bubble-other small d-flex align-items-center gap-2" style="font-size: 12px; font-style: italic;">
+                                        <span>@_typingUserName tik</span>
+                                        <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <!-- Send Message Input Box -->
+                    <form @onsubmit="SendMessage" @onsubmit:preventDefault>
+                        <div class="d-flex gap-2">
+                            <input type="text"
+                                   value="@_inputText"
+                                   @oninput="HandleOnInput"
+                                   class="mp-form-control flex-grow-1"
+                                   placeholder="@($"Skryf 'n boodskap aan {GetChatDisplayName(_activeChat)}...")"
+                                   disabled="@(_isSending || _isLoadingMessages)"
+                                   autofocus />
+                            <button type="submit"
+                                    class="mp-btn mp-btn-primary d-flex align-items-center gap-2"
+                                    disabled="@(string.IsNullOrWhiteSpace(_inputText) || _isSending || _isLoadingMessages)">
+                                @if (_isSending)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span>Stuur...</span>
+                                }
+                                else
+                                {
+                                    <span>Stuur</span>
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                                }
+                            </button>
+                        </div>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .chat-conv-active {
+            background: rgba(217, 119, 6, 0.15) !important;
+            border: 1.5px solid #d97706 !important;
+        }
+        .chat-conv-inactive {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .chat-conv-inactive:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(217, 119, 6, 0.5);
+        }
+        .mp-avatar-circle {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            font-weight: bold;
+            background: rgba(217, 119, 6, 0.2);
+            color: #d97706;
+            border: 1.5px solid #d97706;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .mp-avatar-circle-sm {
+            width: 34px;
+            height: 34px;
+            font-size: 13px;
+        }
+        .mp-avatar-clickable:hover {
+            filter: brightness(1.25);
+            box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.4);
+        }
+        .chat-scroll-area {
+            background: rgba(0, 0, 0, 0.12);
+            border-radius: 8px;
+            padding: 14px;
+        }
+        .chat-bubble-me {
+            background: #d97706 !important;
+            color: #111827 !important;
+            font-weight: 500;
+            border-radius: 14px 14px 2px 14px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .chat-bubble-other {
+            background: #27272a !important;
+            color: #f4f4f5 !important;
+            border: 1px solid #3f3f46;
+            border-radius: 14px 14px 14px 2px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        [data-theme="light"] .chat-bubble-other,
+        .mikpunt-app-container:not([data-theme="dark"]) .chat-bubble-other {
+            background: #f3f4f6 !important;
+            color: #111827 !important;
+            border-color: #d1d5db !important;
+        }
+        [data-theme="light"] .chat-conv-inactive,
+        .mikpunt-app-container:not([data-theme="dark"]) .chat-conv-inactive {
+            background: #ffffff;
+            border-color: #e5e7eb;
+        }
+        [data-theme="light"] .chat-conv-inactive strong,
+        .mikpunt-app-container:not([data-theme="dark"]) .chat-conv-inactive strong {
+            color: #111827 !important;
+        }
+        .typing-dots span {
+            animation: blink 1.4s infinite both;
+            font-weight: bold;
+        }
+        .typing-dots span:nth-child(2) {
+            animation-delay: .2s;
+        }
+        .typing-dots span:nth-child(3) {
+            animation-delay: .4s;
+        }
+        @@keyframes blink {
+            0% { opacity: .2; }
+            20% { opacity: 1; }
+            100% { opacity: .2; }
+        }
+    </style>
+}
+
+@code {
+    /// <summary>Unused: read nowhere in this file. TargetUserId is what actually drives the deep-link-to-a-chat behavior.</summary>
+    [SupplyParameterFromQuery(Name = "targetUser")]
+    public string? TargetUser { get; set; }
+
+    /// <summary>?targetUserId= query param - when set, opens (or creates) a direct chat with this user on load, see HandleTargetUserNavigationAsync.</summary>
+    [SupplyParameterFromQuery(Name = "targetUserId")]
+    public int? TargetUserId { get; set; }
+
+    private HubConnection? _hubConnection;
+    private string _connectionState = "Connecting";
+    private List<Chat> _chats = new();
+    private Chat? _activeChat;
+    private List<Message> _currentChatMessages = new();
+    private string _inputText = string.Empty;
+    private bool _isLoadingChats = true;
+    private bool _isLoadingMessages = false;
+    private bool _isSending = false;
+    private int? _previousTargetUserId;
+    private string _chatOpenError = string.Empty;
+
+    private DateTime _lastTypingSent = DateTime.MinValue;
+    private bool _isOtherUserTyping = false;
+    private string _typingUserName = string.Empty;
+    private System.Threading.Timer? _typingTimer;
+
+    private int CurrentUserId => Auth.CurrentUser?.UserId ?? 0;
+    private string CurrentUserName => !string.IsNullOrWhiteSpace(Auth.CurrentUser?.FullName) ? Auth.CurrentUser.FullName : "Jagter";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Api.OnNotificationsChanged += OnNotificationsUpdated;
+        Auth.OnAuthStateChanged += OnAuthChanged;
+        await SetupSignalRAsync();
+        await LoadChatDataAsync();
+    }
+
+    /// <summary>Only reacts when ?targetUserId= actually changed since last render, to avoid re-triggering the open-or-create-chat flow on every unrelated re-render.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TargetUserId.HasValue && TargetUserId != _previousTargetUserId)
+        {
+            _previousTargetUserId = TargetUserId;
+            await HandleTargetUserNavigationAsync();
+        }
+    }
+
+    private void OnAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadChatDataAsync();
+        });
+    }
+
+    /// <summary>
+    /// Fired by MikpuntApiService when some other part of the app (e.g. the header
+    /// notification bell) triggers a notifications refresh - used here as a cheap
+    /// polling-fallback signal to pull fresh last-message/unread-count data into the
+    /// sidebar even if the SignalR push for it was missed. Preserves the active chat's
+    /// unread count at 0 rather than overwriting it from the server value, since the
+    /// user is actively viewing it.
+    /// </summary>
+    private async void OnNotificationsUpdated()
+    {
+        await InvokeAsync(async () =>
+        {
+            var myUserId = CurrentUserId;
+            var freshChats = await Api.GetUserChatsAsync(myUserId);
+            foreach (var fresh in freshChats)
+            {
+                var local = _chats.FirstOrDefault(c => c.Id == fresh.Id);
+                if (local != null)
+                {
+                    if (local.Id != _activeChat?.Id)
+                    {
+                        local.UnreadCount = fresh.UnreadCount;
+                    }
+                    local.LastMessage = fresh.LastMessage;
+                    local.LastMessageTimestamp = fresh.LastMessageTimestamp;
+                }
+                else
+                {
+                    _chats.Add(fresh);
+                }
+            }
+            SortChats();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Opens the SignalR connection to ChatHub with automatic reconnect and wires up
+    /// server-pushed event handlers. The connection carries the user's JWT
+    /// (AccessTokenProvider); ChatHub is [Authorize] and only lets a user join chats
+    /// they participate in. If the hub can't be reached at all, _hubConnection is left null and the page
+    /// still functions via plain request/response API calls (see catch below).
+    /// </summary>
+    private async Task SetupSignalRAsync()
+    {
+        try
+        {
+            var hubUrl = $"{Api.BaseApiUrl}/chathub";
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(hubUrl, opts =>
+                {
+                    // Don't let hub transport errors propagate to the Blazor circuit
+                    opts.SkipNegotiation = false;
+                    // ChatHub is [Authorize]: send the signed-in user's JWT.
+                    opts.AccessTokenProvider = () => Task.FromResult<string?>(Auth.Token);
+                })
+                .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10) })
+                .Build();
+
+            _hubConnection.Reconnecting += error =>
+            {
+                _connectionState = "Connecting";
+                InvokeAsync(StateHasChanged);
+                return Task.CompletedTask;
+            };
+
+            _hubConnection.Reconnected += async connectionId =>
+            {
+                _connectionState = "Live WebSockets";
+                if (_activeChat != null && _activeChat.Id > 0)
+                {
+                    try
+                    {
+                        await _hubConnection.SendAsync("JoinChat", _activeChat.Id);
+                    }
+                    catch { }
+                }
+                await InvokeAsync(StateHasChanged);
+            };
+
+            _hubConnection.Closed += error =>
+            {
+                _connectionState = "Disconnected";
+                InvokeAsync(StateHasChanged);
+                return Task.CompletedTask;
+            };
+
+            _hubConnection.On<Message>("ReceiveMessage", async (msg) =>
+            {
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await HandleReceiveMessageAsync(msg);
+                    });
+                }
+                catch { }
+            });
+
+            _hubConnection.On<ChatTypingPayload>("UserTyping", (typing) =>
+            {
+                try { InvokeAsync(() => HandleUserTyping(typing)); } catch { }
+            });
+
+            _hubConnection.On<ChatTypingPayload>("UserStoppedTyping", (typing) =>
+            {
+                try { InvokeAsync(() => HandleUserStoppedTyping(typing)); } catch { }
+            });
+
+            _hubConnection.On<ChatReadPayload>("MessagesRead", (payload) =>
+            {
+                try { InvokeAsync(() => HandleMessagesRead(payload)); } catch { }
+            });
+
+            await _hubConnection.StartAsync();
+            _connectionState = "Live WebSockets";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SIGNALR INIT ERROR] {ex.Message}");
+            _connectionState = "Disconnected";
+            // Hub is optional — polling fallback keeps the page functional
+            _hubConnection = null;
+        }
+    }
+
+
+    /// <summary>Handles a ChatHub "ReceiveMessage" push: appends to the open thread and marks it read if it's for the active chat, otherwise bumps the sidebar's unread count/last-message preview for that chat (fetching a fresh chat list if it's a chat this client didn't know about yet).</summary>
+    private async Task HandleReceiveMessageAsync(Message msg)
+    {
+        if (_activeChat != null && msg.ChatId == _activeChat.Id)
+        {
+            // If it belongs to active chat: append to messages list, mark as read, scroll
+            if (!_currentChatMessages.Any(m => m.Id == msg.Id))
+            {
+                _currentChatMessages.Add(msg);
+            }
+
+            _activeChat.LastMessage = msg.Content;
+            _activeChat.LastMessageTimestamp = msg.SentAt;
+            _activeChat.UnreadCount = 0;
+
+            if (msg.SenderId != CurrentUserId)
+            {
+                _ = Api.SetReadStatusAsync(msg.ChatId, CurrentUserId, msg.Id);
+            }
+
+            SortChats();
+            StateHasChanged();
+            await ScrollToBottomAsync();
+        }
+        else
+        {
+            // If it belongs to another chat: increment unread count in sidebar, update last message and sort to top
+            var targetChat = _chats.FirstOrDefault(c => c.Id == msg.ChatId);
+            if (targetChat != null)
+            {
+                if (msg.SenderId != CurrentUserId)
+                {
+                    targetChat.UnreadCount++;
+                }
+                targetChat.LastMessage = msg.Content;
+                targetChat.LastMessageTimestamp = msg.SentAt;
+            }
+            else
+            {
+                var freshChats = await Api.GetUserChatsAsync(CurrentUserId);
+                _chats = freshChats;
+            }
+
+            SortChats();
+            StateHasChanged();
+        }
+
+        Api.NotifyNotificationsChanged();
+    }
+
+    /// <summary>Shows the "X tik..." indicator for the active chat and arms a 3-second timer that auto-clears it if no follow-up typing/stopped-typing event arrives (covers the other client disconnecting mid-type).</summary>
+    private void HandleUserTyping(ChatTypingPayload payload)
+    {
+        if (_activeChat == null || payload.ChatId != _activeChat.Id || payload.UserId == CurrentUserId)
+            return;
+
+        _typingUserName = !string.IsNullOrWhiteSpace(payload.UserName) ? payload.UserName : "Deelnemer";
+        _isOtherUserTyping = true;
+        StateHasChanged();
+
+        _typingTimer?.Dispose();
+        _typingTimer = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                _isOtherUserTyping = false;
+                StateHasChanged();
+            });
+        }, null, 3000, Timeout.Infinite);
+    }
+
+    /// <summary>Clears the typing indicator immediately on an explicit "stopped typing" push.</summary>
+    private void HandleUserStoppedTyping(ChatTypingPayload payload)
+    {
+        if (_activeChat == null || payload.ChatId != _activeChat.Id || payload.UserId == CurrentUserId)
+            return;
+
+        _isOtherUserTyping = false;
+        _typingTimer?.Dispose();
+        StateHasChanged();
+    }
+
+    /// <summary>Updates the other participant's LastReadMessageId locally on a "MessagesRead" push, so IsMessageRead's double-checkmark reflects the read receipt in real time.</summary>
+    private void HandleMessagesRead(ChatReadPayload payload)
+    {
+        if (_activeChat == null || payload.ChatId != _activeChat.Id) return;
+
+        var participant = _activeChat.Participants.FirstOrDefault(p => p.UserId == payload.UserId);
+        if (participant != null)
+        {
+            participant.LastReadMessageId = payload.LastReadMessageId;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>Initial/refresh load of the user's chat list, then hands off to HandleTargetUserNavigationAsync to pick (or open) the active chat.</summary>
+    private async Task LoadChatDataAsync()
+    {
+        _isLoadingChats = true;
+        StateHasChanged();
+
+        var myUserId = CurrentUserId;
+        _chats = await Api.GetUserChatsAsync(myUserId);
+        _isLoadingChats = false;
+
+        await HandleTargetUserNavigationAsync();
+    }
+
+    /// <summary>
+    /// Resolves which chat should be active: if ?targetUserId= names a user, opens the
+    /// existing direct chat with them or creates a new one, surfacing a user-facing
+    /// _chatOpenError message on failure (see inline notes below on the create-chat
+    /// branches); otherwise falls back to keeping the current active chat, or the first
+    /// chat in the list, or no chat if there are none.
+    /// </summary>
+    private async Task HandleTargetUserNavigationAsync()
+    {
+        var myUserId = CurrentUserId;
+
+        if (TargetUserId.HasValue && TargetUserId.Value > 0 && TargetUserId.Value != myUserId)
+        {
+            int tid = TargetUserId.Value;
+            var existingChat = _chats.FirstOrDefault(c => c.Participants.Any(p => p.UserId == tid));
+
+            if (existingChat != null)
+            {
+                await SelectChatAsync(existingChat);
+            }
+            else
+            {
+                _isLoadingMessages = true;
+                StateHasChanged();
+
+                var (success, newChatId, unauthorized) = await Api.CreateDirectChatAsync(tid, myUserId);
+                if (success && newChatId > 0)
+                {
+                    _chats = await Api.GetUserChatsAsync(myUserId);
+                    var newChat = _chats.FirstOrDefault(c => c.Id == newChatId);
+                    if (newChat != null)
+                    {
+                        await SelectChatAsync(newChat);
+                        _chatOpenError = string.Empty;
+                    }
+                    else
+                    {
+                        // Chat was created server-side but doesn't show up in this user's
+                        // own chat list - previously this failed completely silently.
+                        _chatOpenError = "Die klets is geskep, maar kon nie outomaties oopgemaak word nie. Herlaai asseblief die bladsy.";
+                    }
+                }
+                else if (unauthorized)
+                {
+                    // Previously silent: an expired/invalid session token now gets
+                    // rejected by [Authorize] on the Chats endpoints, and nothing
+                    // happened in the UI at all - the user just saw no chat open.
+                    _chatOpenError = "U sessie het verval. Teken asseblief weer aan om hierdie klets te open.";
+                }
+                else
+                {
+                    _chatOpenError = "Kon nie die klets oopmaak nie. Probeer asseblief weer.";
+                }
+                _isLoadingMessages = false;
+                StateHasChanged();
+            }
+        }
+        else if (_activeChat != null && _chats.Any(c => c.Id == _activeChat.Id))
+        {
+            var active = _chats.First(c => c.Id == _activeChat.Id);
+            await SelectChatAsync(active);
+        }
+        else if (_chats.Count > 0)
+        {
+            await SelectChatAsync(_chats[0]);
+        }
+        else
+        {
+            _activeChat = null;
+            _currentChatMessages.Clear();
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>Switches the active chat: leaves/joins the corresponding SignalR groups (if connected), loads the message thread, and marks it read locally + server-side.</summary>
+    private async Task SelectChatAsync(Chat chat)
+    {
+        var oldChatId = _activeChat?.Id ?? 0;
+        bool isSwitching = oldChatId != chat.Id;
+
+        _activeChat = chat;
+        _isOtherUserTyping = false;
+        _typingTimer?.Dispose();
+
+        if (isSwitching)
+        {
+            _isLoadingMessages = true;
+            _currentChatMessages.Clear();
+            StateHasChanged();
+
+            if (_hubConnection != null && _hubConnection.State == HubConnectionState.Connected)
+            {
+                if (oldChatId > 0)
+                {
+                    try
+                    {
+                        await _hubConnection.SendAsync("LeaveChat", oldChatId);
+                    }
+                    catch { }
+                }
+
+                try
+                {
+                    await _hubConnection.SendAsync("JoinChat", chat.Id);
+                }
+                catch { }
+            }
+        }
+
+        _currentChatMessages = await Api.GetChatMessagesAsync(chat.Id);
+        _isLoadingMessages = false;
+
+        // Mark messages as read
+        chat.UnreadCount = 0;
+        var lastMsgId = _currentChatMessages.LastOrDefault()?.Id ?? 0;
+        _ = Api.SetReadStatusAsync(chat.Id, CurrentUserId, lastMsgId);
+        Api.NotifyNotificationsChanged();
+
+        SortChats();
+        StateHasChanged();
+        await ScrollToBottomAsync();
+    }
+
+    /// <summary>Sends the composed message via the API (persists it) and optimistically appends it to the local thread - the SignalR "ReceiveMessage" push for it is deduplicated by message id in HandleReceiveMessageAsync.</summary>
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputText) || _activeChat == null || _isSending) return;
+
+        var text = _inputText.Trim();
+        _isSending = true;
+
+        await SendStoppedTypingAsync();
+
+        var myUserId = CurrentUserId;
+        var (success, messageId) = await Api.SendChatMessageAsync(_activeChat.Id, myUserId, text);
+
+        _inputText = string.Empty;
+        _isSending = false;
+
+        if (success)
+        {
+            if (messageId > 0 && !_currentChatMessages.Any(m => m.Id == messageId))
+            {
+                var newMsg = new Message
+                {
+                    Id = messageId,
+                    ChatId = _activeChat.Id,
+                    SenderId = myUserId,
+                    SenderName = CurrentUserName,
+                    Content = text,
+                    SentAt = DateTime.UtcNow
+                };
+                _currentChatMessages.Add(newMsg);
+                _activeChat.LastMessage = text;
+                _activeChat.LastMessageTimestamp = DateTime.UtcNow;
+                SortChats();
+            }
+
+            StateHasChanged();
+            await ScrollToBottomAsync();
+        }
+    }
+
+    /// <summary>Sends a "SendTyping" hub event, throttled to once per 2 seconds while the user keeps typing; clearing the input instead sends "SendStoppedTyping" right away.</summary>
+    private async Task HandleOnInput(ChangeEventArgs e)
+    {
+        _inputText = e.Value?.ToString() ?? string.Empty;
+
+        if (_activeChat == null || _hubConnection == null || _hubConnection.State != HubConnectionState.Connected)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_inputText))
+        {
+            await SendStoppedTypingAsync();
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastTypingSent).TotalSeconds > 2.0)
+        {
+            _lastTypingSent = now;
+            try
+            {
+                await _hubConnection.SendAsync("SendTyping", _activeChat.Id, CurrentUserId, CurrentUserName);
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Best-effort "SendStoppedTyping" push; silently no-ops if the hub isn't connected.</summary>
+    private async Task SendStoppedTypingAsync()
+    {
+        if (_activeChat == null || _hubConnection == null || _hubConnection.State != HubConnectionState.Connected)
+            return;
+
+        try
+        {
+            await _hubConnection.SendAsync("SendStoppedTyping", _activeChat.Id, CurrentUserId);
+        }
+        catch { }
+    }
+
+    /// <summary>Whether every other participant's LastReadMessageId has caught up to msg - drives the single/double checkmark on the sender's own messages.</summary>
+    private bool IsMessageRead(Message msg)
+    {
+        if (_activeChat == null) return false;
+        var otherParticipants = _activeChat.Participants.Where(p => p.UserId != CurrentUserId).ToList();
+        if (otherParticipants.Count == 0) return false;
+        return otherParticipants.Any(p => (p.LastReadMessageId ?? 0) >= msg.Id);
+    }
+
+    /// <summary>Display name for a chat: explicit Title if set (group chats), else the other participant's username, else a fallback "Klets #id".</summary>
+    private string GetChatDisplayName(Chat chat)
+    {
+        if (!string.IsNullOrWhiteSpace(chat.Title)) return chat.Title;
+        var other = chat.Participants.FirstOrDefault(p => p.UserId != CurrentUserId);
+        if (other != null && !string.IsNullOrWhiteSpace(other.UserName)) return other.UserName;
+        return $"Klets #{chat.Id}";
+    }
+
+    /// <summary>Subtitle under the chat header: the other participant's user id for a direct chat, or a participant count for a group chat.</summary>
+    private string GetChatSubtitle(Chat chat)
+    {
+        var other = chat.Participants.FirstOrDefault(p => p.UserId != CurrentUserId);
+        if (other != null)
+        {
+            return $"Lid ID: #{other.UserId} • Direkte Klets";
+        }
+        return $"{chat.Participants.Count} deelnemers";
+    }
+
+    /// <summary>First letter of the display name, uppercased, for the circular avatar placeholder.</summary>
+    private string GetAvatarInitial(Chat chat)
+    {
+        var name = GetChatDisplayName(chat);
+        return string.IsNullOrWhiteSpace(name) ? "?" : name.Substring(0, 1).ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// The other participant's user id for a direct (2-person) chat, so their avatar
+    /// can link to their profile. Returns 0 for group chats or malformed chats -
+    /// there's no single "other person" to link to in that case.
+    /// </summary>
+    private int GetOtherParticipantUserId(Chat? chat)
+    {
+        if (chat == null) return 0;
+        var others = chat.Participants.Where(p => p.UserId != CurrentUserId).ToList();
+        return others.Count == 1 ? others[0].UserId : 0;
+    }
+
+    private void GoToProfile(int userId)
+    {
+        if (userId > 0)
+        {
+            Nav.NavigateTo($"/profiel/{userId}?returnUrl=/boodskappe");
+        }
+    }
+
+    /// <summary>Keeps the active chat pinned to the top, then orders the rest by most-recent activity.</summary>
+    private void SortChats()
+    {
+        _chats = _chats
+            .OrderByDescending(c => _activeChat != null && c.Id == _activeChat.Id)
+            .ThenByDescending(c => c.LastMessageTimestamp ?? c.CreatedTimestamp)
+            .ToList();
+    }
+
+    /// <summary>Scrolls the message thread to the newest message via a named JS helper, falling back to a raw inline eval if that helper isn't registered (e.g. the JS file didn't load for some reason).</summary>
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("mikpuntChat.scrollToBottom", ".chat-scroll-area");
+        }
+        catch
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("eval", @"
+                    var el = document.querySelector('.chat-scroll-area');
+                    if (el) { el.scrollTop = el.scrollHeight; }
+                ");
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Unsubscribes from parent-service events and cleanly leaves the SignalR group/closes the connection so the server doesn't keep broadcasting to a torn-down circuit.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        Api.OnNotificationsChanged -= OnNotificationsUpdated;
+        Auth.OnAuthStateChanged -= OnAuthChanged;
+        _typingTimer?.Dispose();
+
+        if (_hubConnection != null)
+        {
+            if (_activeChat != null && _activeChat.Id > 0 && _hubConnection.State == HubConnectionState.Connected)
+            {
+                try
+                {
+                    await _hubConnection.SendAsync("LeaveChat", _activeChat.Id);
+                }
+                catch { }
+            }
+
+            try
+            {
+                await _hubConnection.DisposeAsync();
+            }
+            catch { }
+        }
+    }
+}

@@ -1,0 +1,667 @@
+@* PJ team schedule/calendar at /pj/schedule: month-grid calendar and a per-staff-member
+   timeline view over the PJ's team bookings, with a KPI bar (active expeditions this month,
+   staff free today, detected double-booking conflicts) and a farm/booking quick-detail modal.
+   All booking data is loaded once per month-view via LoadData; navigating months only rebuilds
+   the calendar grid client-side (BuildCalendarGrid), it doesn't re-fetch. Gated on
+   Auth.HasRole("PJ") or "Admin". *@
+@page "/pj/skedule"
+@page "/pj/schedule"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject ThemeService Theme
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Span Skedule Matrix &amp; Kalender | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="mp-card text-center p-5">
+        <div class="spinner-border text-gold mb-3" role="status"></div>
+        <div class="fs-4 text-gold">Verifieer tans toegang...</div>
+    </div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/pj/skedule" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("PJ") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Uitruster (PJ) Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Uitruster (PJ)</strong> nie. U kan hierdie rol op u profiel aktiveer om die span-skedule matrix te bekyk.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer PJ Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <!-- Top Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <a href="/pj/paneelbord" class="text-gold text-decoration-none small fw-bold">&larr; Terug na PJ-paneelbord</a>
+            </div>
+            <h1 class="brand-font text-gold mb-1">📅 Span Skedule Matrix &amp; Kalender</h1>
+            <p class="text-muted mb-0">Visualiseer al u Professionele Jagters (PH) en Videograwe (VG) se beskikbaarheid, toegewese ekspedisies en seisoenale kalender-lading.</p>
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="/pj/besprekings" class="mp-btn mp-btn-secondary mp-btn-sm">Bestuur Besprekings 📋</a>
+            <a href="/pj/span" class="mp-btn mp-btn-secondary mp-btn-sm">Bestuur Span 👥</a>
+        </div>
+    </div>
+
+    <!-- Summary KPI Bar -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-warning border-3">
+                <div class="text-muted small text-uppercase fw-bold">Totale Spanlede</div>
+                <div class="fs-3 fw-bold pj-kpi-total mt-1">@_teamMembers.Count</div>
+                <div class="small text-muted">@_phCandidates.Count PH's &bull; @_vgCandidates.Count VG's</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-success border-3" style="border-top-color: #10b981 !important;">
+                <div class="text-success small text-uppercase fw-bold">Aktiewe Ekspedisies Hierdie Maand</div>
+                <div class="fs-3 fw-bold text-success mt-1">@ActiveBookingsThisMonthCount</div>
+                <div class="small text-muted">In @_currentMonth.ToString("MMMM yyyy")</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-info border-3" style="border-top-color: #3b82f6 !important;">
+                <div class="text-info small text-uppercase fw-bold">Beskikbaar Vandag</div>
+                <div class="fs-3 fw-bold text-info mt-1">@AvailableStaffTodayCount</div>
+                <div class="small text-muted">Vry op @DateTime.Today.ToString("dd MMM")</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="mp-card p-3 text-center border-top border-danger border-3" style="border-top-color: #ef4444 !important;">
+                <div class="text-danger small text-uppercase fw-bold">Skedule Botsings / Oorvleuelings</div>
+                <div class="fs-3 fw-bold text-danger mt-1">@ScheduleConflictCount</div>
+                <div class="small text-muted">Geïdentifiseerde dubbel-toewysings</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calendar Controls Bar -->
+    <div class="mp-card p-3 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            
+            <!-- Month Navigation -->
+            <div class="d-flex align-items-center gap-2">
+                <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="PreviousMonth" title="Vorige Maand">&larr; Vorige</button>
+                <h4 class="brand-font text-gold mb-0 px-2" style="min-width: 180px; text-align: center;">
+                    @_currentMonth.ToString("MMMM yyyy")
+                </h4>
+                <button class="mp-btn mp-btn-secondary mp-btn-sm" @onclick="NextMonth" title="Volgende Maand">Volgende &rarr;</button>
+                <button class="mp-btn mp-btn-primary mp-btn-sm ms-2" @onclick="GoToToday">Vandag</button>
+            </div>
+
+            <!-- View Switcher & Filter -->
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                <!-- View Mode Buttons -->
+                <div class="btn-group btn-group-sm me-2" role="group">
+                    <button type="button" class="mp-btn mp-btn-sm @(_viewMode == "calendar" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _viewMode = "calendar"'>
+                        📅 Maand Kalender
+                    </button>
+                    <button type="button" class="mp-btn mp-btn-sm @(_viewMode == "timeline" ? "mp-btn-primary" : "mp-btn-secondary")" @onclick='() => _viewMode = "timeline"'>
+                        👥 Personeel Tydlyn
+                    </button>
+                </div>
+
+                <!-- Staff Role Filter -->
+                <div style="min-width: 170px;">
+                    <select class="mp-form-control form-select-sm" @bind="_selectedStaffFilter">
+                        <option value="all">Alle Spanlede (@_teamMembers.Count)</option>
+                        <option value="PH">Slegs PH Gidse (@_phCandidates.Count)</option>
+                        <option value="VG">Slegs Videograwe (@_vgCandidates.Count)</option>
+                    </select>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="mp-card text-center p-5 text-muted">
+            <div class="spinner-border text-warning spinner-border-sm me-2"></div> Laai span-skedule data...
+        </div>
+    }
+    else if (_viewMode == "calendar")
+    {
+        <!-- VIEW 1: Full Month Interactive Grid Calendar -->
+        <div class="mp-card p-3 mb-4">
+            <!-- Calendar Days Header (Mon-Sun) -->
+            <div class="d-grid mb-2" style="grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center;">
+                @foreach (var dayName in _dayOfWeekNames)
+                {
+                    <div class="p-2 fw-bold text-uppercase small text-gold rounded" style="background: rgba(217, 119, 6, 0.12); border: 1px solid rgba(217, 119, 6, 0.25);">
+                        @dayName
+                    </div>
+                }
+            </div>
+
+            <!-- Calendar Days Cells Grid -->
+            <div class="d-grid" style="grid-template-columns: repeat(7, 1fr); gap: 6px;">
+                @foreach (var cell in _calendarGridCells)
+                {
+                    bool isToday = cell.Date.Date == DateTime.Today;
+                    bool isCurrentMonth = cell.Date.Month == _currentMonth.Month;
+                    var dayBookings = GetBookingsForDate(cell.Date);
+
+                    <div class="p-2 rounded d-flex flex-column justify-content-between pjs-day-cell @(isToday ? "pjs-today-cell" : "") @(!isCurrentMonth ? "pjs-other-month" : "")"
+                         style="min-height: 125px; max-height: 190px; overflow-y: auto;">
+                        
+                        <!-- Cell Date Header -->
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-bold small @(isToday ? "badge bg-warning text-dark" : "text-muted")">
+                                @cell.Date.Day @(cell.Date.Day == 1 ? cell.Date.ToString("MMM") : "")
+                            </span>
+                            @if (dayBookings.Count > 0)
+                            {
+                                <span class="badge bg-gold text-dark" style="font-size: 10px;" title="@dayBookings.Count aktiewe ekspedisie(s)">
+                                    @dayBookings.Count
+                                </span>
+                            }
+                        </div>
+
+                        <!-- Cell Events List -->
+                        <div class="d-flex flex-column gap-1 overflow-auto">
+                            @foreach (var b in dayBookings.Take(4))
+                            {
+                                bool matchesFilter = FilterStaffMatch(b);
+                                if (!matchesFilter) continue;
+
+                                <div class="badge p-1 text-start text-truncate pj-cal-event-badge"
+                                     style="@GetBookingBadgeStyle(b)"
+                                     @onclick="() => OpenQuickDetailModal(b)"
+                                     title="Klik vir besonderhede: @b.PackageTitle (@b.HunterName) op @b.FarmName">
+                                    <div class="fw-bold text-truncate" style="font-size: 11px;">
+                                        🎯 @(string.IsNullOrWhiteSpace(b.AssignedPhName) ? "Geen PH" : b.AssignedPhName)
+                                    </div>
+                                    <div class="small opacity-90 text-truncate" style="font-size: 10px;">
+                                        @b.HunterName &bull; @b.FarmName
+                                    </div>
+                                </div>
+                            }
+                            @if (dayBookings.Count > 4)
+                            {
+                                <div class="small text-muted text-center fw-bold" style="font-size: 10px;">
+                                    +@(dayBookings.Count - 4) nog
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- VIEW 2: Team Member Timeline Row Matrix -->
+        <div class="mp-card p-3 mb-4">
+            <h5 class="text-gold brand-font mb-3">👥 Personeel Tydlyn &amp; Beskikbaarheid Rows</h5>
+
+            @if (!FilteredTeamMembers.Any())
+            {
+                <div class="text-center p-4 text-muted">
+                    Geen spanlede gevind vir die gekose rol-filter nie.
+                </div>
+            }
+            else
+            {
+                <div class="d-flex flex-column gap-3">
+                    @foreach (var member in FilteredTeamMembers)
+                    {
+                        var memberBookings = GetBookingsForStaff(member.UserId, _currentMonth);
+                        var conflicts = GetStaffMonthConflicts(member.UserId, _currentMonth);
+
+                        <div class="p-3 rounded pjs-timeline-card">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="mp-brand-logo" style="width: 38px; height: 38px; font-size: 16px;">
+                                        @(member.Role == "PH" ? "🎯" : "🎥")
+                                    </div>
+                                    <div>
+                                        <h6 class="fw-bold mb-0 text-gold">@member.Name @member.Surname</h6>
+                                        <div class="small text-muted">
+                                            <span class="badge @(member.Role == "PH" ? "bg-warning text-dark" : "bg-info text-dark")">@member.Role</span>
+                                            <span class="ms-1">&bull; @memberBookings.Count ekspedisie(s) in @_currentMonth.ToString("MMM yyyy")</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    @if (conflicts.Any())
+                                    {
+                                        <span class="badge bg-danger p-2">⚠️ @conflicts.Count Skedule Oorvleueling(s)</span>
+                                    }
+                                    else if (memberBookings.Count > 2)
+                                    {
+                                        <span class="badge bg-warning text-dark p-2">Hoë Beskikbaarheidslading</span>
+                                    }
+                                    else if (memberBookings.Any())
+                                    {
+                                        <span class="badge bg-success p-2">Aktief Geplak</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary p-2">Beskikbaar vir Besprekings</span>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Expeditions Schedule Timeline Badges -->
+                            @if (!memberBookings.Any())
+                            {
+                                <div class="small text-muted p-2 rounded bg-dark-subtle border border-secondary border-opacity-25">
+                                    Geen toewysings gedurende @_currentMonth.ToString("MMMM yyyy") nie. Volledig beskikbaar vir inkomende ekspedisies.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-wrap gap-2">
+                                    @foreach (var b in memberBookings)
+                                    {
+                                        <div class="p-2 rounded border pjs-booking-chip cursor-pointer" @onclick="() => OpenQuickDetailModal(b)">
+                                            <div class="d-flex justify-content-between gap-2 align-items-center mb-1">
+                                                <strong class="text-gold small">@b.PackageTitle</strong>
+                                                <span class="badge @(b.Status == "Approved" || b.Status == "Paid" ? "bg-success" : "bg-warning text-dark")" style="font-size: 10px;">@b.Status</span>
+                                            </div>
+                                            <div class="small">
+                                                📅 <strong>@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</strong>
+                                            </div>
+                                            <div class="small text-muted">
+                                                👤 Jagter: @b.HunterName &bull; 🏞️ Plaas: @b.FarmName
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+<!-- MODAL: Quick Booking Details Modal -->
+@if (_showQuickModal && _selectedBooking != null)
+{
+    <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style="background: rgba(0,0,0,0.85); z-index: 2200;">
+        <div class="mp-card pj-booking-modal" style="width: 580px; max-width: 98%;">
+            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+                <h4 class="brand-font text-gold mb-0">🎯 Ekspedisie Besonderhede</h4>
+                <button type="button" class="btn-close pj-modal-close" aria-label="Maak toe" @onclick="() => _showQuickModal = false"></button>
+            </div>
+
+            <div class="p-3 rounded mb-3 pj-modal-section">
+                <h5 class="fw-bold text-gold mb-1">@_selectedBooking.PackageTitle</h5>
+                <div class="small text-muted mb-2">Plaas: <strong>@_selectedBooking.FarmName</strong> | Ref: <strong class="text-gold">@_selectedBooking.PaymentReference</strong></div>
+
+                <div class="row g-2 mb-2 small">
+                    <div class="col-6">
+                        <span class="text-muted d-block">Primêre Jagter:</span>
+                        <strong>@_selectedBooking.HunterName</strong>
+                    </div>
+                    <div class="col-6">
+                        <span class="text-muted d-block">Datums:</span>
+                        <strong>@_selectedBooking.StartDate.ToString("dd MMM") - @_selectedBooking.EndDate.ToString("dd MMM yyyy")</strong>
+                    </div>
+                    <div class="col-6">
+                        <span class="text-muted d-block">Toegewese PH:</span>
+                        <strong class="text-success">🎯 @(_selectedBooking.AssignedPhName ?? "Geen PH")</strong>
+                    </div>
+                    <div class="col-6">
+                        <span class="text-muted d-block">Toegewese VG:</span>
+                        <strong class="text-info">🎥 @(_selectedBooking.AssignedVgName ?? "Geen VG")</strong>
+                    </div>
+                </div>
+
+                <div class="pt-2 border-top border-secondary mt-2 d-flex justify-content-between align-items-center">
+                    <span class="small text-muted">Totale Prys:</span>
+                    <strong class="text-gold fs-6">@Money.Format(_selectedBooking.TotalPrice, _selectedBooking.PriceBreakdown?.Currency, "N2")</strong>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between gap-2 mt-3">
+                <button type="button" class="mp-btn mp-btn-secondary" @onclick="() => _showQuickModal = false">Maak Toe</button>
+                <a href="/pj/besprekings?openVoucher=@_selectedBooking.Id" class="mp-btn mp-btn-primary">
+                    Bekyk in Besprekingsbestuur &rarr;
+                </a>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .pjs-day-cell {
+        background: rgba(15, 20, 28, 0.5);
+        border: 1px solid rgba(212, 175, 55, 0.2);
+        transition: border-color 0.2s;
+    }
+    .pjs-day-cell:hover {
+        border-color: rgba(212, 175, 55, 0.5);
+    }
+    .pjs-today-cell {
+        background: rgba(217, 119, 6, 0.15) !important;
+        border: 2px solid #d97706 !important;
+    }
+    .pjs-other-month {
+        opacity: 0.45;
+    }
+
+    [data-theme="light"] .pjs-day-cell,
+    .mikpunt-app-container:not([data-theme="dark"]) .pjs-day-cell {
+        background: #ffffff !important;
+        border: 1px solid rgba(180, 83, 9, 0.2) !important;
+    }
+
+    .pj-cal-event-badge {
+        cursor: pointer;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .pj-cal-event-badge:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+
+    .pjs-timeline-card {
+        background: rgba(15, 20, 28, 0.6);
+        border: 1px solid rgba(212, 175, 55, 0.25);
+    }
+    [data-theme="light"] .pjs-timeline-card,
+    .mikpunt-app-container:not([data-theme="dark"]) .pjs-timeline-card {
+        background: #ffffff !important;
+        border: 1px solid rgba(180, 83, 9, 0.22) !important;
+    }
+
+    .pjs-booking-chip {
+        background: rgba(10, 14, 20, 0.8);
+        border-color: rgba(212, 175, 55, 0.3) !important;
+        min-width: 220px;
+    }
+    [data-theme="light"] .pjs-booking-chip,
+    .mikpunt-app-container:not([data-theme="dark"]) .pjs-booking-chip {
+        background: rgba(254, 243, 199, 0.6) !important;
+        border-color: rgba(180, 83, 9, 0.3) !important;
+    }
+</style>
+
+@code {
+    private List<BookingModel> _bookings = new();
+    private List<TeamMemberResponse> _teamMembers = new();
+    private List<TeamMemberResponse> _phCandidates = new();
+    private List<TeamMemberResponse> _vgCandidates = new();
+    private bool _loading = true;
+
+    private DateTime _currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private string _viewMode = "calendar"; // "calendar" or "timeline"
+    private string _selectedStaffFilter = "all"; // "all", "PH", "VG"
+
+    private List<CalendarGridCell> _calendarGridCells = new();
+    private readonly string[] _dayOfWeekNames = new[] { "Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrydag", "Saterdag", "Sondag" };
+
+    // Quick detail modal
+    private bool _showQuickModal = false;
+    private BookingModel? _selectedBooking;
+
+    /// <summary>One day cell in the rendered 5-week (35-day) calendar grid, including leading/trailing days from adjacent months.</summary>
+    public class CalendarGridCell
+    {
+        public DateTime Date { get; set; }
+    }
+
+    /// <summary>Count of the PJ's confirmed/completed bookings whose start date falls in the currently viewed month.</summary>
+    private int ActiveBookingsThisMonthCount =>
+        _bookings.Count(b => (b.Status == "Approved" || b.Status == "Paid" || b.Status == "Completed") &&
+                             b.StartDate.Month == _currentMonth.Month && b.StartDate.Year == _currentMonth.Year);
+
+    /// <summary>Team members not assigned as PH or VG on any booking whose date range covers today.</summary>
+    private int AvailableStaffTodayCount
+    {
+        get
+        {
+            var today = DateTime.Today;
+            var busyStaffIds = _bookings.Where(b => (b.Status == "Approved" || b.Status == "Paid") &&
+                                                    b.StartDate <= today && b.EndDate >= today)
+                                       .SelectMany(b => new[] { b.AssignedPhUserId, b.AssignedVgUserId })
+                                       .Where(id => id.HasValue && id.Value > 0)
+                                       .Select(id => id!.Value)
+                                       .ToHashSet();
+
+            return _teamMembers.Count(m => !busyStaffIds.Contains(m.UserId));
+        }
+    }
+
+    /// <summary>
+    /// Total count of pairwise date-range overlaps across all staff (O(n^2) per member's
+    /// booking list, fine at this scale - a PJ's team/booking volume is small). Counts each
+    /// overlapping pair once per member, so a single 3-way overlap contributes multiple times
+    /// here versus GetStaffMonthConflicts, which dedupes to distinct bookings involved.
+    /// </summary>
+    private int ScheduleConflictCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (var m in _teamMembers)
+            {
+                var memberBookings = _bookings.Where(b => (b.Status == "Approved" || b.Status == "Paid") &&
+                                                          ((b.AssignedPhUserId == m.UserId) || (b.AssignedVgUserId == m.UserId))).ToList();
+
+                for (int i = 0; i < memberBookings.Count; i++)
+                {
+                    for (int j = i + 1; j < memberBookings.Count; j++)
+                    {
+                        if (memberBookings[i].StartDate <= memberBookings[j].EndDate && memberBookings[i].EndDate >= memberBookings[j].StartDate)
+                        {
+                            count++;
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+    }
+
+    /// <summary>Team members restricted to the currently selected role filter ("all"/"PH"/"VG") for the timeline view.</summary>
+    private IEnumerable<TeamMemberResponse> FilteredTeamMembers =>
+        _selectedStaffFilter switch
+        {
+            "PH" => _phCandidates,
+            "VG" => _vgCandidates,
+            _ => _teamMembers
+        };
+
+    /// <summary>Subscribes to auth/theme change events and loads schedule data immediately if already authenticated with the right role.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        Theme.OnThemeChanged += HandleThemeChanged;
+        if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+        {
+            await LoadData();
+        }
+    }
+
+    /// <summary>Re-renders on theme toggle - several calendar cell colors are set via inline style with explicit light/dark branches rather than CSS variables alone.</summary>
+    private void HandleThemeChanged() => InvokeAsync(StateHasChanged);
+
+    /// <summary>AuthService login/logout callback - reloads schedule data as the session changes within the same tab.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated && (Auth.HasRole("PJ") || Auth.HasRole("Admin")))
+            {
+                await LoadData();
+            }
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>
+    /// Loads the PJ's team bookings and roster, then builds the PH/VG candidate lists used
+    /// by the role filter - if the PJ personally also holds the PH or VG role but isn't
+    /// already in their own team roster (a PJ doesn't invite themselves), they're synthesized
+    /// in as an extra "(PJ &amp; PH)"/"(PJ &amp; VG)" entry so their own bookings still show up.
+    /// </summary>
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _bookings = await Api.GetBookingsForPjAsync(myUserId);
+            _teamMembers = await Api.GetPjTeamMembersAsync(myUserId);
+
+            _phCandidates = _teamMembers.Where(m => string.Equals(m.Role, "PH", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (Auth.HasRole("PH") && !_phCandidates.Any(c => c.UserId == myUserId))
+            {
+                _phCandidates.Insert(0, new TeamMemberResponse
+                {
+                    UserId = myUserId,
+                    Name = Auth.CurrentUser?.FirstName ?? "Ekself",
+                    Surname = $"{Auth.CurrentUser?.LastName} (PJ & PH)",
+                    Role = "PH"
+                });
+            }
+
+            _vgCandidates = _teamMembers.Where(m => string.Equals(m.Role, "VG", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (Auth.HasRole("VG") && !_vgCandidates.Any(c => c.UserId == myUserId))
+            {
+                _vgCandidates.Insert(0, new TeamMemberResponse
+                {
+                    UserId = myUserId,
+                    Name = Auth.CurrentUser?.FirstName ?? "Ekself",
+                    Surname = $"{Auth.CurrentUser?.LastName} (PJ & VG)",
+                    Role = "VG"
+                });
+            }
+
+            BuildCalendarGrid();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>Fills a fixed 35-cell (5-week) grid starting on the Monday on/before the 1st of _currentMonth, so the grid always shows complete weeks even when they spill into adjacent months.</summary>
+    private void BuildCalendarGrid()
+    {
+        _calendarGridCells.Clear();
+
+        // Find first day of week for current month (Monday = 1 ... Sunday = 7)
+        var firstDayOfMonth = new DateTime(_currentMonth.Year, _currentMonth.Month, 1);
+        int dayOfWeekVal = (int)firstDayOfMonth.DayOfWeek;
+        int offset = dayOfWeekVal == 0 ? 6 : dayOfWeekVal - 1; // Monday start
+
+        var startDate = firstDayOfMonth.AddDays(-offset);
+
+        for (int i = 0; i < 35; i++) // 5 weeks grid
+        {
+            _calendarGridCells.Add(new CalendarGridCell { Date = startDate.AddDays(i) });
+        }
+    }
+
+    private void PreviousMonth()
+    {
+        _currentMonth = _currentMonth.AddMonths(-1);
+        BuildCalendarGrid();
+    }
+
+    private void NextMonth()
+    {
+        _currentMonth = _currentMonth.AddMonths(1);
+        BuildCalendarGrid();
+    }
+
+    private void GoToToday()
+    {
+        _currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        BuildCalendarGrid();
+    }
+
+    /// <summary>Every non-rejected/cancelled booking whose date range spans the given day - used for the calendar grid cells.</summary>
+    private List<BookingModel> GetBookingsForDate(DateTime date)
+    {
+        return _bookings.Where(b => (b.Status == "Approved" || b.Status == "Paid" || b.Status == "Pending") &&
+                                    b.StartDate.Date <= date.Date && b.EndDate.Date >= date.Date).ToList();
+    }
+
+    /// <summary>Bookings for one staff member starting in the given month, PH- or VG-assigned - used to build a member's timeline row.</summary>
+    private List<BookingModel> GetBookingsForStaff(int staffUserId, DateTime month)
+    {
+        return _bookings.Where(b => (b.Status == "Approved" || b.Status == "Paid" || b.Status == "Pending") &&
+                                    ((b.AssignedPhUserId == staffUserId) || (b.AssignedVgUserId == staffUserId)) &&
+                                    b.StartDate.Month == month.Month && b.StartDate.Year == month.Year)
+                        .OrderBy(b => b.StartDate)
+                        .ToList();
+    }
+
+    /// <summary>Distinct bookings (deduped, unlike ScheduleConflictCount's raw pair count) among a staff member's bookings for the month whose date ranges overlap another of their own bookings.</summary>
+    private List<BookingModel> GetStaffMonthConflicts(int staffUserId, DateTime month)
+    {
+        var list = GetBookingsForStaff(staffUserId, month);
+        var conflicts = new List<BookingModel>();
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            for (int j = i + 1; j < list.Count; j++)
+            {
+                if (list[i].StartDate <= list[j].EndDate && list[i].EndDate >= list[j].StartDate)
+                {
+                    if (!conflicts.Contains(list[i])) conflicts.Add(list[i]);
+                    if (!conflicts.Contains(list[j])) conflicts.Add(list[j]);
+                }
+            }
+        }
+        return conflicts;
+    }
+
+    /// <summary>Whether a booking has an assignment matching the selected staff-role filter - used to skip calendar-cell badges that don't match.</summary>
+    private bool FilterStaffMatch(BookingModel b)
+    {
+        if (_selectedStaffFilter == "all") return true;
+        if (_selectedStaffFilter == "PH" && b.AssignedPhUserId.HasValue && b.AssignedPhUserId.Value > 0) return true;
+        if (_selectedStaffFilter == "VG" && b.AssignedVgUserId.HasValue && b.AssignedVgUserId.Value > 0) return true;
+        return false;
+    }
+
+    /// <summary>Inline badge color per booking status for the calendar-cell event chips.</summary>
+    private string GetBookingBadgeStyle(BookingModel b) => b.Status switch
+    {
+        "Approved" or "Paid" => "background: rgba(16, 185, 129, 0.85); color: #ffffff; border: 1px solid #10b981;",
+        "Completed" => "background: rgba(59, 130, 246, 0.85); color: #ffffff; border: 1px solid #3b82f6;",
+        _ => "background: rgba(245, 158, 11, 0.85); color: #1a1a1a; border: 1px solid #f59e0b;"
+    };
+
+    /// <summary>Opens the read-only booking-summary modal; full editing happens on the separate /pj/bookings page (linked from the modal).</summary>
+    private void OpenQuickDetailModal(BookingModel b)
+    {
+        _selectedBooking = b;
+        _showQuickModal = true;
+    }
+
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+        Theme.OnThemeChanged -= HandleThemeChanged;
+    }
+}

@@ -1,0 +1,131 @@
+@* App-wide Blazor layout: wraps every page's @Body with HeaderNav above and Footer
+   below (both hidden under print media via the no-print wrapper), and owns first-render
+   bootstrapping of the two client-persisted singletons - ThemeService (light/dark,
+   read from browser storage via JS interop) and AuthService (JWT session, also
+   restored from browser storage). Subscribes to both services' change events so a
+   theme toggle or login/logout anywhere in the app re-renders this layout (and,
+   implicitly, the header) without a full page reload. *@
+@inherits LayoutComponentBase
+@inject ThemeService Theme
+@inject AuthService Auth
+@inject MikpuntApiService Api
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="mikpunt-app-container" data-theme="@Theme.CurrentTheme">
+    <div class="no-print">
+        <HeaderNav />
+    </div>
+    <main class="mp-container">
+        @if (ShowMaintenancePage)
+        {
+            <div class="mp-card text-center p-5 my-5 mx-auto" style="max-width: 640px;">
+                <i class="bi bi-tools text-gold" style="font-size: 3rem;"></i>
+                <h2 class="brand-font text-gold mt-3">Tydelik in onderhoud</h2>
+                <p class="text-muted mb-4">@(_siteStatus?.Message ?? "MikPunt is tydelik in onderhoud. Probeer asseblief later weer.")</p>
+                <a href="/teken-in" class="mp-btn mp-btn-secondary mp-btn-sm">Administrateur? Teken hier in</a>
+            </div>
+        }
+        else
+        {
+            @Body
+        }
+    </main>
+    <div class="no-print">
+        <Footer />
+    </div>
+</div>
+
+@code {
+    /// <summary>Wires up re-render triggers early; the actual JS-dependent initialization happens in OnAfterRenderAsync since JS interop isn't available yet during server-side prerendering.</summary>
+    private SiteStatusModel? _siteStatus;
+    private System.Threading.Timer? _watch;
+    private int _endingSession;
+
+    /// <summary>Maintenance mode hides every page from everyone but admins (the login page stays reachable).</summary>
+    private bool ShowMaintenancePage =>
+        _siteStatus?.Maintenance == true && !Auth.HasRole("Admin")
+        && !Nav.Uri.Contains("/teken-in", StringComparison.OrdinalIgnoreCase)
+        && !Nav.Uri.Contains("/login", StringComparison.OrdinalIgnoreCase);
+
+    protected override void OnInitialized()
+    {
+        Theme.OnThemeChanged += OnThemeChanged;
+        Auth.OnAuthStateChanged += OnAuthStateChanged;
+        Auth.OnSessionRejected += OnSessionRejected;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    /// <summary>First-render-only: restores theme and auth session from browser storage via JS interop, then forces a re-render since both can change the header/theme attribute.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Theme.InitializeThemeAsync(JS);
+            await Auth.InitializeAsync(JS, Api);
+            _siteStatus = await Api.GetSiteStatusAsync();
+            await Api.GetPublicSettingsAsync();   // sets Money.PackageCurrency for every page
+            StateHasChanged();
+            // Every 30 s: is the session still accepted (suspension signs the user out everywhere),
+            // and has the admin switched maintenance mode on or off?
+            _watch = new System.Threading.Timer(_ => _ = InvokeAsync(WatchAsync), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+    }
+
+    /// <summary>Re-renders (on the Blazor sync context via InvokeAsync) when ThemeService's theme changes elsewhere in the app.</summary>
+    private void OnThemeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Re-renders when AuthService's login state changes elsewhere in the app (e.g. after Login.razor or a logout).</summary>
+    private void OnAuthStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task WatchAsync()
+    {
+        var status = await Api.GetSiteStatusAsync();
+        bool changed = status.Maintenance != _siteStatus?.Maintenance;
+        _siteStatus = status;
+        if (Auth.IsAuthenticated && await Api.IsSessionValidAsync() == false)
+        {
+            await EndSessionAsync();
+            return;
+        }
+        if (changed) StateHasChanged();
+    }
+
+    private void OnSessionRejected() => _ = InvokeAsync(EndSessionAsync);
+
+    /// <summary>The WebAPI refused this session (suspended, revoked or expired): sign out here and explain why.</summary>
+    private async Task EndSessionAsync()
+    {
+        if (Interlocked.Exchange(ref _endingSession, 1) == 1) return;
+        try
+        {
+            if (!Auth.IsAuthenticated) return;
+            await Auth.LogoutAsync(JS);
+            Nav.NavigateTo("/teken-in?rede=sessie");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _endingSession, 0);
+        }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+        => InvokeAsync(StateHasChanged);
+
+    /// <summary>Unsubscribes from both services to avoid leaking event handlers when this layout instance is torn down.</summary>
+    public void Dispose()
+    {
+        Theme.OnThemeChanged -= OnThemeChanged;
+        Auth.OnAuthStateChanged -= OnAuthStateChanged;
+        Auth.OnSessionRejected -= OnSessionRejected;
+        Nav.LocationChanged -= OnLocationChanged;
+        _watch?.Dispose();
+    }
+}

@@ -1,0 +1,234 @@
+@* Incoming team-invite inbox (routes: /team-invites and /invites), any signed-in
+   user (no role gate beyond being authenticated - a PJ invites arbitrary users to
+   join their expedition team, e.g. as PH/VG). Lets the invitee accept/decline and
+   jump into a chat with the inviting PJ. *@
+@page "/uitnodigings"
+@page "/team-invites"
+@page "/invites"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Span Uitnodigings | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Hierdie bladsy is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/uitnodigings" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Span &amp; Ekspedisie Uitnodigings</h1>
+            <p class="text-muted mb-0">Inkomende versoeke van Uitrusters (PJ) om by hul amptelike jagekspedisie-spanne aan te sluit.</p>
+        </div>
+
+        <a href="/soek-span" class="mp-btn mp-btn-secondary mp-btn-sm">Blaai Deur Netwerk &rarr;</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notificationMsg))
+    {
+        <div class="alert @(_notificationIsError ? "alert-danger" : "alert-success") alert-dismissible fade show mb-4 d-flex justify-content-between align-items-center">
+            <div>@_notificationMsg</div>
+            <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+        </div>
+    }
+
+    <div class="mp-card">
+        @if (_loading)
+        {
+            <div class="text-center p-5 text-muted">
+                <div class="spinner-border text-warning spinner-border-sm me-2"></div> Laai uitnodigings...
+            </div>
+        }
+        else if (_invites.Count == 0)
+        {
+            <div class="text-center p-5 text-muted">
+                <p class="mb-2 fs-5">U het tans geen afwagtende span-uitnodigings nie.</p>
+                <p class="small">Sodra 'n Uitruster (PJ) u na hul span nooi, sal die uitnodiging hier verskyn.</p>
+                <a href="/soek-span" class="mp-btn mp-btn-primary mp-btn-sm mt-2">Soek Uitrusters op Netwerk</a>
+            </div>
+        }
+        else
+        {
+            <div class="mp-table-responsive">
+                <table class="mp-table">
+                    <thead>
+                        <tr>
+                            <th>Uitruster (Organiseerder)</th>
+                            <th>U Rol</th>
+                            <th>Datum Ontvang</th>
+                            <th>Status</th>
+                            <th>Aksie</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var inv in _invites)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@inv.PjName @inv.PjSurname</strong>
+                                    <div class="small text-muted">@inv.PjEmail</div>
+                                    @if (!string.IsNullOrWhiteSpace(inv.ExpeditionName))
+                                    {
+                                        <div class="small mt-1"><span class="text-muted">Ekspedisie:</span> @inv.ExpeditionName</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(inv.Terms))
+                                    {
+                                        <div class="small"><span class="text-muted">Aanbod:</span> @inv.Terms</div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="mp-badge mp-badge-warning">
+                                        @(string.IsNullOrWhiteSpace(inv.TargetRoleCode) ? "Spanlid" : inv.TargetRoleCode)
+                                    </span>
+                                </td>
+                                <td class="small text-muted">@inv.InviteDate.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    @if (string.Equals(inv.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="mp-badge mp-badge-warning">Hangend</span>
+                                    }
+                                    else if (string.Equals(inv.Status, "Accepted", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="mp-badge mp-badge-success">Aanvaar &#10003;</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mp-badge mp-badge-danger">Van Hand Gewys</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-2">
+                                        <button class="mp-btn mp-btn-outline-gold mp-btn-sm text-nowrap" @onclick="() => StartChat(inv.PjName, inv.PjSurname, inv.PjUserId)">
+                                            <i class="bi bi-chat-dots-fill text-gold me-1"></i> Klets 💬
+                                        </button>
+                                        @if (string.Equals(inv.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <button class="mp-btn mp-btn-success mp-btn-sm" @onclick="() => Respond(inv.InviteId, true, inv.PjName)">
+                                                Aanvaar 🤝
+                                            </button>
+                                            <button class="mp-btn mp-btn-danger mp-btn-sm" @onclick="() => Respond(inv.InviteId, false, inv.PjName)">
+                                                Wys van hand
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<TeamInviteResponse> _invites = new();
+    private bool _loading = true;
+    private string _notificationMsg = string.Empty;
+    private bool _notificationIsError = false;
+
+    /// <summary>Subscribes both to auth-state changes (reload after login) and to Api's notification-changed event (reload when a new invite arrives via the notification bell/SignalR path) so the list stays live.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Api.OnNotificationsChanged += OnNotificationsUpdated;
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        if (Auth.IsAuthenticated)
+        {
+            await LoadData();
+        }
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated)
+            {
+                await LoadData();
+            }
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Reload triggered by a change in Api's shared notification state; exceptions are swallowed since a failed refresh here shouldn't surface as a visible error to the user.</summary>
+    private void OnNotificationsUpdated()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                if (Auth.IsAuthenticated)
+                {
+                    await LoadData();
+                    StateHasChanged();
+                }
+            }
+            catch { }
+        });
+    }
+
+    /// <summary>Fetches pending/accepted/declined invites addressed to the signed-in user. The `?? 1` fallback is a defensive placeholder that should never trigger inside this authenticated branch - not a live bug.</summary>
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _invites = await Api.GetInvitesForUserAsync(myUserId);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>Deep-links into Messages.razor pre-targeting the inviting PJ, appending a "(PJ)" role tag to the display name if the name doesn't already carry a role suffix (so the chat UI can show which role the contact is in).</summary>
+    private void StartChat(string? name, string? surname, int userId)
+    {
+        var fullName = $"{name} {surname}".Trim();
+        if (!fullName.Contains("(PJ)") && !fullName.Contains("(PH)"))
+        {
+            fullName += " (PJ)";
+        }
+        var targetId = userId > 0 ? userId : 1;
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(fullName)}&targetUserId={targetId}");
+    }
+
+    private async Task Respond(int id, bool accept, string? organiserName)
+    {
+        bool ok = await Api.RespondTeamInviteAsync(id, accept);
+        if (ok)
+        {
+            _notificationMsg = accept
+                ? $"U het die uitnodiging van {organiserName} suksesvol aanvaar! U is nou deel van die ekspedisie-span."
+                : $"U het die uitnodiging van {organiserName} van die hand gewys.";
+            _notificationIsError = false;
+            await LoadData();
+        }
+        else
+        {
+            // Previously: silent no-op on failure - the user clicked
+            // Accept/Decline and got no feedback at all that nothing happened.
+            _notificationMsg = "Kon nie op die uitnodiging reageer nie. Probeer asseblief weer.";
+            _notificationIsError = true;
+        }
+    }
+
+    /// <summary>Unsubscribes from both Api's and Auth's events to avoid stale-callback leaks once this component is disposed.</summary>
+    public void Dispose()
+    {
+        Api.OnNotificationsChanged -= OnNotificationsUpdated;
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

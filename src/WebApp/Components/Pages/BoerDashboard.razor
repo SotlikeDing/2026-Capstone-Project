@@ -1,0 +1,306 @@
+@* /boer/dashboard - Boer (farmer) landing page: farm/booking metrics, required-document
+   status via DocumentManager, the ad-subscription status banner, and a recent-bookings table.
+   Bookings come from api/bookings/getFarmBookings (only this farmer's farms); an Admin
+   without the Boer role sees every booking via the Admin-only api/admin/bookings. *@
+@page "/boer/paneelbord"
+@page "/boer/dashboard"
+@inject MikpuntApiService Api
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Boerportaal | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die Boer &amp; Plaaseienaarportaal is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/boer/paneelbord" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Boer") && !Auth.HasRole("Farmer") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Boer Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Boer (Grondeienaar)</strong> nie. U kan hierdie rol op u profiel aktiveer om u plase, wildinventaris en besprekings te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Boer Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">Boer &amp; Plaaseienaarportaal</h1>
+            <p class="text-muted mb-0">Bestuur jou jagplase, wildinventaris, tariewe en inkomende besprekings.</p>
+            <AiHelperLinks RoleCode="Boer" />
+        </div>
+
+        <a href="/boer/nuwe-plaas" class="mp-btn mp-btn-primary mp-btn-sm">+ Voeg Nuwe Plaas By</a>
+    </div>
+
+    @if (_myUserRoleId > 0)
+    {
+        <DocumentManager UserRoleId="_myUserRoleId" RoleCode="FARMER" />
+    }
+
+    <!-- Monthly Advertising Subscription Status Banner -->
+    <div class="alert p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2"
+         style="background: @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "rgba(16, 185, 129, 0.14)" : (_subscription.HasPaidActivePeriod ? "rgba(245, 158, 11, 0.14)" : "rgba(107, 114, 128, 0.14)")); border: 1.5px solid @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "#10b981" : (_subscription.HasPaidActivePeriod ? "#f59e0b" : "#6b7280")); color: #ffffff; border-radius: 8px;">
+        <div class="d-flex align-items-center gap-3">
+            <div style="font-size: 24px;">⭐</div>
+            <div>
+                <strong class="d-block" style="color: #ffffff; font-size: 15px;">
+                    @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                    {
+                        <span>Wildsplaas Advertensie-Subskripsie: <strong class="text-success">Aktief op /browse ⭐</strong></span>
+                    }
+                    else if (_subscription.HasPaidActivePeriod)
+                    {
+                        <span>Wildsplaas Advertensie-Subskripsie: <strong class="text-warning">Tydelik Gedeaktiveer (Betaalde Tydperk Geldig)</strong></span>
+                    }
+                    else
+                    {
+                        <span>Wildsplaas Advertensie-Subskripsie: <strong class="text-muted">Geen Aktiewe Intekening</strong></span>
+                    }
+                </strong>
+                <div class="small" style="color: #e5e7eb;">
+                    @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                    {
+                        <span>U wildsplaas en profiel is amptelik gereklameer op <code>/browse</code>. Geldig tot <strong>@_subscription.ExpiryDate.ToString("dd MMM yyyy")</strong> (@_subscription.DaysRemaining dae oor).</span>
+                    }
+                    else if (_subscription.HasPaidActivePeriod)
+                    {
+                        <span>U betaalde tydperk is nog geldig tot <strong>@_subscription.ExpiryDate.ToString("dd MMM yyyy")</strong> (@_subscription.DaysRemaining dae oor). Klik "Heraktiveer Advertensie" om te vertoon sonder betaling.</span>
+                    }
+                    else
+                    {
+                        <span>U profiel is tans nie gereklameer nie. Klik "Aktiveer Advertensie" om u verlangde tydperk te kies en te betaal.</span>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+            @if (_subscription.HasPaidActivePeriod)
+            {
+                <a href="/betaling?type=subscription&role=Boer" class="mp-btn mp-btn-primary mp-btn-sm text-nowrap">
+                    ➕ Verleng Advertensie
+                </a>
+            }
+            <button class="mp-btn @(_subscription.IsActive && _subscription.HasPaidActivePeriod ? "mp-btn-secondary" : "mp-btn-primary") mp-btn-sm text-nowrap" @onclick="HandleSubscriptionAction">
+                @if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+                {
+                    <span>Deaktiveer Advertensie ⏸️</span>
+                }
+                else if (_subscription.HasPaidActivePeriod)
+                {
+                    <span>Heraktiveer Advertensie ▶️</span>
+                }
+                else
+                {
+                    <span>Aktiveer Advertensie 💳</span>
+                }
+            </button>
+        </div>
+    </div>
+
+        @if (!string.IsNullOrEmpty(_notificationMsg))
+        {
+            <div class="alert alert-success alert-dismissible fade show p-3 mb-4 d-flex justify-content-between align-items-center">
+                <div>@_notificationMsg</div>
+                <button type="button" class="btn-close" @onclick='() => _notificationMsg = ""'></button>
+            </div>
+        }
+
+        <!-- Metrics Cards -->
+        <div class="mp-grid-4 mb-4">
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_farms.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Geregistreerde Plase</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-gold font-bold">@_bookings.Count</div>
+                <div class="small text-muted text-uppercase fw-bold">Aktiewe Besprekings</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-warning font-bold">@_bookings.Count(b => string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase))</div>
+                <div class="small text-muted text-uppercase fw-bold">Afwagtende Versoeke</div>
+            </div>
+            <div class="mp-card text-center">
+                <div class="fs-2 text-success font-bold">R @_bookings.Sum(b => b.TotalPrice).ToString("N0")</div>
+                <div class="small text-muted text-uppercase fw-bold">Geskatte Inkomste</div>
+            </div>
+        </div>
+
+        <!-- Shortcuts Grid -->
+        <div class="mp-grid mb-4">
+            <a href="/boer/nuwe-plaas" class="mp-card text-decoration-none h-100" style="border: 2px solid var(--accent-gold);">
+                <h3 class="brand-font text-gold mb-2">Lys 'n Nuwe Plaas</h3>
+                <p class="text-muted small mb-0">Voeg fasiliteite, foto's en wildspesies pryslys by.</p>
+            </a>
+
+            <a href="/boer/plase" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color);">
+                <h3 class="brand-font text-gold mb-2">Bestuur Plase</h3>
+                <p class="text-muted small mb-0">Wysig pryslyste, geriewe en aktiewe plaas status.</p>
+            </a>
+
+            <a href="/boer/besprekings" class="mp-card text-decoration-none h-100" style="border: 1px solid var(--border-color);">
+                <h3 class="brand-font text-gold mb-2">Inkomende Besprekings</h3>
+                <p class="text-muted small mb-0">Keur of wysig besprekingsversoeke van jagters.</p>
+            </a>
+        </div>
+
+        <!-- Recent Inbound Bookings Table -->
+        <div class="mp-card mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div>
+                    <h3 class="brand-font text-gold mb-1">Onlangse Besprekingsversoeke</h3>
+                    <p class="text-muted small mb-0">Die mees onlangse inkomende plaasbesprekings van jagters.</p>
+                </div>
+                <a href="/boer/besprekings" class="mp-btn mp-btn-secondary mp-btn-sm">Bekyk Alle Besprekings &rarr;</a>
+            </div>
+
+            @if (_bookings.Count == 0)
+            {
+                <div class="text-center p-4 text-muted">
+                    Geen aktiewe besprekingsversoeke tans op u plase gelys nie.
+                </div>
+            }
+            else
+            {
+                <div class="mp-table-responsive">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th>Plaas</th>
+                                <th>Jagter</th>
+                                <th>Datums</th>
+                                <th>Totaal</th>
+                                <th>Status</th>
+                                <th>Aksie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in _bookings.Take(5))
+                            {
+                                <tr>
+                                    <td><strong>@(string.IsNullOrWhiteSpace(b.FarmName) ? "Wildsplaas" : b.FarmName)</strong></td>
+                                    <td>@b.HunterName</td>
+                                    <td class="small">@b.StartDate.ToString("dd MMM") – @b.EndDate.ToString("dd MMM yyyy")</td>
+                                    <td><strong class="text-gold">R @b.TotalPrice.ToString("N0")</strong></td>
+                                    <td>
+                                        @if (string.Equals(b.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(b.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <span class="mp-badge mp-badge-success">Goedgekeur</span>
+                                        }
+                                        else if (string.Equals(b.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <span class="mp-badge mp-badge-warning">Afwagtend</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mp-badge mp-badge-danger">@StatusLabels.Booking(b.Status)</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="mp-btn mp-btn-outline-gold mp-btn-sm text-nowrap" @onclick="() => StartChat(b.HunterName, b.HunterUserId)">
+                                            <i class="bi bi-chat-dots-fill text-gold me-1"></i> Klets
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+}
+
+@code {
+    private List<FarmModel> _farms = new();
+    private List<BookingModel> _bookings = new();
+    private RoleSubscriptionModel _subscription = new();
+    private int _myUserRoleId = 0;
+    private string _notificationMsg = string.Empty;
+
+    /// <summary>Subscribes to auth-state changes and loads dashboard data.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadDataAsync();
+    }
+
+    /// <summary>Re-loads dashboard data once auth state resolves after initial render.</summary>
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Loads farms, inbound bookings (own farms only, see the file header), ad-subscription status, and the farmer's own userRoleId (needed by DocumentManager) in parallel-ish sequence.</summary>
+    private async Task LoadDataAsync()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Boer") || Auth.HasRole("Farmer") || Auth.HasRole("Admin")))
+        {
+            var myUserId = Auth.CurrentUser?.UserId ?? 0;
+            _farms = await Api.GetFarmsAsync(myUserId);
+            _bookings = Auth.HasRole("Boer") || Auth.HasRole("Farmer") ? await Api.GetFarmBookingsAsync(Auth.CurrentUser?.UserId ?? 0) : await Api.GetBookingsAsync();
+            _subscription = await Api.GetRoleSubscriptionAsync(myUserId, "Boer");
+
+            var profileResult = await Api.GetProfileAsync(myUserId);
+            _myUserRoleId = profileResult.Data?.Roles.FirstOrDefault(r => AuthService.SameRole(r.RoleCode, "FARMER"))?.Id ?? 0;
+        }
+    }
+
+    /// <summary>Toggles the ad-subscription's IsActive flag (free, since a paid period is still valid) or, with no paid period at all, redirects to payment.</summary>
+    private async Task HandleSubscriptionAction()
+    {
+        if (_subscription.IsActive && _subscription.HasPaidActivePeriod)
+        {
+            _subscription.IsActive = false;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(_subscription);
+            if (!saved) _subscription.IsActive = !_subscription.IsActive;
+            _notificationMsg = saved ? $"U Boer advertensie is tydelik gedeaktiveer. U betaalde tydperk bly nog geldig tot {_subscription.ExpiryDate:dd MMM yyyy}." : (saveError ?? "Kon nie die advertensie opdateer nie.");
+        }
+        else if (_subscription.HasPaidActivePeriod)
+        {
+            _subscription.IsActive = true;
+            var (saved, saveError) = await Api.SaveRoleSubscriptionAsync(_subscription);
+            if (!saved) _subscription.IsActive = !_subscription.IsActive;
+            _notificationMsg = saved ? $"U Boer advertensie is suksesvol her-geaktiveer! (Geldig tot {_subscription.ExpiryDate:dd MMM yyyy})." : (saveError ?? "Kon nie die advertensie opdateer nie.");
+        }
+        else
+        {
+            Nav.NavigateTo("/betaling?type=subscription&role=Boer");
+        }
+    }
+
+    /// <summary>Navigates to Messages pre-targeted at the hunter from a booking row (falls back to userId 1 if unset - a demo-data artifact, not expected in real bookings).</summary>
+    private void StartChat(string? hunterName, int userId)
+    {
+        var name = string.IsNullOrWhiteSpace(hunterName) ? "Jagter" : hunterName;
+        var targetId = userId > 0 ? userId : 1;
+        Nav.NavigateTo($"/boodskappe?targetUser={Uri.EscapeDataString(name)}&targetUserId={targetId}");
+    }
+
+    /// <summary>Unsubscribes from auth-state changes on teardown.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

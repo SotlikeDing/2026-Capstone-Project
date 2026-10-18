@@ -1,0 +1,119 @@
+# -------------------------------
+# Rider / IDE
+# -------------------------------
+.idea/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# -------------------------------
+# Build / output folders
+# -------------------------------
+**/bin/
+**/obj/
+**/publish/
+artifacts/
+
+# -------------------------------
+# OS / Editor temp files
+# -------------------------------
+*.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+
+# -------------------------------
+# NuGet packages
+# -------------------------------
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# -------------------------------
+# User secrets / local config
+# -------------------------------
+secrets.json
+appsettings.Development.json
+.env
+.env.*
+
+# -------------------------------
+# Logs
+# -------------------------------
+*.log
+logs/
+
+# -------------------------------
+# Blazor / WebAssembly build artifacts
+# -------------------------------
+WebApp.Client/bin/
+WebApp.Client/obj/
+wwwroot/css/*.map
+wwwroot/js/*.map
+wwwroot/*.bundle.js
+
+# -------------------------------
+# EF / Database files (ignore actual DBs)
+# -------------------------------
+*.mdf
+*.sqlite
+*.db
+# ------------------------------------------------------------------------------------------------------------------------------------
+
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android
+android/.gradle/
+android/app/build/
+android/local.properties
+
+# Web
+web/build/
+
+# VS Code / IDE
+.vscode/
+.idea/
+*.iml
+
+# Presentation folder
+/PP
+/PP/
+# Local AI training artefacts
+tools/ai/out/
+tools/ai/.venv/
+tools/ai/**/__pycache__/
+tools/audio/**/__pycache__/
+tools/audio/calibration_result.json
+
+# Observations exported from the platform contain real business data - never commit them
+tools/ai/data/real/observations-*.jsonl
+# Misc
+*.log
+*.lock
+*.swp
+*.DS_Store
+.metadata
+_reference
+docker-compose.dev-local.yml
+docker-compose.prod-local.yml
+
+# E2E outputs (state, results, screenshots)
+tests/e2e/out/
+__pycache__/
+
+# Local data-protection keys (never commit)
+**/Data/YoutubeKeys/
+
+# Python bytecode
+__pycache__/
+*.pyc

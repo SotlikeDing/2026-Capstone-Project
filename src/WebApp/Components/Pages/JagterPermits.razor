@@ -1,0 +1,158 @@
+@* Jagter's saved SAPS 520 firearm-import permit list (route: /jagter/permits), gated
+   to the Jagter/Admin role same as JagterDashboard.razor. Each form supports client-side
+   PDF generation via Saps520PdfService; the form itself is created on Saps520Generator.razor
+   (route /jagter/e520). Nav is injected but unused - dead injection, harmless. *@
+@page "/jagter/permitte"
+@page "/jagter/permits"
+@inject MikpuntApiService Api
+@inject Saps520PdfService PdfService
+@inject AuthService Auth
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>SAPS 520 Permitte | MikPunt</PageTitle>
+
+@if (!Auth.IsInitialized)
+{
+    <div class="p-5 text-center"><div class="spinner-border text-gold"></div></div>
+}
+else if (!Auth.IsAuthenticated)
+{
+    <div class="mp-card text-center p-5">
+        <h3 class="brand-font text-gold mb-2">Teken asseblief eers in</h3>
+        <p class="text-muted mb-4">Die SAPS 520 Vuurwapen Permitte is slegs toeganklik vir geregistreerde en aangemelde lede.</p>
+        <a href="/teken-in?returnUrl=/jagter/permitte" class="mp-btn mp-btn-primary">Teken In &rarr;</a>
+    </div>
+}
+else if (!Auth.HasRole("Jagter") && !Auth.HasRole("Admin"))
+{
+    <div class="mp-card text-center p-5">
+        <div class="mp-brand-logo mx-auto mb-3" style="width: 60px; height: 60px; font-size: 26px;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="brand-font text-gold mb-2">Toegang Beperk: Jagter Rol Benodig</h3>
+        <p class="text-muted mb-4 max-w-700 mx-auto" style="max-width: 600px;">
+            U rekening is tans nie geregistreer as 'n <strong>Jagter</strong> nie. U kan hierdie rol op u profiel aktiveer om permitte en vuurwapenvorms te bestuur.
+        </p>
+        <div class="d-flex justify-content-center gap-3 flex-wrap">
+            <a href="/profiel" class="mp-btn mp-btn-primary">+ Aktiveer Jagter Rol op Profiel &rarr;</a>
+            <a href="/rolle" class="mp-btn mp-btn-secondary">Lees Rollegids</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="brand-font text-gold mb-1">SAPS 520 Permitte</h1>
+            <p class="text-muted mb-0">Bestuur jou goedgekeurde en gestoor SAPS 520 vuurwapeninvoervorms en genereer amptelike PDF-permitte.</p>
+        </div>
+
+        <a href="/jagter/e520" class="mp-btn mp-btn-primary">
+            + Nuwe SAPS 520 Invoervorm
+        </a>
+    </div>
+
+    @if (_forms.Count == 0)
+    {
+        <div class="mp-card text-center p-5">
+            <h3 class="brand-font text-gold mb-2">Geen SAPS 520 Permit Vorms Gevind Nie</h3>
+            <p class="text-muted mb-4">U het nog nie 'n SAPS 520 vuurwapeninvoervorm voltooi nie.</p>
+            <a href="/jagter/e520" class="mp-btn mp-btn-primary">Skep Jou Eerste SAPS 520 Vorm &rarr;</a>
+        </div>
+    }
+    else
+    {
+        <div class="mp-grid">
+            @foreach (var f in _forms)
+            {
+                <div class="mp-card">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h4 class="brand-font text-gold mb-0">SAPS 520 Permit #@($"SAPS-{f.Id:D4}")</h4>
+                        <span class="mp-badge mp-badge-success">@(f.Status == "Submitted" ? "Ingedien" : f.Status)</span>
+                    </div>
+                    
+                    <p class="text-white small mb-1">Jagter: <strong>@f.FullNames @f.Surname</strong></p>
+                    <p class="text-muted small mb-2">ID / Paspoort: <strong>@f.PassportNum</strong></p>
+                    
+                    <div class="p-2 mb-3 rounded" style="background: rgba(255,255,255,0.05); font-size: 12px;">
+                        <div class="fw-bold text-gold mb-1">Vuurwapen Lyn-Items (@(f.Firearms?.Count ?? 1)):</div>
+                        @if (f.Firearms != null && f.Firearms.Count > 0)
+                        {
+                            @foreach (var gun in f.Firearms)
+                            {
+                                <div class="text-muted">&bull; @gun.Type: @gun.Make @gun.Model (@gun.Calibre) - Reeks: @gun.SerialNumber</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="text-muted">&bull; @f.FirearmType: @f.Make (@f.Calibre) - Reeks: @f.SerialNumber</div>
+                        }
+
+                        <div class="fw-bold text-gold mt-2 mb-1">Ammunisie Lys (@(f.Ammunition?.Count ?? 1)):</div>
+                        @if (f.Ammunition != null && f.Ammunition.Count > 0)
+                        {
+                            @foreach (var ammo in f.Ammunition)
+                            {
+                                <div class="text-muted">&bull; @ammo.Type: @ammo.Quantity patrone</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="text-muted">&bull; @f.Calibre: @f.AmmoQuantity patrone</div>
+                        }
+                    </div>
+
+                    <p class="text-muted small mb-1">Binnekoms: @f.PortOfEntry (@f.FlightNumber)</p>
+                    <p class="text-muted small mb-3">Reis Datums: @f.ArrivalDate.ToString("dd MMM yyyy") tot @f.DepartureDate.ToString("dd MMM yyyy")</p>
+
+                    <div class="d-flex flex-column gap-2">
+                        <button class="mp-btn mp-btn-primary w-100 text-center" @onclick="() => DownloadPdf(f)">
+                            <i class="bi bi-file-earmark-pdf me-1"></i> Genereer &amp; Laai PDF Af
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<Saps520FormModel> _forms = new();
+
+    /// <summary>Subscribes to auth-state changes so this list reloads without a full page refresh right after login.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.OnAuthStateChanged += HandleAuthChanged;
+        await LoadData();
+    }
+
+    private void HandleAuthChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadData();
+            StateHasChanged();
+        });
+    }
+
+    private async Task LoadData()
+    {
+        if (Auth.IsAuthenticated && (Auth.HasRole("Jagter") || Auth.HasRole("Admin")))
+        {
+            _forms = await Api.GetSapsFormsAsync();
+        }
+    }
+
+    /// <summary>Delegates to Saps520PdfService, which builds and triggers a browser download of the PDF client-side (no server round-trip for the rendering itself).</summary>
+    private async Task DownloadPdf(Saps520FormModel f)
+    {
+        await PdfService.ExportSaps520PdfAsync(f);
+    }
+
+    /// <summary>Unsubscribes from Auth's event to avoid a stale-callback leak once this component is disposed.</summary>
+    public void Dispose()
+    {
+        Auth.OnAuthStateChanged -= HandleAuthChanged;
+    }
+}

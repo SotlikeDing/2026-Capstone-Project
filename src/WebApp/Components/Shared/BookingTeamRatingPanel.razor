@@ -1,0 +1,126 @@
+@* "Rate your team" for one finished booking: the signed-in Hunter, PH or VG rates the other
+   participants (1-5 stars + optional comment) and can correct a rating later. Who may rate whom,
+   and when, is decided by the WebAPI (api/rating/booking/{id}/team + api/rating/setRoleRating);
+   this panel only reflects it. *@
+@inject MikpuntApiService Api
+
+<div class="mp-card p-3 mb-4" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+    <h6 class="text-gold fw-bold mb-2">⭐ Gradeer u span</h6>
+
+    @if (_loading)
+    {
+        <div class="small text-muted">Laai span...</div>
+    }
+    else if (_team == null)
+    {
+        <div class="small text-muted">@(_loadError ?? "Kon nie die span laai nie.")</div>
+    }
+    else if (!_team.CanRate)
+    {
+        <div class="small text-muted">@(_team.Reason ?? "Hierdie ekspedisie kan nog nie gegradeer word nie.")</div>
+    }
+    else if (_team.Members.Count == 0)
+    {
+        <div class="small text-muted">Daar is niemand anders op hierdie bespreking om te gradeer nie.</div>
+    }
+    else
+    {
+        <div class="small text-muted mb-2">U gradering verskyn op hul openbare profiel. U kan dit later nog aanpas.</div>
+        @foreach (var member in _team.Members)
+        {
+            var draft = _drafts[member.UserId];
+            <div class="py-2 border-bottom border-secondary">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <div class="small">
+                        <strong>@member.Name</strong>
+                        <span class="mp-badge ms-1">@RoleLabel(member.RoleCode)</span>
+                        @if (member.MyStars is int saved)
+                        {
+                            <span class="text-muted ms-1">(reeds gegradeer: @saved ★)</span>
+                        }
+                    </div>
+                    <div role="radiogroup" aria-label="@($"Sterre vir {member.Name}")">
+                        @for (var star = 1; star <= 5; star++)
+                        {
+                            var value = star;
+                            <button type="button" class="btn btn-link p-0 me-1 text-decoration-none"
+                                    style="font-size: 22px; line-height: 1; color: @(value <= draft.Stars ? "var(--gold, #d4af37)" : "#6c757d");"
+                                    title="@($"{value} ster{(value == 1 ? "" : "re")}")" aria-label="@($"{value} ster{(value == 1 ? "" : "re")}")"
+                                    aria-pressed="@(value <= draft.Stars ? "true" : "false")"
+                                    disabled="@_busy" @onclick="() => draft.Stars = value">★</button>
+                        }
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <input class="mp-form-control form-control-sm" maxlength="1000" placeholder="Opsionele kommentaar"
+                           @bind="draft.Comment" disabled="@_busy" />
+                    <button type="button" class="mp-btn mp-btn-primary mp-btn-sm" disabled="@(_busy || draft.Stars == 0)"
+                            @onclick="() => Save(member)">@(member.MyStars == null ? "Gradeer" : "Werk by")</button>
+                </div>
+                @if (_messages.TryGetValue(member.UserId, out var msg))
+                {
+                    <div class="small mt-1 @(msg.IsError ? "text-danger" : "text-success")">@msg.Text</div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int BookingId { get; set; }
+
+    private sealed class Draft
+    {
+        public int Stars { get; set; }
+        public string? Comment { get; set; }
+    }
+
+    private BookingTeamRatingModel? _team;
+    private readonly Dictionary<int, Draft> _drafts = new();
+    private readonly Dictionary<int, (string Text, bool IsError)> _messages = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _loadError;
+    private int _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor == BookingId) return;
+        _loadedFor = BookingId;
+        _messages.Clear();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        (_team, _loadError) = await Api.GetBookingTeamRatingAsync(BookingId);
+        _drafts.Clear();
+        foreach (var member in _team?.Members ?? new())
+            _drafts[member.UserId] = new Draft { Stars = member.MyStars ?? 0, Comment = member.MyComment };
+        _loading = false;
+    }
+
+    private async Task Save(BookingTeamMemberModel member)
+    {
+        if (_team == null) return;
+        var draft = _drafts[member.UserId];
+        _busy = true;
+        var (ok, message) = await Api.SubmitTeamRatingAsync(BookingId, _team.CallerUserId, member.UserId, member.RoleCode, draft.Stars, draft.Comment);
+        _messages[member.UserId] = (message, !ok);
+        if (ok)
+        {
+            member.MyStars = draft.Stars;
+            member.MyComment = draft.Comment;
+        }
+        _busy = false;
+    }
+
+    private static string RoleLabel(string roleCode) => roleCode switch
+    {
+        "HUNTER" => "Jagter",
+        "PH" => "Professionele Jagter",
+        "VG" => "Videograaf",
+        _ => roleCode
+    };
+}

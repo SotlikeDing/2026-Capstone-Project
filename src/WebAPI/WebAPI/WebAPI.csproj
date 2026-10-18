@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <RollForward>LatestMajor</RollForward>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <UserSecretsId>836e0e5a-91d3-4778-87c6-5dbaa4d5d317</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.13" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.13" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+        <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+    </ItemGroup>
+
+    <!--
+      Schema/migration scripts embedded into the built assembly so the app can bring
+      a database fully up to date on startup with no external .sql files or sqlcmd
+      step required - needed for CI/CD deploys to a hosted server where nobody runs
+      SQL by hand. See Services/DatabaseBootstrapper.cs. Deliberately an explicit list,
+      not a db/*.sql wildcard: only genuinely idempotent schema scripts belong here,
+      never one-off seed/cleanup/delete utilities (ToetsData.sql, CleanDB.sql, etc.)
+      which would be destructive if they ever ran automatically.
+    -->
+    <ItemGroup>
+        <EmbeddedResource Include="../../../db/Complete_create.sql" LogicalName="db.Complete_create.sql" />
+        <EmbeddedResource Include="../../../db/AddAdminEnterpriseTables.sql" LogicalName="db.AddAdminEnterpriseTables.sql" />
+        <EmbeddedResource Include="../../../db/AddUserAccountStatusAndChatModeration.sql" LogicalName="db.AddUserAccountStatusAndChatModeration.sql" />
+        <EmbeddedResource Include="../../../db/AddSystemSettings.sql" LogicalName="db.AddSystemSettings.sql" />
+        <EmbeddedResource Include="../../../db/AddRatingsSystem.sql" LogicalName="db.AddRatingsSystem.sql" />
+        <EmbeddedResource Include="../../../db/AddRatingModerationAndSafety.sql" LogicalName="db.AddRatingModerationAndSafety.sql" />
+        <EmbeddedResource Include="../../../db/AddRatingHistoryAndDisputes.sql" LogicalName="db.AddRatingHistoryAndDisputes.sql" />
+        <EmbeddedResource Include="../../../db/AddFarmRatings.sql" LogicalName="db.AddFarmRatings.sql" />
+        <EmbeddedResource Include="../../../db/AddUserDocumentManagement.sql" LogicalName="db.AddUserDocumentManagement.sql" />
+        <EmbeddedResource Include="../../../db/AddDocumentVerification.sql" LogicalName="db.AddDocumentVerification.sql" />
+        <EmbeddedResource Include="../../../db/AddEmailVerificationCodes.sql" LogicalName="db.AddEmailVerificationCodes.sql" />
+        <EmbeddedResource Include="../../../db/AddSapsApplicationsAndPermits.sql" LogicalName="db.AddSapsApplicationsAndPermits.sql" />
+        <EmbeddedResource Include="../../../db/MoveHuntingPermitApplications.sql" LogicalName="db.MoveHuntingPermitApplications.sql" />
+        <EmbeddedResource Include="../../../db/AddTeamInviteTerms.sql" LogicalName="db.AddTeamInviteTerms.sql" />
+        <EmbeddedResource Include="../../../db/DedupeProvinces.sql" LogicalName="db.DedupeProvinces.sql" />
+        <EmbeddedResource Include="../../../db/AddTrophyRoom.sql" LogicalName="db.AddTrophyRoom.sql" />
+        <EmbeddedResource Include="../../../db/AddRowlandWardTrophyEvaluation.sql" LogicalName="db.AddRowlandWardTrophyEvaluation.sql" />
+        <EmbeddedResource Include="../../../db/AddRowlandWardProfilePreference.sql" LogicalName="db.AddRowlandWardProfilePreference.sql" />
+        <EmbeddedResource Include="../../../db/AddTrophyShotDistance.sql" LogicalName="db.AddTrophyShotDistance.sql" />
+        <EmbeddedResource Include="../../../db/AddBookingStaffAcceptance.sql" LogicalName="db.AddBookingStaffAcceptance.sql" />
+        <EmbeddedResource Include="../../../db/AddAiHelper.sql" LogicalName="db.AddAiHelper.sql" />
+        <EmbeddedResource Include="../../../db/AddBookingCompanions.sql" LogicalName="db.AddBookingCompanions.sql" />
+        <EmbeddedResource Include="../../../db/AddVgPackagesColumns.sql" LogicalName="db.AddVgPackagesColumns.sql" />
+        <EmbeddedResource Include="../../../db/AddSharedBookingMediaRecaps.sql" LogicalName="db.AddSharedBookingMediaRecaps.sql" />
+        <EmbeddedResource Include="../../../db/AddBookingMediaVideoClips.sql" LogicalName="db.AddBookingMediaVideoClips.sql" />
+        <EmbeddedResource Include="../../../db/DedupeSeedDuplicates.sql" LogicalName="db.DedupeSeedDuplicates.sql" />
+        <EmbeddedResource Include="../../../db/AddUsdToZarRateSetting.sql" LogicalName="db.AddUsdToZarRateSetting.sql" />
+        <EmbeddedResource Include="../../../db/NormalizeAccountStatusAndFlags.sql" LogicalName="db.NormalizeAccountStatusAndFlags.sql" />
+        <EmbeddedResource Include="../../../db/AddPackagePricesInZarSetting.sql" LogicalName="db.AddPackagePricesInZarSetting.sql" />
+        <EmbeddedResource Include="../../../db/AddFarmImagesAndPackageInclusions.sql" LogicalName="db.AddFarmImagesAndPackageInclusions.sql" />
+    </ItemGroup>
+
+    <!--
+      Trained price-model bundle (ONNX + feature spec + species catalogue), produced by tools/ai/train_price_model.py (promote step)
+      with the promote flag. Copied next to the binaries (and into publish output / the Docker image) so the app can score
+      package prices in-process with no external service.
+    -->
+    <ItemGroup>
+        <!-- The SDK already globs *.json into Content and *.onnx into None, so Update (not Include) is used to avoid duplicates. -->
+        <Content Update="AiModels/**/*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <None Update="AiModels/**/*.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>
